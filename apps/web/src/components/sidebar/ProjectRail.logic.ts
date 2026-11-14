@@ -1,3 +1,4 @@
+import type { ProjectIconOverride } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
@@ -194,4 +195,18 @@ export function railKeysAfterFolderEdit(
     if (mapped !== null && !next.includes(mapped)) next.push(mapped);
   }
   return next;
+}
+
+/**
+ * The `folderIcons` settings patch that moves folder `from`'s icon to `to`, or
+ * drops it when `to` is null. A merge keeps the target folder's own icon.
+ */
+export function folderIconsPatchAfterEdit(
+  icons: Readonly<Record<string, ProjectIconOverride>>,
+  from: string,
+  to: string | null,
+): Record<string, ProjectIconOverride | null> | null {
+  const icon = icons[from];
+  if (icon === undefined || from === to) return null;
+  return to === null || icons[to] !== undefined ? { [from]: null } : { [from]: null, [to]: icon };
 }

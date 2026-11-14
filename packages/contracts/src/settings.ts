@@ -35,7 +35,12 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, type ProjectMutation } from "./project.ts";
+import {
+  ProjectIconOverride,
+  ProjectScript,
+  StoredProjectIcon,
+  type ProjectMutation,
+} from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -769,6 +774,8 @@ export const IDLE_COMPACTION_MODES = [
 export const IdleCompactionMode = Schema.Literals(IDLE_COMPACTION_MODES.map((mode) => mode.value));
 export type IdleCompactionMode = typeof IdleCompactionMode.Type;
 
+const decodeStoredProjectIcon = Schema.decodeUnknownOption(StoredProjectIcon);
+
 // Shipped clients reject the whole server config unless `compactIdleThreads` is boolean.
 // Keep the mode in `idleCompaction`, but accept strings from older servers.
 const LegacyCompactIdleThreads = Schema.Union([Schema.Boolean, IdleCompactionMode]);
@@ -1468,6 +1475,28 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   hideTaggedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Rail folder icons by thread tag. Bad entries drop alone, so a hand edit cannot reset settings. */
+  folderIcons: Schema.Record(Schema.String, Schema.Unknown).pipe(
+    Schema.decodeTo(
+      Schema.Record(Schema.String, Schema.toType(ProjectIconOverride)),
+      SchemaTransformation.transform<
+        Record<string, ProjectIconOverride>,
+        Readonly<Record<string, unknown>>
+      >({
+        decode: (entries) =>
+          Object.fromEntries(
+            Object.entries(entries).flatMap(([tag, icon]) =>
+              Option.match(decodeStoredProjectIcon(icon), {
+                onNone: () => [],
+                onSome: (decoded) => [[tag, decoded] as const],
+              }),
+            ),
+          ),
+        encode: (entries) => entries,
+      }),
+    ),
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   /** Beta: guest links for this machine's threads. Off refuses new links and pauses existing ones. */
   guestSharingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
@@ -1904,6 +1933,7 @@ export const ServerSettingsPatch = Schema.Struct({
   snoozePresets: Schema.optionalKey(SnoozePresetSettings),
   hiddenThreadTags: Schema.optionalKey(Schema.Array(Schema.String)),
   hideTaggedThreads: Schema.optionalKey(Schema.Boolean),
+  folderIcons: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(ProjectIconOverride))),
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),

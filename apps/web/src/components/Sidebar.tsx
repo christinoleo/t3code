@@ -71,6 +71,8 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useLayoutEffect,
   useReducer,
@@ -131,7 +133,12 @@ import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import {
+  useClientSettings,
+  usePrimarySettings,
+  usePrimarySettingsAvailable,
+  useUpdatePrimarySettings,
+} from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -225,11 +232,19 @@ import {
 } from "./Sidebar.drag";
 import { SidebarPointerSensor } from "./Sidebar.pointer";
 import { ProjectRail } from "./sidebar/ProjectRail";
+
+const ProjectIconPickerDialog = lazy(() =>
+  import("./settings/ProjectIconPickerDialog").then((module) => ({
+    default: module.ProjectIconPickerDialog,
+  })),
+);
 import {
   nextProjectRailScope,
   buildProjectRailTiles,
   folderEditPlan,
   railKeysAfterFolderEdit,
+  folderIconsPatchAfterEdit,
+  type ProjectRailTile,
   railOrderAfterMove,
 } from "./sidebar/ProjectRail.logic";
 import { createSidebarListMotion } from "./Sidebar.motion";
@@ -1307,7 +1322,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     void handleNewThread(scopeProjectRef(group.environmentId, group.id));
   });
   // A touch long press can raise both the browser's contextmenu and the rail's own long-press menu.
-  const folderTileMenuOpenRef = useRef(false);
+  const railTileMenuOpenRef = useRef(false);
+  const folderIcons = usePrimarySettings((settings) => settings.folderIcons);
+  const folderIconsAvailable = usePrimarySettingsAvailable();
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const [folderIconTag, setFolderIconTag] = useState<string | null>(null);
   const editRailFolder = async (from: string, to: string | null) => {
     const plan = folderEditPlan(readThreadShells(), from, to);
     const threadCount = `${plan.length} thread${plan.length === 1 ? "" : "s"}`;
@@ -1327,8 +1346,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         applyThreadTagChanges(scopeThreadRef(thread.environmentId, thread.id), changes),
       ),
     );
-    // While every thread still carries the old tag, the folder keeps its place and its filter.
+    // While every thread still carries the old tag, the folder keeps its place, filter and icon.
     if (plan.length === 0 || results.some((result) => result._tag === "Success")) {
+      const iconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
+      if (iconsPatch !== null) updatePrimarySettings({ folderIcons: iconsPatch });
       const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
       setRailOrder({ railOrder: railKeysAfterFolderEdit(railOrder, from, to), projectOrder });
       const scopeKeys = railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to);
@@ -1342,24 +1363,36 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         `Failed to ${to === null ? "delete" : "rename"} the folder for ${count} of ${threadCount}`,
     );
   };
-  const handleFolderTileContextMenu = useStableCallback(
-    (tag: string, position: { x: number; y: number }) => {
+  const handleRailTileContextMenu = useStableCallback(
+    (tile: ProjectRailTile, position: { x: number; y: number }) => {
       const api = readLocalApi();
-      if (!api || folderTileMenuOpenRef.current) return;
-      folderTileMenuOpenRef.current = true;
+      if (!api || railTileMenuOpenRef.current) return;
+      railTileMenuOpenRef.current = true;
       void (async () => {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [
-              { id: "rename", label: "Rename folder…", icon: "pencil" },
-              { id: "delete", label: "Delete folder", icon: "trash", destructive: true },
-            ],
+            tile.kind === "project"
+              ? [{ id: "project-settings", label: "Project settings…", icon: "settings" }]
+              : [
+                  ...(folderIconsAvailable
+                    ? [{ id: "icon", label: "Change icon…", icon: "folder" }]
+                    : []),
+                  { id: "rename", label: "Rename folder…", icon: "pencil" },
+                  { id: "delete", label: "Delete folder", icon: "trash", destructive: true },
+                ],
             position,
           ),
         );
-        folderTileMenuOpenRef.current = false;
+        railTileMenuOpenRef.current = false;
         if (clicked._tag === "Failure") return;
-        if (clicked.value === "rename") {
+        if (tile.kind === "project") {
+          if (clicked.value === "project-settings") openProjectSettings(tile.group);
+          return;
+        }
+        const tag = tile.tag;
+        if (clicked.value === "icon") {
+          setFolderIconTag(tag);
+        } else if (clicked.value === "rename") {
           const name = await requestFolderRename(tag);
           if (name !== null) await editRailFolder(tag, name);
         } else if (clicked.value === "delete") {
@@ -3138,12 +3171,27 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             onSelect={(key, additive) =>
               setProjectScopeKeys(nextProjectRailScope(projectScopeKeys, key, additive))
             }
-            onFolderMenu={handleFolderTileContextMenu}
+            folderIcons={folderIcons}
+            onTileMenu={handleRailTileContextMenu}
             onMove={(activeKey, overKey) => {
               const next = railOrderAfterMove(railTiles, activeKey, overKey);
               if (next !== null) setRailOrder(next);
             }}
           />
+        ) : null}
+        {folderIconTag !== null ? (
+          <Suspense fallback={null}>
+            <ProjectIconPickerDialog
+              current={folderIcons[folderIconTag] ?? null}
+              projectName={folderIconTag}
+              title="Choose folder icon"
+              open
+              onOpenChange={(open) => {
+                if (!open) setFolderIconTag(null);
+              }}
+              onSelect={(icon) => updatePrimarySettings({ folderIcons: { [folderIconTag]: icon } })}
+            />
+          </Suspense>
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <SidebarContent
