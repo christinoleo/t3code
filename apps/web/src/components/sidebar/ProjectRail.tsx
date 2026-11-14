@@ -1,6 +1,7 @@
 import {
   DndContext,
   type DragEndEvent,
+  type DragMoveEvent,
   MouseSensor,
   TouchSensor,
   useSensor,
@@ -13,7 +14,7 @@ import { EyeIcon, EyeOffIcon, LayersIcon } from "lucide-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
-import type { MouseEvent, ReactNode } from "react";
+import { type MouseEvent, type ReactNode, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -31,7 +32,6 @@ import {
   resolveProjectRailTileStates,
 } from "./ProjectRail.logic";
 import { FOLDER_DOT_CLASS_NAME, FOLDER_DOT_LABEL } from "./SidebarProjectFolderHeader";
-import { folderTagOfScopeKey } from "../../sidebarProjectGrouping";
 
 const HIDE_IDLE_KEY = "t3code:sidebar:project-rail-hide-idle";
 const LONG_PRESS_TOLERANCE_PX = 6;
@@ -75,17 +75,28 @@ export function ProjectRail(props: {
       activationConstraint: { delay: 350, tolerance: LONG_PRESS_TOLERANCE_PX },
     }),
   );
+  // Set once the lifted tile travels, so a drag that comes back to its start is no long press.
+  const draggedRef = useRef(false);
+  // A touch that lifted a tile cancels its compat mouse events, whose focus would close the menu.
+  const touchLiftedRef = useRef(false);
+  const onDragMove = (event: DragMoveEvent) => {
+    if (Math.hypot(event.delta.x, event.delta.y) >= LONG_PRESS_TOLERANCE_PX) {
+      draggedRef.current = true;
+    }
+  };
   const onDragEnd = (event: DragEndEvent) => {
+    const dragged = draggedRef.current;
+    draggedRef.current = false;
     // A finger that lifted a tile and let go without moving asked for its menu.
     if (
+      !dragged &&
       typeof TouchEvent !== "undefined" &&
-      event.activatorEvent instanceof TouchEvent &&
-      Math.hypot(event.delta.x, event.delta.y) < LONG_PRESS_TOLERANCE_PX
+      event.activatorEvent instanceof TouchEvent
     ) {
-      const tag = folderTagOfScopeKey(String(event.active.id));
+      const tile = props.tiles.find((candidate) => candidate.key === event.active.id);
       const rect = event.active.rect.current.initial;
-      if (tag !== null && rect !== null) {
-        props.onFolderMenu(tag, { x: rect.right, y: rect.top });
+      if (tile?.kind === "folder" && rect !== null) {
+        props.onFolderMenu(tile.tag, { x: rect.right, y: rect.top });
       }
       return;
     }
@@ -97,6 +108,11 @@ export function ProjectRail(props: {
     <nav
       aria-label="Projects"
       className="flex w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-sidebar-border py-2 [scrollbar-width:none]"
+      onTouchEndCapture={(event) => {
+        if (!touchLiftedRef.current) return;
+        touchLiftedRef.current = false;
+        event.preventDefault();
+      }}
     >
       <RailTileButton
         label="All projects"
@@ -126,6 +142,11 @@ export function ProjectRail(props: {
       <DndContext
         sensors={sensors}
         modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+        onDragStart={(event) => {
+          touchLiftedRef.current =
+            typeof TouchEvent !== "undefined" && event.activatorEvent instanceof TouchEvent;
+        }}
+        onDragMove={onDragMove}
         onDragEnd={onDragEnd}
       >
         <SortableContext

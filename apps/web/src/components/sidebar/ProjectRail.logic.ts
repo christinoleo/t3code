@@ -158,11 +158,6 @@ export function resolveProjectRailTileStates(
   return states;
 }
 
-export interface FolderTagCommands<TThread> {
-  readonly thread: TThread;
-  readonly changes: ReadonlyArray<ThreadFolderTagChange>;
-}
-
 /**
  * The tag changes that rename folder `from` to `to`, or delete it when `to` is
  * null. A rename adds the new tag before removing the old one, so a thread that
@@ -172,7 +167,7 @@ export function folderEditPlan<TThread extends Pick<RailThread, "tags">>(
   threads: readonly TThread[],
   from: string,
   to: string | null,
-): FolderTagCommands<TThread>[] {
+): { readonly thread: TThread; readonly changes: ReadonlyArray<ThreadFolderTagChange> }[] {
   if (from === to) return [];
   return threads.flatMap((thread) => {
     const tags = thread.tags ?? [];

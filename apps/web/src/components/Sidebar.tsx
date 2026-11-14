@@ -380,6 +380,25 @@ interface SidebarThreadPartitionInput {
   readonly clockKey: string;
 }
 
+/** Toasts the first non-interrupt failure of a per-thread fan-out; `title` gets the failure count. */
+function toastThreadCommandFailures(
+  results: ReadonlyArray<AtomCommandResult<unknown, unknown>>,
+  title: (failureCount: number) => string,
+) {
+  const failures = results.flatMap((result) =>
+    result._tag === "Failure" && !isAtomCommandInterrupted(result) ? [result] : [],
+  );
+  if (failures.length === 0) return;
+  const firstError = squashAtomCommandFailure(failures[0]!);
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title: title(failures.length),
+      description: firstError instanceof Error ? firstError.message : "An error occurred.",
+    }),
+  );
+}
+
 function scrollSidebarToTop(content: HTMLElement | null) {
   content?.closest("[data-slot=scroll-area-viewport]")?.scrollTo({ top: 0 });
 }
@@ -1291,39 +1310,36 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const folderTileMenuOpenRef = useRef(false);
   const editRailFolder = async (from: string, to: string | null) => {
     const plan = folderEditPlan(readThreadShells(), from, to);
+    const threadCount = `${plan.length} thread${plan.length === 1 ? "" : "s"}`;
     if (to === null && plan.length > 0) {
       const api = readLocalApi();
       if (!api) return;
       const confirmed = await settlePromise(() =>
         api.dialogs.confirm(
-          [
-            `Delete folder "${from}"?`,
-            `Its ${plan.length} thread${plan.length === 1 ? "" : "s"} return to their projects.`,
-          ].join("\n"),
+          [`Delete folder "${from}"?`, `Its ${threadCount} leave this folder.`].join("\n"),
           { variant: "destructive" },
         ),
       );
       if (confirmed._tag === "Failure" || !confirmed.value) return;
     }
-    const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
-    setRailOrder({ railOrder: railKeysAfterFolderEdit(railOrder, from, to), projectOrder });
-    setPersistedProjectScopeKeys(railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to));
     const results = await Promise.all(
       plan.map(({ thread, changes }) =>
         applyThreadTagChanges(scopeThreadRef(thread.environmentId, thread.id), changes),
       ),
     );
-    const failures = results.flatMap((result) =>
-      result._tag === "Failure" && !isAtomCommandInterrupted(result) ? [result] : [],
-    );
-    if (failures.length === 0) return;
-    const firstError = squashAtomCommandFailure(failures[0]!);
-    toastManager.add(
-      stackedThreadToast({
-        type: "error",
-        title: `Failed to ${to === null ? "delete" : "rename"} the folder for ${failures.length} of ${plan.length} thread${plan.length === 1 ? "" : "s"}`,
-        description: firstError instanceof Error ? firstError.message : "An error occurred.",
-      }),
+    // While every thread still carries the old tag, the folder keeps its place and its filter.
+    if (plan.length === 0 || results.some((result) => result._tag === "Success")) {
+      const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
+      setRailOrder({ railOrder: railKeysAfterFolderEdit(railOrder, from, to), projectOrder });
+      const scopeKeys = railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to);
+      if (scopeKeys.join("\n") !== sidebarProjectScopeKeys.join("\n")) {
+        setProjectScopeKeys(scopeKeys);
+      }
+    }
+    toastThreadCommandFailures(
+      results,
+      (count) =>
+        `Failed to ${to === null ? "delete" : "rename"} the folder for ${count} of ${threadCount}`,
     );
   };
   const handleFolderTileContextMenu = useStableCallback(
@@ -2570,19 +2586,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             moveThreadToFolder(scopeThreadRef(thread.environmentId, thread.id), choice.folder),
           ),
         );
-        const failures = results.flatMap((result) =>
-          result._tag === "Failure" && !isAtomCommandInterrupted(result) ? [result] : [],
+        toastThreadCommandFailures(
+          results,
+          (count) => `Failed to move ${count} thread${count === 1 ? "" : "s"}`,
         );
-        if (failures.length > 0) {
-          const firstError = squashAtomCommandFailure(failures[0]!);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: `Failed to move ${failures.length} thread${failures.length === 1 ? "" : "s"}`,
-              description: firstError instanceof Error ? firstError.message : "An error occurred.",
-            }),
-          );
-        }
         return;
       }
       if (clicked.value === "unpin") {
