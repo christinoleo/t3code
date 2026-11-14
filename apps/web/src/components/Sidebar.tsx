@@ -8,7 +8,7 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
-import { resolveFolderMenuAction } from "./FolderNameDialog";
+import { requestFolderRename, resolveFolderMenuAction } from "./FolderNameDialog";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -143,6 +143,7 @@ import {
 } from "../state/environments";
 import {
   readThreadShell,
+  readThreadShells,
   useAllEnvironmentProjectSnapshotsReady,
   useDelegatedUnderParent,
   useProjects,
@@ -227,6 +228,8 @@ import { ProjectRail } from "./sidebar/ProjectRail";
 import {
   nextProjectRailScope,
   buildProjectRailTiles,
+  folderEditPlan,
+  railKeysAfterFolderEdit,
   railOrderAfterMove,
 } from "./sidebar/ProjectRail.logic";
 import { createSidebarListMotion } from "./Sidebar.motion";
@@ -945,6 +948,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     confirmAndUnpinThread,
     setThreadAutoSettle,
     moveThreadToFolder,
+    applyThreadTagChanges,
     turnThreadIntoProject,
     reorderPinnedThread,
     reorderActiveThread,
@@ -1283,6 +1287,71 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isMobile) setOpenMobile(false);
     void handleNewThread(scopeProjectRef(group.environmentId, group.id));
   });
+  // A touch long press can raise both the browser's contextmenu and the rail's own long-press menu.
+  const folderTileMenuOpenRef = useRef(false);
+  const editRailFolder = async (from: string, to: string | null) => {
+    const plan = folderEditPlan(readThreadShells(), from, to);
+    if (to === null && plan.length > 0) {
+      const api = readLocalApi();
+      if (!api) return;
+      const confirmed = await settlePromise(() =>
+        api.dialogs.confirm(
+          [
+            `Delete folder "${from}"?`,
+            `Its ${plan.length} thread${plan.length === 1 ? "" : "s"} return to their projects.`,
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+    }
+    const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
+    setRailOrder({ railOrder: railKeysAfterFolderEdit(railOrder, from, to), projectOrder });
+    setPersistedProjectScopeKeys(railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to));
+    const results = await Promise.all(
+      plan.map(({ thread, changes }) =>
+        applyThreadTagChanges(scopeThreadRef(thread.environmentId, thread.id), changes),
+      ),
+    );
+    const failures = results.flatMap((result) =>
+      result._tag === "Failure" && !isAtomCommandInterrupted(result) ? [result] : [],
+    );
+    if (failures.length === 0) return;
+    const firstError = squashAtomCommandFailure(failures[0]!);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: `Failed to ${to === null ? "delete" : "rename"} the folder for ${failures.length} of ${plan.length} thread${plan.length === 1 ? "" : "s"}`,
+        description: firstError instanceof Error ? firstError.message : "An error occurred.",
+      }),
+    );
+  };
+  const handleFolderTileContextMenu = useStableCallback(
+    (tag: string, position: { x: number; y: number }) => {
+      const api = readLocalApi();
+      if (!api || folderTileMenuOpenRef.current) return;
+      folderTileMenuOpenRef.current = true;
+      void (async () => {
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(
+            [
+              { id: "rename", label: "Rename folder…", icon: "pencil" },
+              { id: "delete", label: "Delete folder", icon: "trash", destructive: true },
+            ],
+            position,
+          ),
+        );
+        folderTileMenuOpenRef.current = false;
+        if (clicked._tag === "Failure") return;
+        if (clicked.value === "rename") {
+          const name = await requestFolderRename(tag);
+          if (name !== null) await editRailFolder(tag, name);
+        } else if (clicked.value === "delete") {
+          await editRailFolder(tag, null);
+        }
+      })();
+    },
+  );
   const handleProjectFolderContextMenu = useStableCallback(
     (group: SidebarProjectSnapshot, position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -3062,6 +3131,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             onSelect={(key, additive) =>
               setProjectScopeKeys(nextProjectRailScope(projectScopeKeys, key, additive))
             }
+            onFolderMenu={handleFolderTileContextMenu}
             onMove={(activeKey, overKey) => {
               const next = railOrderAfterMove(railTiles, activeKey, overKey);
               if (next !== null) setRailOrder(next);

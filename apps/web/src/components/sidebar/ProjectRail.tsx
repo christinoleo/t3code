@@ -31,8 +31,10 @@ import {
   resolveProjectRailTileStates,
 } from "./ProjectRail.logic";
 import { FOLDER_DOT_CLASS_NAME, FOLDER_DOT_LABEL } from "./SidebarProjectFolderHeader";
+import { folderTagOfScopeKey } from "../../sidebarProjectGrouping";
 
 const HIDE_IDLE_KEY = "t3code:sidebar:project-rail-hide-idle";
+const LONG_PRESS_TOLERANCE_PX = 6;
 
 /**
  * A column of project and folder tiles beside the thread list. It is another
@@ -47,6 +49,7 @@ export function ProjectRail(props: {
   onSelectAll: () => void;
   onSelect: (key: string, additive: boolean) => void;
   onMove: (activeKey: string, overKey: string) => void;
+  onFolderMenu: (tag: string, position: { x: number; y: number }) => void;
 }) {
   const { selectedKeys } = props;
   const nowMinute = useNowMinute();
@@ -68,9 +71,24 @@ export function ProjectRail(props: {
   // A finger holds before a tile lifts, so a swipe still scrolls the rail.
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 350, tolerance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 350, tolerance: LONG_PRESS_TOLERANCE_PX },
+    }),
   );
   const onDragEnd = (event: DragEndEvent) => {
+    // A finger that lifted a tile and let go without moving asked for its menu.
+    if (
+      typeof TouchEvent !== "undefined" &&
+      event.activatorEvent instanceof TouchEvent &&
+      Math.hypot(event.delta.x, event.delta.y) < LONG_PRESS_TOLERANCE_PX
+    ) {
+      const tag = folderTagOfScopeKey(String(event.active.id));
+      const rect = event.active.rect.current.initial;
+      if (tag !== null && rect !== null) {
+        props.onFolderMenu(tag, { x: rect.right, y: rect.top });
+      }
+      return;
+    }
     if (event.over === null || event.active.id === event.over.id) return;
     props.onMove(String(event.active.id), String(event.over.id));
   };
@@ -122,6 +140,7 @@ export function ProjectRail(props: {
               idle={states.get(tile.key)?.idle ?? false}
               selected={selectedKeys.includes(tile.key)}
               onSelect={props.onSelect}
+              onFolderMenu={props.onFolderMenu}
             />
           ))}
         </SortableContext>
@@ -136,6 +155,7 @@ function SortableRailTile(props: {
   idle: boolean;
   selected: boolean;
   onSelect: (key: string, additive: boolean) => void;
+  onFolderMenu: (tag: string, position: { x: number; y: number }) => void;
 }) {
   const { tile, dot, idle } = props;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -150,6 +170,14 @@ function SortableRailTile(props: {
       {...listeners}
       // The tile button inside takes focus; the sortable wrapper stays out of tab order.
       tabIndex={-1}
+      onContextMenu={
+        tile.kind === "folder"
+          ? (event) => {
+              event.preventDefault();
+              props.onFolderMenu(tile.tag, { x: event.clientX, y: event.clientY });
+            }
+          : undefined
+      }
     >
       <RailTileButton
         label={tile.kind === "project" ? tile.group.displayName : tile.tag}

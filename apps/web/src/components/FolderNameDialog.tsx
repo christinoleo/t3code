@@ -15,12 +15,36 @@ import {
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
-type Request = { readonly resolve: (name: string | null) => void };
+interface FolderNameRequestCopy {
+  readonly title: string;
+  readonly description: string;
+  readonly submitLabel: string;
+  readonly initialName: string;
+}
+
+const NEW_FOLDER: FolderNameRequestCopy = {
+  title: "New folder",
+  description: "Moved threads leave their project and show under this folder.",
+  submitLabel: "Move",
+  initialName: "",
+};
+
+type Request = FolderNameRequestCopy & { readonly resolve: (name: string | null) => void };
 const useRequest = create<{ request: Request | null }>(() => ({ request: null }));
 
-function requestFolderName(): Promise<string | null> {
+function requestFolderName(copy: FolderNameRequestCopy): Promise<string | null> {
   useRequest.getState().request?.resolve(null);
-  return new Promise((resolve) => useRequest.setState({ request: { resolve } }));
+  return new Promise((resolve) => useRequest.setState({ request: { ...copy, resolve } }));
+}
+
+/** Asks for a folder's new name; `null` when cancelled. */
+export function requestFolderRename(current: string): Promise<string | null> {
+  return requestFolderName({
+    title: "Rename folder",
+    description: "Renaming onto an existing folder merges the two.",
+    submitLabel: "Rename",
+    initialName: current,
+  });
 }
 
 /** Maps a clicked Folder submenu item to its target; `null` when cancelled. */
@@ -28,7 +52,7 @@ export async function resolveFolderMenuAction(
   action: string,
 ): Promise<{ readonly folder: string | null } | null> {
   if (action === "folder-new") {
-    const name = await requestFolderName();
+    const name = await requestFolderName(NEW_FOLDER);
     return name === null ? null : { folder: name };
   }
   const folder = folderFromMenuAction(action);
@@ -45,12 +69,12 @@ export function FolderNameDialogHost() {
   const request = useRequest((state) => state.request);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resolves any pending folder name request with null when the dialog host unmounts
   useEffect(() => () => finish(null), []);
-  return request ? <FolderNameDialog /> : null;
+  return request ? <FolderNameDialog request={request} /> : null;
 }
 
-function FolderNameDialog() {
+function FolderNameDialog({ request }: { request: FolderNameRequestCopy }) {
   const id = useId();
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(request.initialName);
   const [error, setError] = useState<string | null>(null);
   return (
     <Dialog
@@ -73,10 +97,8 @@ function FolderNameDialog() {
           }}
         >
           <DialogHeader>
-            <DialogTitle>New folder</DialogTitle>
-            <DialogDescription>
-              Moved threads leave their project and show under this folder.
-            </DialogDescription>
+            <DialogTitle>{request.title}</DialogTitle>
+            <DialogDescription>{request.description}</DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <Label className="flex flex-col items-stretch" htmlFor={`${id}-name`}>
@@ -103,7 +125,7 @@ function FolderNameDialog() {
             <Button type="button" variant="outline" onClick={() => finish(null)}>
               Cancel
             </Button>
-            <Button type="submit">Move</Button>
+            <Button type="submit">{request.submitLabel}</Button>
           </DialogFooter>
         </form>
       </DialogPopup>
