@@ -8,6 +8,7 @@ import {
 } from "./auth.ts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as EffectRecord from "effect/Record";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
@@ -774,7 +775,7 @@ export const IDLE_COMPACTION_MODES = [
 export const IdleCompactionMode = Schema.Literals(IDLE_COMPACTION_MODES.map((mode) => mode.value));
 export type IdleCompactionMode = typeof IdleCompactionMode.Type;
 
-const decodeStoredProjectIcon = Schema.decodeUnknownOption(StoredProjectIcon);
+const decodeStoredProjectIcon = Schema.decodeUnknownResult(StoredProjectIcon);
 
 // Shipped clients reject the whole server config unless `compactIdleThreads` is boolean.
 // Keep the mode in `idleCompaction`, but accept strings from older servers.
@@ -1484,14 +1485,7 @@ export const ServerSettings = Schema.Struct({
         Readonly<Record<string, unknown>>
       >({
         decode: (entries) =>
-          Object.fromEntries(
-            Object.entries(entries).flatMap(([tag, icon]) =>
-              Option.match(decodeStoredProjectIcon(icon), {
-                onNone: () => [],
-                onSome: (decoded) => [[tag, decoded] as const],
-              }),
-            ),
-          ),
+          EffectRecord.filterMap(entries, (icon) => decodeStoredProjectIcon(icon)),
         encode: (entries) => entries,
       }),
     ),

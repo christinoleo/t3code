@@ -222,5 +222,8 @@ describe("folder rename and delete", () => {
     expect(folderIconsPatchAfterEdit(icons, "ops", "infra")).toEqual({ ops: null });
     expect(folderIconsPatchAfterEdit(icons, "ops", null)).toEqual({ ops: null });
     expect(folderIconsPatchAfterEdit(icons, "docs", "build")).toBeNull();
+    // A folder that kept threads after a partial failure keeps its icon.
+    expect(folderIconsPatchAfterEdit(icons, "ops", "build", true)).toEqual({ build: rocket });
+    expect(folderIconsPatchAfterEdit(icons, "ops", null, true)).toBeNull();
   });
 });
