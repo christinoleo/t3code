@@ -67,9 +67,14 @@ export function sourceUpdatePillLabel(phase: SourceUpdatePhase): string | null {
   }
 }
 
-/** Update needs origin/main ahead; a failed run can be retried. */
 export function canRunSourceUpdate(phase: SourceUpdatePhase): boolean {
   return (phase.kind === "available" && phase.behindOrigin > 0) || phase.kind === "failed";
+}
+
+export function isSourceUpdateSettled(
+  phase: SourceUpdatePhase,
+): phase is Extract<SourceUpdatePhase, { kind: "succeeded" | "failed" }> {
+  return phase.kind === "succeeded" || phase.kind === "failed";
 }
 
 export function canPullUpstream(
@@ -79,7 +84,6 @@ export function canPullUpstream(
   return phase.kind !== "running" && (status?.upstreamAhead ?? 0) > 0;
 }
 
-/** The primary machine when it runs from source, else the first other one that does. */
 export function pickSourceUpdateEnvironment<Id extends string>(input: {
   readonly primary: Id | null;
   readonly candidates: ReadonlyArray<Id>;

@@ -30,6 +30,7 @@ import {
   useSourceUpdateActions,
   useSourceUpdateState,
 } from "../sourceUpdate/useSourceUpdate";
+import { isSourceUpdateSettled } from "../sourceUpdate/sourceUpdate.logic";
 import { useAutoBalanceUpdateBanner } from "./useAutoBalanceUpdateBanner";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 import {
@@ -281,9 +282,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
     if (
       !automaticEnvironment &&
       sourceUpdateEnvironmentId !== null &&
-      (sourcePhase.kind === "running" ||
-        sourcePhase.kind === "failed" ||
-        sourcePhase.kind === "succeeded")
+      (sourcePhase.kind === "running" || isSourceUpdateSettled(sourcePhase))
     ) {
       const dismiss = () => dismissSourceUpdateOutcome(sourceUpdateEnvironmentId);
       items.push({

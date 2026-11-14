@@ -7,6 +7,7 @@ import { SidebarMenuItem } from "../ui/sidebar";
 import {
   canPullUpstream,
   canRunSourceUpdate,
+  isSourceUpdateSettled,
   newCommitsLabel,
   type SourceUpdatePhase,
   sourceUpdatePillLabel,
@@ -40,7 +41,6 @@ function SourceUpdatePill({ environmentId }: { readonly environmentId: Environme
   const { update, pullUpstream } = useSourceUpdateActions();
   const label = sourceUpdatePillLabel(phase);
   if (label === null) return null;
-  const settled = phase.kind === "succeeded" || phase.kind === "failed";
 
   return (
     <SidebarMenuItem className="ml-auto flex min-w-0 flex-1">
@@ -82,7 +82,7 @@ function SourceUpdatePill({ environmentId }: { readonly environmentId: Environme
               <MenuItemDetail>{newCommitsLabel(status?.upstreamAhead ?? 0)}</MenuItemDetail>
             </MenuItem>
           ) : null}
-          {settled ? (
+          {isSourceUpdateSettled(phase) ? (
             <MenuItem onClick={() => dismissSourceUpdateOutcome(environmentId)}>Dismiss</MenuItem>
           ) : null}
         </MenuPopup>

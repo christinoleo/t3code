@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
+  selectEnvironmentQueryData,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { type EnvironmentId, ServerSourceUpdateError } from "@t3tools/contracts";
@@ -13,7 +14,7 @@ import { ensureLocalApi } from "~/localApi";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useServerConfigs } from "~/state/entities";
 import { usePrimaryEnvironmentId } from "~/state/environments";
-import { useEnvironmentQuery } from "~/state/query";
+import { useEnvironmentQuerySelector } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams } from "~/threadRoutes";
@@ -23,7 +24,6 @@ import { pickSourceUpdateEnvironment, resolveSourceUpdatePhase } from "./sourceU
 const isSourceUpdateError = Schema.is(ServerSourceUpdateError);
 const NO_RUN_ATOM = Atom.make(null).pipe(Atom.withLabel("web-source-update-run:none"));
 
-/** Whether this client may run source updates on the environment, which must advertise them. */
 export function useCanSourceUpdate(environmentId: EnvironmentId | null): boolean {
   const configs = useServerConfigs();
   const permitted = useAtomValue(serverEnvironment.runSourceUpdate.permissionAtom(environmentId));
@@ -42,17 +42,18 @@ export function useSourceUpdateEnvironmentId(): EnvironmentId | null {
     candidates: [...configs.keys()],
     supportsSourceUpdate: (id) => configs.get(id)?.environment.capabilities.sourceUpdate === true,
   });
-  return useCanSourceUpdate(environmentId) ? environmentId : null;
+  const permitted = useAtomValue(serverEnvironment.runSourceUpdate.permissionAtom(environmentId));
+  return permitted ? environmentId : null;
 }
 
 /** Pass null when the environment cannot source-update; nothing is fetched then. */
 export function useSourceUpdateState(environmentId: EnvironmentId | null) {
-  const query = useEnvironmentQuery(
+  const status = useEnvironmentQuerySelector(
     environmentId === null
       ? null
       : serverEnvironment.sourceUpdateStatus({ environmentId, input: {} }),
+    selectEnvironmentQueryData,
   );
-  const status = environmentId === null ? null : query.data;
   const run = useAtomValue(
     environmentId === null ? NO_RUN_ATOM : serverEnvironment.sourceUpdateRunAtom(environmentId),
   );

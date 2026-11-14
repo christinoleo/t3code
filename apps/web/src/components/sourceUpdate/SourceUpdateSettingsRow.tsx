@@ -2,7 +2,12 @@ import type { EnvironmentId } from "@t3tools/contracts";
 
 import { Button } from "../ui/button";
 import { SettingsRow } from "../settings/settingsLayout";
-import { canPullUpstream, canRunSourceUpdate, newCommitsLabel } from "./sourceUpdate.logic";
+import {
+  canPullUpstream,
+  canRunSourceUpdate,
+  isSourceUpdateSettled,
+  newCommitsLabel,
+} from "./sourceUpdate.logic";
 import {
   dismissSourceUpdateOutcome,
   useSourceUpdateActions,
@@ -54,7 +59,7 @@ function SourceUpdateRow({ environmentId }: { readonly environmentId: Environmen
               Pull upstream
             </Button>
           ) : null}
-          {phase.kind === "succeeded" || phase.kind === "failed" ? (
+          {isSourceUpdateSettled(phase) ? (
             <Button
               size="sm"
               variant="ghost"

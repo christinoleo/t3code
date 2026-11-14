@@ -100,10 +100,6 @@ export const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) 
   ),
 );
 
-/**
- * A source update this client started: the outcome it waits for is the first `lastResult`
- * that differs from the one the server reported before the update began.
- */
 export type SourceUpdateRun = {
   readonly previousResultFinishedAt: string | null;
 };
