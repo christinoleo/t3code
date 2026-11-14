@@ -166,8 +166,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
   const sourceUpdateActions = useSourceUpdateActions();
   return (() => {
     const items: ComposerBannerStackItem[] = [];
-    const updateRunning =
-      serverUpdateState.status === "running" || sourceUpdate.phase.kind === "running";
+    const updateRunning = serverUpdateState.status === "running";
     const unavailableConnection = activeEnvironmentUnavailableState?.connection ?? null;
     const disconnectAction =
       canDisconnectActiveEnvironment && activeEnvironmentUnavailableState ? (

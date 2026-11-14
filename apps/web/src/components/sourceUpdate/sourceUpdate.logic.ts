@@ -25,14 +25,12 @@ export function resolveSourceUpdatePhase(
 ): SourceUpdatePhase {
   if (run !== null) {
     const result = status?.lastResult ?? null;
-    if (
-      status === null ||
-      status.updateRunning ||
-      result === null ||
-      result.finishedAt === run.previousResultFinishedAt
-    ) {
-      return { kind: "running" };
+    if (status === null || status.updateRunning) return { kind: "running" };
+    // The unit truncates the log when it starts, so an empty log after it ends means it died.
+    if (result === null) {
+      return { kind: "failed", message: "The update stopped without reporting a result." };
     }
+    if (result.finishedAt === run.previousResultFinishedAt) return { kind: "running" };
     return result.outcome === "succeeded"
       ? { kind: "succeeded", sha: status.head.sha }
       : { kind: "failed", message: result.message };

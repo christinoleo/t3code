@@ -129,7 +129,11 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useStartTriage } from "../hooks/useStartTriage";
-import { newCommitsLabel } from "./sourceUpdate/sourceUpdate.logic";
+import {
+  canPullUpstream,
+  canRunSourceUpdate,
+  newCommitsLabel,
+} from "./sourceUpdate/sourceUpdate.logic";
 import {
   useSourceUpdateActions,
   useSourceUpdateEnvironmentId,
@@ -1363,7 +1367,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (sourceUpdateEnvironmentId !== null && sourceUpdate.phase.kind !== "running") {
+  if (sourceUpdateEnvironmentId !== null && canRunSourceUpdate(sourceUpdate.phase)) {
     actionItems.push({
       kind: "action",
       value: "action:source-update",
@@ -1375,6 +1379,11 @@ function OpenCommandPaletteDialog(props: {
       icon: <CircleArrowUpIcon className={ITEM_ICON_CLASS} />,
       run: () => sourceUpdateActions.update(sourceUpdateEnvironmentId),
     });
+  }
+  if (
+    sourceUpdateEnvironmentId !== null &&
+    canPullUpstream(sourceUpdate.status, sourceUpdate.phase)
+  ) {
     actionItems.push({
       kind: "action",
       value: "action:pull-upstream",

@@ -22,6 +22,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { pickSourceUpdateEnvironment, resolveSourceUpdatePhase } from "./sourceUpdate.logic";
 
 const isSourceUpdateError = Schema.is(ServerSourceUpdateError);
+const isFailure = (result: { readonly _tag: string }) => result._tag === "Failure";
 const NO_RUN_ATOM = Atom.make(null).pipe(Atom.withLabel("web-source-update-run:none"));
 
 export function useCanSourceUpdate(environmentId: EnvironmentId | null): boolean {
@@ -48,16 +49,16 @@ export function useSourceUpdateEnvironmentId(): EnvironmentId | null {
 
 /** Pass null when the environment cannot source-update; nothing is fetched then. */
 export function useSourceUpdateState(environmentId: EnvironmentId | null) {
-  const status = useEnvironmentQuerySelector(
+  const query =
     environmentId === null
       ? null
-      : serverEnvironment.sourceUpdateStatus({ environmentId, input: {} }),
-    selectEnvironmentQueryData,
-  );
+      : serverEnvironment.sourceUpdateStatus({ environmentId, input: {} });
+  const status = useEnvironmentQuerySelector(query, selectEnvironmentQueryData);
+  const failed = useEnvironmentQuerySelector(query, isFailure);
   const run = useAtomValue(
     environmentId === null ? NO_RUN_ATOM : serverEnvironment.sourceUpdateRunAtom(environmentId),
   );
-  return { status, phase: resolveSourceUpdatePhase(status, run) };
+  return { status, failed, phase: resolveSourceUpdatePhase(status, run) };
 }
 
 const toastFailure = (title: string, error: unknown) =>

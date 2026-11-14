@@ -21,7 +21,7 @@ export function SourceUpdateSettingsRow() {
 }
 
 function SourceUpdateRow({ environmentId }: { readonly environmentId: EnvironmentId }) {
-  const { status, phase } = useSourceUpdateState(environmentId);
+  const { status, failed, phase } = useSourceUpdateState(environmentId);
   const { update, pullUpstream } = useSourceUpdateActions();
   const description =
     phase.kind === "running"
@@ -31,7 +31,9 @@ function SourceUpdateRow({ environmentId }: { readonly environmentId: Environmen
         : phase.kind === "succeeded"
           ? `Updated to ${phase.sha}.`
           : status === null
-            ? "Checking the checkout…"
+            ? failed
+              ? "Could not read the source checkout. Check the server log."
+              : "Checking the checkout…"
             : [
                 `Running ${status.head.sha} ${status.head.subject}.`,
                 status.behindOrigin

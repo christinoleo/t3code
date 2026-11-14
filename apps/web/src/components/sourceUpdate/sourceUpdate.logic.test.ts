@@ -59,6 +59,12 @@ describe("resolveSourceUpdatePhase", () => {
       { kind: "running" },
     ],
     [
+      "the unit died before writing a result",
+      status({ lastResult: null }),
+      { previousResultFinishedAt: earlier.finishedAt },
+      { kind: "failed", message: "The update stopped without reporting a result." },
+    ],
+    [
       "the unit is still writing its result",
       status({
         updateRunning: true,
