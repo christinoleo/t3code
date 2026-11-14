@@ -30,7 +30,7 @@ const output = (stdout: string, code = 0): ProcessRunner.ProcessRunOutput => ({
   stderrInvalidUtf8: false,
 });
 
-const makeService = (env: Record<string, string>) => {
+const makeService = (env: Record<string, string> = { T3CODE_SOURCE_CHECKOUT: CHECKOUT }) => {
   const calls: Array<ReadonlyArray<string>> = [];
   const launches: Array<ThreadLaunch.ThreadLaunchInput> = [];
   const bootstraps: Array<ProjectService.ProjectBootstrapInput> = [];
@@ -116,7 +116,7 @@ describe("SourceUpdateService", () => {
   });
 
   it.effect("reports HEAD and how far each remote moved, null for a missing remote", () => {
-    const { layer, calls } = makeService({ T3CODE_SOURCE_CHECKOUT: CHECKOUT });
+    const { layer, calls } = makeService();
     return Effect.gen(function* () {
       const service = yield* SourceUpdateService.SourceUpdateService;
       const status = yield* service.status;
@@ -131,7 +131,7 @@ describe("SourceUpdateService", () => {
   });
 
   it.effect("refuses to update while a turn runs unless forced", () => {
-    const { layer, calls } = makeService({ T3CODE_SOURCE_CHECKOUT: CHECKOUT });
+    const { layer, calls } = makeService();
     return Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`
@@ -153,7 +153,7 @@ describe("SourceUpdateService", () => {
   });
 
   it.effect("starts a Claude thread in the checkout's project to merge upstream", () => {
-    const { layer, launches, bootstraps } = makeService({ T3CODE_SOURCE_CHECKOUT: CHECKOUT });
+    const { layer, launches, bootstraps } = makeService();
     return Effect.gen(function* () {
       const service = yield* SourceUpdateService.SourceUpdateService;
       const result = yield* service.pullUpstream;

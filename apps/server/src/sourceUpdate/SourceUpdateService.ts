@@ -12,7 +12,6 @@ import {
   defaultInstanceIdForDriver,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
@@ -30,10 +29,11 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { ACTIVE_RUN_STATUSES } from "../orchestration-v2/ThreadManagementService.ts";
 import {
   SOURCE_CHECKOUT_ENV,
-  SOURCE_UPDATE_COMMAND_ENV,
   sourceCheckoutConfig,
+  sourceUpdateCommandConfig,
 } from "./sourceCheckout.ts";
 
 const UPDATE_UNIT = "t3code-source-update";
@@ -105,7 +105,7 @@ const failed = (detail: string) => (cause: unknown) =>
 
 const make = Effect.gen(function* () {
   const checkoutOption = yield* sourceCheckoutConfig;
-  const updateCommandOption = yield* Config.String(SOURCE_UPDATE_COMMAND_ENV).pipe(Config.option);
+  const updateCommandOption = yield* sourceUpdateCommandConfig;
   const config = yield* ServerConfig.ServerConfig;
   const runner = yield* ProcessRunner.ProcessRunner;
   const fs = yield* FileSystem.FileSystem;
@@ -119,14 +119,15 @@ const make = Effect.gen(function* () {
   if (Option.isNone(checkoutOption)) {
     return SourceUpdateService.of({
       status: Effect.fail(unavailable),
-      update: () => Effect.fail(unavailable),
+      update: Effect.fn("SourceUpdateService.update")(function* (_input) {
+        return yield* unavailable;
+      }),
       pullUpstream: Effect.fail(unavailable),
     });
   }
   const checkout = checkoutOption.value;
-  const updateCommand = Option.getOrElse(
-    Option.filter(updateCommandOption, (command) => command.trim().length > 0),
-    () => path.join(checkout, "scripts", "self-update.sh"),
+  const updateCommand = Option.getOrElse(updateCommandOption, () =>
+    path.join(checkout, "scripts", "self-update.sh"),
   );
   const logPath = path.join(config.logsDir, "source-update.log");
 
@@ -139,7 +140,7 @@ const make = Effect.gen(function* () {
     const results = yield* Effect.forEach(
       ["origin", "upstream"],
       (remote) =>
-        git(["fetch", "--quiet", remote, "main"], "2 minutes").pipe(
+        git(["fetch", "--quiet", remote, "main"], "1 minute").pipe(
           Effect.map((output) => output.code === 0),
           Effect.orElseSucceed(() => false),
         ),
@@ -163,8 +164,7 @@ const make = Effect.gen(function* () {
   );
 
   const status: SourceUpdateService["Service"]["status"] = Effect.gen(function* () {
-    yield* fetchRemotes;
-    const head = yield* git(["log", "-1", "--format=%h%x00%s", "HEAD"]).pipe(
+    const head = git(["log", "-1", "--format=%h%x00%s", "HEAD"]).pipe(
       Effect.filterOrFail(
         (output) => output.code === 0,
         (output) => new Error(output.stderr.trim()),
@@ -176,12 +176,16 @@ const make = Effect.gen(function* () {
         Effect.map(parseCommitCount),
         Effect.orElseSucceed(() => null),
       );
-    const [behindOrigin, upstreamAhead, running, result] = yield* Effect.all(
-      [count("origin/main"), count("upstream/main"), updateRunning, lastResult],
+    const counts = Effect.andThen(
+      fetchRemotes,
+      Effect.all([count("origin/main"), count("upstream/main")], { concurrency: "unbounded" }),
+    );
+    const [headOutput, [behindOrigin, upstreamAhead], running, result] = yield* Effect.all(
+      [head, counts, updateRunning, lastResult],
       { concurrency: "unbounded" },
     );
     return {
-      head: parseHeadCommit(head.stdout),
+      head: parseHeadCommit(headOutput.stdout),
       behindOrigin,
       upstreamAhead,
       fetchedAt: yield* Ref.get(fetchedAt),
@@ -193,7 +197,7 @@ const make = Effect.gen(function* () {
   const hasActiveRun = sql<{ readonly active: number }>`
     SELECT EXISTS (
       SELECT 1 FROM orchestration_v2_projection_runs
-      WHERE status IN ('preparing', 'starting', 'running', 'waiting')
+      WHERE status IN ${sql.in(ACTIVE_RUN_STATUSES)}
     ) AS active
   `.pipe(
     Effect.map((rows) => rows[0]?.active === 1),
@@ -229,17 +233,17 @@ const make = Effect.gen(function* () {
             "--quiet",
             `--working-directory=${checkout}`,
             `--setenv=${SOURCE_CHECKOUT_ENV}=${checkout}`,
+            // stderr inherits this descriptor; a second one on the file would overwrite it.
             "-p",
             `StandardOutput=truncate:${logPath}`,
-            "-p",
-            `StandardError=append:${logPath}`,
             updateCommand,
           ],
         })
         .pipe(Effect.mapError(failed("Could not start the update.")));
       if (output.code !== 0) {
         return yield* new ServerSourceUpdateError({
-          reason: "failed",
+          // Another request started the unit between the check above and this launch.
+          reason: output.stderr.includes("already") ? "update-running" : "failed",
           detail: `Could not start the update: ${output.stderr.trim() || `systemd-run exited with ${String(output.code)}`}`,
         });
       }

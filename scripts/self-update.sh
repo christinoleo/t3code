@@ -50,7 +50,7 @@ main() {
   if ! git merge-base --is-ancestor HEAD origin/main; then
     fail "main has commits origin/main lacks, so it cannot fast-forward; push or reset them first."
   fi
-  git pull --ff-only origin main
+  git merge --ff-only origin/main
 
   step="installing dependencies"
   vp i
@@ -62,5 +62,4 @@ main() {
   systemctl --user restart "$service"
 }
 
-main "$@"
-exit
+main "$@"; exit
