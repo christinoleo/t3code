@@ -19,7 +19,7 @@ import { useRouter } from "@tanstack/react-router";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
   buildThreadActionMenuItems,
-  folderFromMenuAction,
+  isFolderMenuAction,
   threadActionRequiresOperate,
   threadFolderNames,
   type ThreadActionMenuId,
@@ -35,7 +35,7 @@ import {
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
   readThreadShell,
-  readThreadShells,
+  readVisibleThreadShells,
   useProjects,
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -151,7 +151,7 @@ export function useThreadActionMenu(input: {
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
         folders: configLoaded
           ? {
-              names: threadFolderNames(readThreadShells().map((t) => t.source)),
+              names: threadFolderNames(readVisibleThreadShells().map((t) => t.source)),
               threadTags: [thread.source.tags ?? []],
             }
           : null,
@@ -195,7 +195,7 @@ export function useThreadActionMenu(input: {
           failureToast(title, squashAtomCommandFailure(result));
         }
       };
-      if (action === "folder-new" || folderFromMenuAction(action) !== undefined) {
+      if (isFolderMenuAction(action)) {
         const choice = await resolveFolderMenuAction(action);
         if (choice) {
           await reportFailure("Failed to move thread", () =>

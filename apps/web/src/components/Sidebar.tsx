@@ -173,7 +173,7 @@ import {
   buildDraftActionMenuItems,
   buildFolderMenuItem,
   buildThreadActionMenuItems,
-  folderFromMenuAction,
+  isFolderMenuAction,
   threadActionRequiresOperate,
   threadFolderNames,
 } from "./threadActionMenu.logic";
@@ -2334,7 +2334,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const pinnedSelectedThreads = selectedThreads.filter(
         (thread) => serverConfigs.has(thread.environmentId) && thread.pinnedAt != null,
       );
-      const folderThreads = selectedThreads.filter((thread) =>
+      const canMoveToFolder = selectedThreads.every((thread) =>
         serverConfigs.has(thread.environmentId),
       );
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
@@ -2392,7 +2392,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ]
               : []),
             { id: "mark-unread", label: `Mark unread (${count})` },
-            ...(folderThreads.length === count
+            ...(canMoveToFolder
               ? [
                   {
                     ...buildFolderMenuItem({
@@ -2475,7 +2475,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         return;
       }
-      if (clicked.value === "folder-new" || folderFromMenuAction(clicked.value) !== undefined) {
+      if (isFolderMenuAction(clicked.value)) {
         const choice = await resolveFolderMenuAction(clicked.value);
         if (!choice) return;
         clearSelection();
@@ -2740,7 +2740,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           if (preset) attemptSnooze(threadRef, preset);
           return;
         }
-        if (clicked.value === "folder-new" || folderFromMenuAction(clicked.value) !== undefined) {
+        if (isFolderMenuAction(clicked.value)) {
           const choice = await resolveFolderMenuAction(clicked.value);
           if (!choice) return;
           const result = await moveThreadToFolder(threadRef, choice.folder);

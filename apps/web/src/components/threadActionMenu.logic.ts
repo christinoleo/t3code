@@ -153,6 +153,10 @@ export function folderFromMenuAction(action: string): string | null | undefined 
   return action.startsWith("folder:") ? action.slice("folder:".length) : undefined;
 }
 
+export function isFolderMenuAction(action: string): boolean {
+  return action === "folder-new" || folderFromMenuAction(action) !== undefined;
+}
+
 export function buildFolderMenuItem(
   folders: ThreadFolderMenuState,
 ): ContextMenuItem<ThreadActionMenuId> {

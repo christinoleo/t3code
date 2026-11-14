@@ -64,7 +64,7 @@ vi.mock("../state/entities", () => ({
     latestRun: null,
     source: { tags: ["Work"] },
   }),
-  readThreadShells: () => [],
+  readVisibleThreadShells: () => [],
   useProjects: () => [{ id: "project", environmentId: "secondary" }],
 }));
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "primary" }));
