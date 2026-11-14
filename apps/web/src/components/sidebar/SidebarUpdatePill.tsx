@@ -39,6 +39,7 @@ import {
   shouldContinueDesktopUpdateCheckAnimation,
   shouldShowDesktopUpdateCheckIcon,
 } from "./DesktopUpdateStatusIcon";
+import { SidebarSourceUpdatePill } from "../sourceUpdate/SidebarSourceUpdatePill";
 import { SidebarUpdateReleaseNotes } from "./SidebarUpdateReleaseNotes";
 import { SidebarUpdateCapsule } from "./SidebarUpdateCapsule";
 import { UpdateEverythingDialog } from "./UpdateEverythingDialog";
@@ -193,7 +194,12 @@ export async function installLocalUpdate(
 }
 
 export function SidebarUpdatePill() {
-  return <SidebarUpdateControl />;
+  return (
+    <>
+      <SidebarSourceUpdatePill />
+      <SidebarUpdateControl />
+    </>
+  );
 }
 
 function SidebarUpdateControl() {
