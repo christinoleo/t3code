@@ -6,14 +6,16 @@ kept alongside this file as `LICENSE.tstack`.
 
 ## What was taken
 
-All nine skills in upstream's `skills/`: `babysit-pr` (with `scripts/pr-wait`), `council`,
-`file-pr`, `full-send`, `full-stop`, `leaving-pr-comments`, `modernize`, `sol-loop`, and
+Eight of the nine skills in upstream's `skills/`: `babysit-pr` (with `scripts/pr-wait`), `council`,
+`file-pr`, `full-send`, `full-stop`, `modernize`, `sol-loop`, and
 `takeover`.
 
 ## What was left behind
 
 - Each skill's `agents/openai.yaml`. It configures another vendor's agent and nothing here reads it.
 - Upstream's `README.md`.
+- `leaving-pr-comments`, removed after it came across, and every skill's pointer to it. Skip it when
+  syncing.
 
 ## Local modifications
 
@@ -48,8 +50,7 @@ Every file is byte-identical to upstream except these:
   routes a bug to `diagnosing-bugs` and new behavior to `tdd`, says the skills that pause for
   approval (`tdd`, `verify`, `frontend-design`) are not on its ask list, names `verify` and
   `benchmark-checklist` in Proof, and keeps decisions with `show-me-your-work` on a multi-phase run.
-  `council` briefs a question or design as `second-opinion` does. `file-pr` and `leaving-pr-comments`
-  run their text through `technical-writing` and `unslop`. `takeover` and `modernize` run
+  `council` briefs a question or design as `second-opinion` does. `file-pr` runs its text through `technical-writing` and `unslop`. `takeover` and `modernize` run
   `review-change` after logic changes of their own.
 
 Otherwise `full-send` is unchanged. It names `AskUserQuestion` (Claude Code) and `request_user_input`

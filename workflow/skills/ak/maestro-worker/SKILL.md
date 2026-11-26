@@ -28,7 +28,7 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
 
 ## Decide, give up, or ask for help
 
-Follow `maestro`'s Decide or escalate. Decide reversible calls and log each one. When you are stuck after a real attempt, give up as that section says, so a fresh worker tries next. Ask for help only for what it names: push what you have, open the PR if there is one, and write the comment body per `leaving-pr-comments`:
+Follow `maestro`'s Decide or escalate. Decide reversible calls and log each one. When you are stuck after a real attempt, give up as that section says, so a fresh worker tries next. Ask for help only for what it names: push what you have, open the PR if there is one:
 
 ```bash
 gh issue edit <n> --add-label needs-help

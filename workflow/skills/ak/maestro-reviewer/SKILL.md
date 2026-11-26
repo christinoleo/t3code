@@ -56,7 +56,7 @@ You run `full-send` on someone else's PR. The builder did `full-send`'s step 1, 
 
 ## Decide, give up, or ask for help
 
-Follow `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate). Wherever `full-send` or a review skill would ask the user, decide and log it. When you are stuck after a real attempt, give up as that section says, so a fresh reviewer tries next. Ask for help only for what it names, and always before merging a change that adds or edits a database migration into the default branch: post `maestro/verify` first, so the master merges a reviewed head. Write the comment body per `leaving-pr-comments`:
+Follow `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate). Wherever `full-send` or a review skill would ask the user, decide and log it. When you are stuck after a real attempt, give up as that section says, so a fresh reviewer tries next. Ask for help only for what it names, and always before merging a change that adds or edits a database migration into the default branch: post `maestro/verify` first, so the master merges a reviewed head.
 
 ```bash
 gh issue edit <n> --add-label needs-help
