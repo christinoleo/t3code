@@ -1,6 +1,6 @@
 ---
 name: maestro-reviewer
-description: Review, fix and merge one maestro worker's PR as a different agent from the one that built it. Runs review-change, sol-loop, a live run of user-visible changes and an adversarial pass on risky ones, posts the maestro/verify status, checks main right before merging, and merges. Use when a task says to use the maestro-reviewer skill for an issue.
+description: Review, fix and merge one maestro worker's PR as a different agent from the one that built it, by running the second half of full-send on it. Proves the change again, live where users see it, runs review-change, sol-loop and an adversarial pass on risky diffs, posts the maestro/verify status, checks main right before merging, and merges. Use when a task says to use the maestro-reviewer skill for an issue.
 ---
 
 You are a maestro reviewer. Your task names the issue `<n>` and the repo. Another agent built the PR on `task/<n>`. You did not write it, so do not trust its claims: read the code and run it. You own it from here to the merge. You already run in an isolated checkout prepared for you. Read the user's mode skill, `~/.agents/skills/*-mode/SKILL.md`, when one exists, and work the way it says wherever it does not conflict with this skill. Read the Review group of the `principles` skill too, and judge the diff against its Build group.
@@ -11,14 +11,16 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
 2. `git fetch origin && git checkout -B task/<n> origin/task/<n>`. Read the parent's `maestro: notes` comments too. Read the issue's `maestro: decided` and `maestro: retry` comments: a decision is the builder's to make, so judge whether the code does what it decided, and overturn one only when it breaks the issue.
 3. If `.t3/setup-done` is missing and `.t3/setup-running` names no live PID, run the repo's install step.
 
-## Review
+## Review: the second half of `full-send`
 
-4. Run `review-change` on the diff against the PR's base. Its Review step runs `diff-review`'s Spec axis against the issue.
-5. Run `sol-loop` on the PR, with one override: its reviewer runs on your own provider and model, not GPT Sol.
-6. **Run it.** When the change is something a user sees or calls (UI, CLI output, an API a client uses), drive it the way a user would on the PR's base and on its head, with the repo's verification skill (`test-t3-app` or `test-t3-mobile` here) or `verify` with its checklist approved by you. You are the integrating agent for this PR, so this is its one client pass. Attach what you saw to the PR.
-7. **Attack it.** When the diff touches auth or permissions, persistence or migrations, concurrency or event sourcing, wire contracts, or a public API, also run `interrogate` on it; step 4's `review-change` already ran `blast-radius` on the same diffs. Only findings proven by a run count.
+You run `full-send` on someone else's PR. The builder did `full-send`'s step 1, the proof in its step 2, and its step 4 (the PR). You do the rest: its step 2 `review-change`, step 3 `sol-loop`, step 5 babysitting and step 6 merge, as the numbered steps below, which carry this skill's own numbers. `full-send`'s step 7 report gives way to the [Final message](#final-message) below.
+
+4. **Prove it yourself first.** The builder's proof is a claim. Prove the change again, as `full-send`'s Proof section says. When it is something a user sees or calls (UI, CLI output, an API a client uses), drive it the way a user would on the PR's base and on its head, with the repo's verification skill (`test-t3-app` or `test-t3-mobile` here) or `verify` with its checklist approved by you. You are the integrating agent for this PR, so this is its one client pass. Attach what you saw to the PR.
+5. **`full-send` step 2, review.** Run `review-change` on the diff against the PR's base. Its Review step runs `diff-review`'s Spec axis against the issue.
+6. **`full-send` step 3, feedback.** Run `sol-loop` on the PR, with its reviewer on your own provider and model, not GPT Sol.
+7. **Attack it.** When the diff touches auth or permissions, persistence or migrations, concurrency or event sourcing, wire contracts, or a public API, also run `interrogate` on it; step 5's `review-change` already ran `blast-radius` on the same diffs. Only findings proven by a run count.
 8. Fix what steps 4 to 7 find, inside the issue's scope. Commit and push `task/<n>` after each round; the maestro reads pushes as signs of life.
-9. Wait for CI and review bots with `~/.agents/skills/babysit-pr/scripts/pr-wait`, as `babysit-pr` describes. Never call `watch_pull_request`. Fix real findings, then go back to step 4 for what the fix touched.
+9. **`full-send` step 5, babysitting,** with one change: wait with `~/.agents/skills/babysit-pr/scripts/pr-wait`, as `babysit-pr` describes, and never call `watch_pull_request`. Fix real findings, then go back to step 5 for what the fix touched.
 
 ## Verify
 
@@ -43,7 +45,7 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
 
     Rebase onto `origin/<base>` and push with `--force-with-lease` when the lists share a file, when main changed something the PR calls or depends on (an import, a dependency version, the lockfile), or when main changed CI config. After the rebase, rerun `review-change`'s checks step, wait for CI, and post `maestro/verify` again on the new head. Otherwise leave the branch as it is. When main forces a third rebase, give up (below).
 
-12. Merge when `full-send`'s merge gate holds and `maestro/verify` is `success` on the current head:
+12. **`full-send` step 6, merge.** Merge when `full-send`'s merge gate holds and `maestro/verify` is `success` on the current head:
 
     ```bash
     gh api repos/{owner}/{repo}/commits/$(git rev-parse HEAD)/status \
