@@ -1,6 +1,6 @@
 ---
 name: review-change
-description: Review a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, and the harness's own code reviewer, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
+description: Review a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, a design and architecture scan of structural changes, and the harness's own code reviewer, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
 ---
 
 Run these in order on the diff against the base branch. Fix what each step finds before the next one, and keep every fix inside the change's scope.
@@ -9,7 +9,12 @@ Run these in order on the diff against the base branch. Fix what each step finds
 2. **Simplify.** Look for reuse, needless code, and dead code in the diff. Use your harness's built-in simplify skill when it has one (Claude Code: `simplify`). Otherwise do the pass yourself, by the `laziness-protocol` skill.
 3. **Tests.** Judge every test the diff adds or changes by the `principle-test-behavior-not-implementation` skill. Rewrite or delete each one that fails it.
 4. **Comments.** Run the `no-comments` skill over the diff. When the diff edits docs or a README, run `technical-writing` on those files; when it edits a `SKILL.md`, `AGENTS.md` or `CLAUDE.md`, run `writing-for-agents`.
-5. **Design.** When the diff adds a module, layer, or abstraction, judge it with the `codebase-design` skill: deep, or a pass-through? When it touches a migration, auth, concurrency, or a public API, run the `blast-radius` skill.
+5. **Design.** When the diff adds a module, layer, or abstraction, or touches more than about 5 files:
+   - Judge what it adds with the `codebase-design` skill: deep, or a pass-through?
+   - Scan the code around it with the [Explore step](../../mattpocock/factory/improve-codebase-architecture/SKILL.md#1-explore) of `improve-codebase-architecture`, in a fresh subagent, scoped to the diff's files and the modules they call instead of the history's hot spots. Leave out its HTML report and grilling. Fix a finding that is small and inside the change's scope. File a bigger one as a ticket the way `to-tickets` writes one, with the finding's files, problem, solution, benefits and strength, the line `From the architecture scan of #<n>.`, and `ready-for-agent` added last. Skip a finding an open issue already covers, and file none when this change came from such a ticket.
+
+   When the diff touches a migration, auth, concurrency, or a public API, run the `blast-radius` skill.
+
 6. **Review.** Run your harness's own code reviewer on the diff (Claude Code: the `code-review` skill at its default level). When the change implements an issue or spec, also run only `diff-review`'s Spec sub-agent against the base branch, since its Standards axis repeats steps 1-5; run both axes when the harness has no reviewer you can invoke. When it implements neither, run `replan` in delivered mode against the conversation.
 7. **Checks again**, if any step above changed code.
 

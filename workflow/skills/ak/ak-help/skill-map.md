@@ -258,10 +258,12 @@ flowchart LR
   review_change --> blast_radius
   review_change --> codebase_design
   review_change --> diff_review
+  review_change --> improve_codebase_architecture
   review_change --> no_comments
   review_change --> principles
   review_change --> replan
   review_change --> technical_writing
+  review_change --> to_tickets
   review_change --> writing_for_agents
   second_opinion --> council
   second_opinion --> sol_loop
