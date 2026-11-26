@@ -77,7 +77,7 @@ live_statuses='["idle","preparing","queued","starting","running","waiting"]'
 # Model flags for one review: a random entry of MAESTRO_REVIEW_MODELS, else the builders' own.
 review_model_args() {
   if [ ${#review_models[@]} -eq 0 ]; then
-    printf '%s\n' "${model_args[@]}"
+    [ ${#model_args[@]} -eq 0 ] || printf '%s\n' "${model_args[@]}"
     return
   fi
   local pick="${review_models[RANDOM % ${#review_models[@]}]}"
@@ -184,6 +184,21 @@ stop_stalls() {
     --jq '.[] | "\(.number) \([.labels[].name] | join(","))"')
 }
 
+# The branch an issue's PR targets: epic/<parent> when its parent epic is labelled integration (the
+# branch is created from the default branch the first time), else empty for the default branch.
+integration_base() {
+  local repo="$1" default="$2" n="$3" parent sha
+  parent="$(gh api "repos/$repo/issues/$n/parent" \
+    --jq 'select(any(.labels[]; .name == "integration")) | .number' 2>/dev/null)" || return 0
+  [ -n "$parent" ] || return 0
+  if ! gh api "repos/$repo/git/ref/heads/epic/$parent" >/dev/null 2>&1; then
+    sha="$(gh api "repos/$repo/git/ref/heads/$default" --jq .object.sha)" || return 1
+    gh api "repos/$repo/git/refs" -f ref="refs/heads/epic/$parent" -f sha="$sha" >/dev/null 2>&1 ||
+      gh api "repos/$repo/git/ref/heads/epic/$parent" >/dev/null 2>&1 || return 1
+  fi
+  echo "epic/$parent"
+}
+
 # Claims issue $3 and starts a thread on it; returns 1 when the start failed.
 start_thread() {
   local folder="$1" name="$2" n="$3" title="$4" claim="$5" message="$6" err
@@ -202,7 +217,7 @@ start_thread() {
 
 # Starts reviewers for ready-for-review issues, then builders for frontier issues; prints the number started.
 dispatch() {
-  local folder="$1" name="$2" live="$3" room="$4" repo base reviews frontier n title free blockers started=0 args
+  local folder="$1" name="$2" live="$3" room="$4" repo base reviews frontier n title free blockers started=0 args target
   [ "$room" -gt 0 ] || {
     echo 0
     return
@@ -220,8 +235,9 @@ dispatch() {
     free="$(gh issue view "$n" --json state,labels --jq '.state == "OPEN" and any(.labels[]; .name == "ready-for-review") and (any(.labels[]; .name | IN("in-progress", "needs-help", "ready-for-human")) | not)')"
     [ "$free" = true ] || continue
     mapfile -t args < <(review_model_args)
+    target="$(integration_base "$repo" "$base" "$n")" || continue
     start_thread "$folder" "$name" "$n" "mw-$n review $title" "maestro: claimed review" \
-      "Use the \`maestro-reviewer\` skill for issue #$n in $repo." --worktree "$base" "${args[@]}" &&
+      "Use the \`maestro-reviewer\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" "${args[@]}" &&
       started=$((started + 1))
   done <<<"$reviews"
   frontier="$(gh issue list --label ready-for-agent --state open --limit 50 \
@@ -238,8 +254,9 @@ dispatch() {
     blockers="$(gh api "repos/$repo/issues/$n/dependencies/blocked_by" --paginate |
       jq -s '[add // [] | .[] | select(.state == "open")] | length')" || continue
     [ "$blockers" = 0 ] || continue
+    target="$(integration_base "$repo" "$base" "$n")" || continue
     start_thread "$folder" "$name" "$n" "mw-$n $title" "maestro: claimed" \
-      "Use the \`maestro-worker\` skill for issue #$n in $repo." --worktree "$base" "${model_args[@]}" &&
+      "Use the \`maestro-worker\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" "${model_args[@]}" &&
       started=$((started + 1))
   done <<<"$frontier"
   echo "$started"
@@ -277,21 +294,34 @@ seed_state() {
   [ -f "$key.ready-for-human" ] || unblocked_human_issues >"$key.ready-for-human"
 }
 
-# Closes finished epics and tells the master about needs-help and unblocked human tasks.
+# Closes finished epics (an integration epic gets its PR to the default branch instead) and tells
+# the master about needs-help and unblocked human tasks.
 report() {
-  local name="$1" master="$2" repo key epics n url open_subs total current line
+  local name="$1" master="$2" repo key epics n url open_subs total current line integration title pr default
   repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || return 1
   key="$(state_key)" || return 1
 
-  epics="$(gh issue list --label epic --state open --limit 100 --json number,url \
-    --jq '.[] | "\(.number) \(.url)"')" || return 1
-  while read -r n url; do
+  epics="$(gh issue list --label epic --state open --limit 100 --json number,url,labels,title \
+    --jq '.[] | "\(.number)\t\(.url)\t\(any(.labels[]; .name == "integration"))\t\(.title)"')" || return 1
+  while IFS=$'\t' read -r n url integration title; do
     [ -n "$n" ] || continue
     read -r total open_subs < <(gh api "repos/$repo/issues/$n/sub_issues" --paginate |
       jq -rs 'add // [] | "\(length) \([.[] | select(.state == "open")] | length)"')
     [ "${total:-0}" -gt 0 ] && [ "${open_subs:-1}" -eq 0 ] || continue
-    gh issue close "$n" --comment "maestro: every sub-issue is closed." >/dev/null
-    tell_master "$master" "$name" "#$n epic done $url"
+    if [ "$integration" = true ]; then
+      # The user merges it; the merge closes the epic. An open PR means this was already reported.
+      [ -z "$(gh pr list --head "epic/$n" --state open --json number --jq '.[].number')" ] || continue
+      default="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)" || continue
+      pr="$(gh pr create --base "$default" --head "epic/$n" --title "$title" \
+        --body "Closes #$n. Every sub-issue merged into \`epic/$n\`." 2>&1 | tail -n 1)" || {
+        log "$name #$n could not open its integration PR: $pr"
+        continue
+      }
+      tell_master "$master" "$name" "#$n epic ready for your merge $pr"
+    else
+      gh issue close "$n" --comment "maestro: every sub-issue is closed." >/dev/null
+      tell_master "$master" "$name" "#$n epic done $url"
+    fi
   done <<<"$epics"
 
   current="$(needs_help_issues)" || return 1

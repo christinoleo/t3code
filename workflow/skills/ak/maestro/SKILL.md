@@ -51,7 +51,7 @@ To run an issue on another provider, label it `provider:<instanceId>`, for examp
 
 ### needs-help
 
-The maestro sends you three kinds of line. `#<n> ready-for-human unblocked <issue url>` means a task for you or the user can start now. `#<n> epic done <url>` means a whole epic shipped. Give the user its decision digest: every `maestro: decided` comment on the epic's sub-issues (`gh api repos/<owner/repo>/issues/<n>/sub_issues --paginate --jq '.[].number'`, then each issue's comments), one line per decision with its issue link and the alternative it names, through the `ketchup` skill. A decision the user disagrees with becomes a new issue; nothing is reverted by hand. Then offer the `retro` skill on the epic. For a `#<n> needs-help: <reason> <issue url>` line, the issue carries a comment saying what is needed. Decide, or ask the user. When the decision belongs to someone else, turn it into a questionnaire for them with the `to-questionnaire` skill. When what is needed is a manual step (a credential, a dashboard setting, a CI secret), generate a `wizard` script for the user instead. Then either finish the task yourself (merge the PR, close the issue, and close its `epic` if that was the last open sub-issue), or comment your decision and remove `needs-help` so the issue rejoins the frontier and a fresh worker picks it up. Its earlier `maestro: retry` comments still count, so one more failure brings it straight back. Nudge a maestro thread afterwards; a daemon notices on its next tick. When several of these lines arrived since the user's last message, answer their next message with the `ketchup` skill.
+The maestro sends you four kinds of line. `#<n> ready-for-human unblocked <issue url>` means a task for you or the user can start now. `#<n> epic done <url>` means a whole epic shipped. Give the user its decision digest: every `maestro: decided` comment on the epic's sub-issues (`gh api repos/<owner/repo>/issues/<n>/sub_issues --paginate --jq '.[].number'`, then each issue's comments), one line per decision with its issue link and the alternative it names, through the `ketchup` skill. A decision the user disagrees with becomes a new issue; nothing is reverted by hand. Then offer the `retro` skill on the epic. `#<n> epic ready for your merge <pr url>` means an [integration epic](#integration-epics) finished: give the same digest, offer `full-stop` for a last pass over the whole branch, and leave the merge to the user. For a `#<n> needs-help: <reason> <issue url>` line, the issue carries a comment saying what is needed. Decide, or ask the user. When the decision belongs to someone else, turn it into a questionnaire for them with the `to-questionnaire` skill. When what is needed is a manual step (a credential, a dashboard setting, a CI secret), generate a `wizard` script for the user instead. Then either finish the task yourself (merge the PR, close the issue, and close its `epic` if that was the last open sub-issue), or comment your decision and remove `needs-help` so the issue rejoins the frontier and a fresh worker picks it up. Its earlier `maestro: retry` comments still count, so one more failure brings it straight back. Nudge a maestro thread afterwards; a daemon notices on its next tick. When several of these lines arrived since the user's last message, answer their next message with the `ketchup` skill.
 
 ## Labels
 
@@ -65,6 +65,7 @@ Blocking is never a label. It lives in GitHub's native issue dependencies.
 | `in-progress`         | a worker owns it, builder or reviewer                                                                     |
 | `needs-help`          | a decision only a person can make (see Decide or escalate), or every attempt failed                       |
 | `provider:<instance>` | optional: dispatch this issue's worker on that provider instance instead of the maestro's own             |
+| `integration`         | on an `epic`: its sub-issues merge into `epic/<n>`, and the user merges one PR to main (below)            |
 
 Keep an issue away from the maestro with `ready-for-human`, or by removing `ready-for-agent`, never with `needs-help`. There is no `hold` label. `needs-help` means someone is blocked on you. Drop `in-progress` when you take a task back from a worker. `wayfinder` tickets carry only `wayfinder:*` labels, so the maestro never touches them.
 
@@ -78,7 +79,7 @@ Workers, builder and reviewer alike, follow this wherever a skill they run would
 
 - **A product call** the issue, its parent, the codebase and the docs leave open: what users should see or be able to do, where the options differ for them and nothing points one way. Two behaviors a rebase cannot keep together count.
 - **An irreversible step:** production data or the live install (`~/.t3`), credentials and secrets, a message to anyone outside the run, a force-push to any branch but `task/<n>`, or closing someone else's PR.
-- **A database migration about to merge.** The reviewer stops before the merge; it runs on the user's real database at the next update.
+- **A database migration about to merge into the default branch.** The reviewer stops before the merge; it runs on the user's real database at the next update. Into an integration branch it merges as usual, since the user merges that branch.
 - **Something only a person can do**, such as an account or a dashboard setting. File it as a `ready-for-human` issue blocking this one.
 
 **Decide** everything else. Pick what the issue, its parent and the codebase's precedent support best, then comment on the issue and carry on:
@@ -90,6 +91,18 @@ maestro: decided <what you chose>. Why: <the evidence>. Alternative: <the other 
 A vague spec gets the most reasonable reading; more than one PR's worth gets split; a conflict gets both sides' behavior kept and proven by tests. These comments are the master's digest when the epic ships.
 
 **Give up** when you are stuck after a real attempt: push `task/<n>`, comment `maestro: retry: <what you tried, what failed, what the next attempt should try>`, leave `in-progress` on, and end. The dispatcher hands the issue to a fresh worker, which starts from your branch and comments. After 2 fresh attempts fail too (`MAESTRO_RETRIES`), it labels `needs-help`.
+
+## Shared notes
+
+A sub-issue's siblings work the same code. Before exploring, read the parent's `maestro: notes` comments. When you learn something a sibling would need (where the code lives, a convention, a trap, the command that proves it), add one `maestro: notes` comment on the parent: short, with file paths, and nothing an earlier note already says.
+
+## Integration epics
+
+Label an epic `integration` at intake when its tickets cannot each land green on main (`to-tickets`' wide refactors that share a branch), or when the user wants the whole epic in one PR they merge. Then:
+
+- Before dispatching its first sub-issue, the dispatcher creates `epic/<n>` from the default branch, and every worker's task names it: `Base branch: epic/<n>.`
+- Builders branch from it and open their PR against it. Reviewers merge into it, then close the sub-issue themselves, since GitHub closes issues only from merges into the default branch.
+- When every sub-issue is closed, the dispatcher opens a PR from `epic/<n>` to the default branch that closes the epic, and sends the master `#<n> epic ready for your merge <pr url>` instead of closing the epic.
 
 ## Dispatcher
 
@@ -150,9 +163,11 @@ On `true` and no open blocker, `gh issue edit <n> --add-label in-progress` and c
 Use the `maestro-worker` skill for issue #<n> in <owner/repo>. Maestro thread: <your thread id>.
 ```
 
+When the issue's parent is an `integration` epic, create `epic/<parent>` from the default branch if it is missing (`gh api repos/<owner/repo>/git/refs -f ref=refs/heads/epic/<parent> -f sha=<default branch head>`) and append `Base branch: epic/<parent>.` to the task.
+
 For a review, name `maestro-reviewer` instead. Name the skill; never paste its body. A build runs on your own provider and model unless the issue has a `provider:<instanceId>` label, then set `target.providerInstanceId` to it. A review runs on a provider picked at random from those `orchestrator_capabilities` reports ready, yours included, on that provider's default model. If a named instance is not in `orchestrator_capabilities`, label `needs-help` with the reason.
 
-**5. Epics.** Close an open `epic` whose sub-issues are all closed: `gh issue close <n> --comment "maestro: every sub-issue is closed."`, and tell the master in one line, `#<n> epic done <url>`, so it can offer the user a `retro` of that run.
+**5. Epics.** Close an open `epic` whose sub-issues are all closed: `gh issue close <n> --comment "maestro: every sub-issue is closed."`, and tell the master in one line, `#<n> epic done <url>`, so it can offer the user a `retro` of that run. An `integration` epic instead gets a PR from `epic/<n>` to the default branch with `Closes #<n>` in its body, unless one is already open, and the master gets `#<n> epic ready for your merge <pr url>`.
 
 **6. Human tasks.** When an open `ready-for-human` issue has just become unblocked, send the master one line, once: `#<n> ready-for-human unblocked <issue url>`.
 

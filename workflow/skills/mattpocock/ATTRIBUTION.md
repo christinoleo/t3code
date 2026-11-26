@@ -11,8 +11,7 @@ read by the marketplace.
 ## What was taken
 
 Every skill but one in upstream's plugin manifest. From `skills/engineering/`: `code-review` (now `diff-review`),
-`codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `implement`,
-`implement-spec`, `improve-codebase-architecture`, `prototype`, `research`, `retro`,
+`codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `research`, `retro`,
 `setup-matt-pocock-skills`, `tdd`, `to-spec`, `to-tickets`, `triage`, `wayfinder`, and `wizard`. From
 `skills/productivity/`: `grill-me`, `grilling`, `handoff`, `teach`, `to-questionnaire`,
 and `writing-for-agents`.
@@ -27,6 +26,10 @@ and `writing-for-agents`.
   `ask-matt` only knew this one. Skip it when syncing.
 - `pr`, removed when `tstack` came in: its `file-pr` covers filing a pull request, and nothing
   else in `workflow/skills/` referenced `pr`. Skip it when syncing.
+- `implement` and `implement-spec`, removed after they came across: `implement` repeats the build
+  steps of `full-send` (which `full-stop` follows), and `implement-spec` runs the maestro's task graph
+  inside one session. The maestro took over the two things only `implement-spec` had: an
+  integration branch per epic, and notes shared through the parent issue. Skip both when syncing.
 - Each skill's `agents/openai.yaml`. It configures another vendor's agent and nothing here reads it.
 
 ## Local modifications
@@ -40,17 +43,17 @@ and `writing-for-agents`.
 - Sixteen skills had `disable-model-invocation` removed, for the same reason as the pstack set: the
   agent should reach for a skill when the situation comes up. The fork carried this change already.
 - `code-review` is `diff-review`, including its frontmatter name and every reference in
-  `implement`, `implement-spec`, and `tdd`. Claude Code ships a built-in `code-review` skill, and
+  `tdd`. Claude Code ships a built-in `code-review` skill, and
   providers see one flat list of names.
 - Claude Code-only wording is provider-neutral, so every provider T3 Code runs can follow these
   skills:
   - "Call the Skill tool with X" (and "call the Skill tool twice, for X and Y") reads "use the X
-    skill" in `grill-me`, `grill-with-docs`, `handoff`, `implement`, `implement-spec`,
+    skill" in `grill-me`, `grill-with-docs`, `handoff`,
     `improve-codebase-architecture`, `retro`, `tdd`, `triage-issues`, and `wayfinder`.
   - Where a skill hands work to a subagent, it names T3 Code's `delegate_task` in parentheses:
-    `diff-review`, `implement-spec`, `improve-codebase-architecture`, `grilling`, `research`,
+    `diff-review`, `improve-codebase-architecture`, `grilling`, `research`,
     `wayfinder`, and `codebase-design/DESIGN-IT-TWICE.md`. Workers that commit on their own branch
-    (`implement-spec` implementers, `wayfinder` research subagents) get `isolation: "worktree"`.
+    (`wayfinder` research subagents) get `isolation: "worktree"`.
     Read-only workers (the two `diff-review` reviewers, design-it-twice designers) share the
     checkout, because a fresh worktree would miss uncommitted work and gains nothing.
   - `retro` finds past sessions with `t3_thread_search` and `t3_thread_read` instead of searching
@@ -61,16 +64,16 @@ and `writing-for-agents`.
   question card and notifies the user instead of leaving the question in plain text. `grilling`
   asks each round that way and keeps upstream's text format as the fallback; `to-tickets`,
   `wayfinder`, and `improve-codebase-architecture` ask their approval and pick questions the same way.
-- `diff-review`, `diagnosing-bugs`, `tdd`, `implement`, `codebase-design`, `retro`, and `to-spec`
+- `diff-review`, `diagnosing-bugs`, `tdd`, `codebase-design`, `retro`, and `to-spec`
   each gained one sentence citing the pstack principles that apply, by name when the principle is
   a visible skill and by `~/.agents/skills/principle-<name>/SKILL.md` when it is hidden.
-- `implement`, `implement-spec`, and `tdd` point at this fork's `review-change` skill where they
+- `tdd` points at this fork's `review-change` skill where it
   pointed at `diff-review`. `review-change` runs checks, simplify, a test-quality pass,
   `no-comments`, and the harness's own reviewer, and still runs `diff-review` for its Spec axis
   when the change implements an issue or spec.
 - Fixes from the pipeline model (`ak/ak-help/model/`): `to-spec` labels its spec `epic` instead of
   `ready-for-agent`, so the maestro never hands a whole spec to one worker; `to-tickets` nudges a
-  `maestro <owner/repo>` thread after publishing; `implement-spec` skips `in-progress` tickets;
+  `maestro <owner/repo>` thread after publishing;
   `wayfinder` unassigns week-old abandoned claims and asks the user what to do with fog left after
   the last ticket.
 - `grilling`, `to-spec`, `to-tickets`, `triage-issues`, and `diff-review` end with one `**Related:**`
@@ -87,14 +90,13 @@ and `writing-for-agents`.
     glossary, so `wayfinder`, `triage-issues`, and `improve-codebase-architecture` name only
     `grilling` where they named both. It also parks a branch on `to-questionnaire` when the answer
     belongs to someone else. `grill-me` and `grill-with-docs` stay as aliases.
-  - `to-spec`, `to-tickets`, `wayfinder`, `implement-spec`, `triage-issues`, and `diff-review` say
+  - `to-spec`, `to-tickets`, `wayfinder`, `triage-issues`, and `diff-review` say
     to use `setup-matt-pocock-skills` where they said to tell the user to run it.
     `setup-matt-pocock-skills` says `triage-issues` where it meant `triage`, and records a glossary
     the repo already keeps elsewhere instead of creating a root `GLOSSARY.md`.
   - `to-spec` and `to-tickets` run `replan` on the draft. `wayfinder` publishes a spec destination with
     `to-spec` first and hands human-only credential or dashboard tasks a `wizard` script.
-  - `implement-spec` builds each ticket with `implement`, minus its final `review-change`, which
-    runs once on the branch. `implement` offers `verify` after a UI change. `diff-review`'s Standards
+  - `diff-review`'s Standards
     prompt adds `typescript-best-practices` for `.ts` and `.tsx` diffs.
   - `diagnosing-bugs` vets measurements with `benchmark-checklist`, runs `why` on a suspect that
     looks deliberate or a regression, and offers `improve-codebase-architecture` when no correct

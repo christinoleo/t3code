@@ -7,14 +7,14 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
 
 ## Pick up
 
-1. `gh issue view <n>`. Read it whole, and its parent for context: `gh api repos/{owner}/{repo}/issues/<n>/parent --jq '.number, .title, .body'`. Older issues name the parent with a `Part of #<epic>` line instead.
-2. Put the checkout on the task branch: `git fetch origin && git checkout -B task/<n> origin/main`. If `origin/task/<n>` exists, an earlier attempt left work behind: use `git checkout -B task/<n> origin/task/<n>` instead. Read its `maestro: retry` and `maestro: decided` comments on the issue and `gh pr view task/<n> --comments`: keep its decisions unless they caused the failure, and try what its report says to try next.
+1. `gh issue view <n>`. Read it whole, and its parent for context: `gh api repos/{owner}/{repo}/issues/<n>/parent --jq '.number, .title, .body'`. Older issues name the parent with a `Part of #<epic>` line instead. Read the parent's `maestro: notes` comments before you explore, as `maestro`'s [Shared notes](../maestro/SKILL.md#shared-notes) says, and add one when you learn what a sibling would need.
+2. Put the checkout on the task branch: `git fetch origin && git checkout -B task/<n> origin/<base>`, where `<base>` is the base branch your task names, or `main` when it names none. If `origin/task/<n>` exists, an earlier attempt left work behind: use `git checkout -B task/<n> origin/task/<n>` instead. Read its `maestro: retry` and `maestro: decided` comments on the issue and `gh pr view task/<n> --comments`: keep its decisions unless they caused the failure, and try what its report says to try next.
 3. If `.t3/setup-done` is missing and `.t3/setup-running` names no live PID, run the repo's install step.
 4. Judge the issue by `bcheck`'s Step 3 table, after reading the code. A ❌ is a gap to close, not a reason to stop: close it with a decision as `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate) says, and escalate only what that section names. A scope over about 5 files gets split (below).
 
 ## Build
 
-5. Follow the `full-send` skill's steps 1, 2 and 4: finish the change, prove it per its Proof section, and file the PR with `file-pr`. Leave out `review-change`, `sol-loop`, babysitting and the merge; the reviewer owns those. Wherever `full-send` would ask the user, follow Decide or escalate instead.
+5. Follow the `full-send` skill's steps 1, 2 and 4: finish the change, prove it per its Proof section, and file the PR with `file-pr`, against `<base>`. Leave out `review-change`, `sol-loop`, babysitting and the merge; the reviewer owns those. Wherever `full-send` would ask the user, follow Decide or escalate instead.
 6. Push `task/<n>` after your first commit and after each one that follows. The maestro reads pushes, comments and label changes as signs of life; a worker that shows none for an hour is stopped and retried.
 
 ## Hand off

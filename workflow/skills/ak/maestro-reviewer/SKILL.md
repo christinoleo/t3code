@@ -8,7 +8,7 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
 ## Pick up
 
 1. `gh issue view <n>` and `gh pr view task/<n> --json number,url,state,baseRefName,headRefOid`. With no open PR, give up (below): the build did not finish.
-2. `git fetch origin && git checkout -B task/<n> origin/task/<n>`. Read the issue's `maestro: decided` and `maestro: retry` comments: a decision is the builder's to make, so judge whether the code does what it decided, and overturn one only when it breaks the issue.
+2. `git fetch origin && git checkout -B task/<n> origin/task/<n>`. Read the parent's `maestro: notes` comments too. Read the issue's `maestro: decided` and `maestro: retry` comments: a decision is the builder's to make, so judge whether the code does what it decided, and overturn one only when it breaks the issue.
 3. If `.t3/setup-done` is missing and `.t3/setup-running` names no live PID, run the repo's install step.
 
 ## Review
@@ -50,11 +50,11 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
       --jq '.statuses[] | select(.context == "maestro/verify") | .state'
     ```
 
-    Merge with the method the repo uses, as `full-send` says. The merge closes the issue.
+    Merge with the method the repo uses, as `full-send` says. A merge into the default branch closes the issue. A merge into an integration branch (`epic/<n>`) does not, so close it yourself: `gh issue close <n> --comment "maestro: merged into <base> in <PR url>"`.
 
 ## Decide, give up, or ask for help
 
-Follow `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate). Wherever `full-send` or a review skill would ask the user, decide and log it. When you are stuck after a real attempt, give up as that section says, so a fresh reviewer tries next. Ask for help only for what it names, and always before merging a change that adds or edits a database migration: post `maestro/verify` first, so the master merges a reviewed head. Write the comment body per `leaving-pr-comments`:
+Follow `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate). Wherever `full-send` or a review skill would ask the user, decide and log it. When you are stuck after a real attempt, give up as that section says, so a fresh reviewer tries next. Ask for help only for what it names, and always before merging a change that adds or edits a database migration into the default branch: post `maestro/verify` first, so the master merges a reviewed head. Write the comment body per `leaving-pr-comments`:
 
 ```bash
 gh issue edit <n> --add-label needs-help

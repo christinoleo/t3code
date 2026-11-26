@@ -95,7 +95,7 @@ is all this plugin has. Beyond that:
   "the **x** principle skill" citation of a hidden principle reads "the **x** principle
   (`~/.agents/skills/principle-x/SKILL.md`)", a path every provider can open, subagents included.
   `figure-it-out` reads the matching `principle-*` folders there. Skills in the other groups cite
-  them the same way (`maestro-worker`, `diff-review`, `diagnosing-bugs`, `tdd`, `implement`,
+  them the same way (`maestro-worker`, `diff-review`, `diagnosing-bugs`, `tdd`,
   `codebase-design`, `retro`, `to-spec`), as do `architect`, `benchmark-checklist`, and `swarm` here.
 - `principle-exhaust-the-design-space` was deleted: its body was one fragment, and `arena`,
   `architect`, and `codebase-design/DESIGN-IT-TWICE.md` carry the procedure. `architect` now says
@@ -122,6 +122,7 @@ is all this plugin has. Beyond that:
   start unasked. `ketchup` lost its references to `/visualize`, a skill from another plugin, and
   just asks for a chart.
 - `swarm` lost its last two references to Cursor's cloud workers.
+- `swarm` sends code-shipping work to `maestro` alone; it also named `implement-spec`, which this fork removed.
 - `correct` also keeps `disable-model-invocation: true`. It reads the
   history, then commits lint rules, CI checks, type changes, and edits to the agent instruction file,
   one commit per mistake class. That is too much change to start on the model's own judgment, so
