@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # The maestro dispatcher without a model. Each tick, per project: requeue issues whose worker
-# thread is gone, start a maestro-worker thread per frontier issue while fewer than
-# MAESTRO_MAX_WORKERS worker threads run across all listed projects, close finished epics,
-# and tell the project's master thread about needs-help, epic done and unblocked human tasks.
+# thread is gone, flag workers that stalled, start a maestro-reviewer thread per ready-for-review
+# issue and a maestro-worker thread per frontier issue while fewer than MAESTRO_MAX_WORKERS
+# threads run across all listed projects, close finished epics, and tell the project's master
+# thread about needs-help, epic done and unblocked human tasks.
 # Labels and comments follow SKILL.md, so a maestro thread and this script agree.
 #
 #   queue.sh [--loop] [--interval 60] <project-folder>[=<master-thread-id>]...
 #
 # Run it as a T3 Code daemon (Settings > Daemons, or `t3 daemon add`) with --loop; one per server.
 # Env: MAESTRO_MAX_WORKERS (8), MAESTRO_PROVIDER + MAESTRO_MODEL (else the project's default
-# model), T3_BIN (else this server's own build, then `t3` on PATH).
+# model), MAESTRO_REVIEW_MODELS (space-separated `provider/model` or `model`; each review picks
+# one at random, else it runs on the builders' model), MAESTRO_STALL_MINUTES (60),
+# T3_BIN (else this server's own build, then `t3` on PATH).
 set -uo pipefail
 
 usage() {
@@ -64,9 +67,25 @@ if [ -n "${MAESTRO_PROVIDER:-}" ] && [ -n "${MAESTRO_MODEL:-}" ]; then
 elif [ -n "${MAESTRO_MODEL:-}" ]; then
   model_args=(--model "$MAESTRO_MODEL")
 fi
+stall_minutes="${MAESTRO_STALL_MINUTES:-60}"
+read -r -a review_models <<<"${MAESTRO_REVIEW_MODELS:-}"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/maestro-queue"
 mkdir -p "$state_dir"
 live_statuses='["idle","preparing","queued","starting","running","waiting"]'
+
+# Model flags for one review: a random entry of MAESTRO_REVIEW_MODELS, else the builders' own.
+review_model_args() {
+  if [ ${#review_models[@]} -eq 0 ]; then
+    printf '%s\n' "${model_args[@]}"
+    return
+  fi
+  local pick="${review_models[RANDOM % ${#review_models[@]}]}"
+  if [[ "$pick" == */* ]]; then
+    printf '%s\n' --provider "${pick%%/*}" --model "${pick#*/}"
+  else
+    printf '%s\n' --model "$pick"
+  fi
+}
 
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -120,40 +139,84 @@ requeue() {
   done <<<"$claimed"
 }
 
-# Starts workers for frontier issues; prints the number started.
+# A live worker whose issue, branch and PR have not moved for MAESTRO_STALL_MINUTES. Its thread keeps
+# running and stays in the live set, so nothing else is dispatched on the issue until it ends.
+flag_stalls() {
+  local name="$1" live="$2" repo n labels last branch prs now
+  repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || return 1
+  now="$(date +%s)"
+  while read -r n labels; do
+    [ -n "$n" ] || continue
+    grep -qx "$n" <<<"$live" || continue
+    [[ ",$labels," == *",needs-help,"* ]] && continue
+    last="$(gh issue view "$n" --json updatedAt --jq .updatedAt)" || continue
+    branch="$(gh api "repos/$repo/branches/task/$n" --jq .commit.commit.committer.date 2>/dev/null)" || branch=""
+    prs="$(gh pr list --head "task/$n" --state all --json updatedAt --jq '.[].updatedAt' 2>/dev/null)" || prs=""
+    last="$(printf '%s\n' "$last" "$branch" $prs | grep . | sort | tail -n 1)"
+    [ $((now - $(date -d "$last" +%s))) -ge $((stall_minutes * 60)) ] || continue
+    needs_help "$n" "the worker made no push, comment or label change for $stall_minutes minutes, but its thread still runs. Check the \`mw-$n\` thread; remove needs-help to let it carry on."
+    log "$name #$n flagged as stalled"
+  done < <(gh issue list --label in-progress --state open --limit 100 --json number,labels \
+    --jq '.[] | "\(.number) \([.labels[].name] | join(","))"')
+}
+
+# Claims issue $3 and starts a thread on it; returns 1 when the start failed.
+start_thread() {
+  local folder="$1" name="$2" n="$3" title="$4" claim="$5" message="$6" err
+  shift 6
+  gh issue edit "$n" --add-label in-progress >/dev/null
+  gh issue comment "$n" --body "$claim" >/dev/null
+  if err="$("${t3[@]}" thread start "$folder" "$message" --title "$title" "$@" 2>&1 >/dev/null)"; then
+    log "$name #$n dispatched: $title" >&2
+  else
+    # A failed start is a setup problem, not a vanished worker: say what failed, don't retry it.
+    needs_help "$n" "could not start a worker: $(tail -n 3 <<<"$err" | tr '\n' ' ')"
+    log "$name #$n could not start a worker: $err" >&2
+    return 1
+  fi
+}
+
+# Starts reviewers for ready-for-review issues, then builders for frontier issues; prints the number started.
 dispatch() {
-  local folder="$1" name="$2" live="$3" room="$4" repo base frontier n title free blockers started=0 err
+  local folder="$1" name="$2" live="$3" room="$4" repo base reviews frontier n title free blockers started=0 args
   [ "$room" -gt 0 ] || {
     echo 0
     return
   }
   repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || return 1
   base="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)" || return 1
+  reviews="$(gh issue list --label ready-for-review --state open --limit 50 \
+    --search "-label:in-progress -label:needs-help -label:ready-for-human sort:created-asc" \
+    --json number,title --jq '.[] | "\(.number)\t\(.title)"')" || return 1
+  while IFS=$'\t' read -r n title; do
+    [ -n "$n" ] || continue
+    [ "$started" -lt "$room" ] || break
+    # A builder that just handed off may still be ending; its thread holds the issue until then.
+    grep -qx "$n" <<<"$live" && continue
+    free="$(gh issue view "$n" --json state,labels --jq '.state == "OPEN" and any(.labels[]; .name == "ready-for-review") and (any(.labels[]; .name | IN("in-progress", "needs-help", "ready-for-human")) | not)')"
+    [ "$free" = true ] || continue
+    mapfile -t args < <(review_model_args)
+    start_thread "$folder" "$name" "$n" "mw-$n review $title" "maestro: claimed review" \
+      "Use the \`maestro-reviewer\` skill for issue #$n in $repo." --worktree "$base" "${args[@]}" &&
+      started=$((started + 1))
+  done <<<"$reviews"
   frontier="$(gh issue list --label ready-for-agent --state open --limit 50 \
-    --search "-is:blocked -label:in-progress -label:needs-help -label:ready-for-human sort:created-asc" \
+    --search "-is:blocked -label:in-progress -label:needs-help -label:ready-for-human -label:ready-for-review sort:created-asc" \
     --json number,title --jq '.[] | "\(.number)\t\(.title)"')" || return 1
   while IFS=$'\t' read -r n title; do
     [ -n "$n" ] || continue
     [ "$started" -lt "$room" ] || break
     grep -qx "$n" <<<"$live" && continue
     # Search lags by a few seconds; re-read before claiming.
-    free="$(gh issue view "$n" --json state,labels --jq '.state == "OPEN" and (any(.labels[]; .name | IN("in-progress", "needs-help", "ready-for-human")) | not)')"
+    free="$(gh issue view "$n" --json state,labels --jq '.state == "OPEN" and (any(.labels[]; .name | IN("in-progress", "needs-help", "ready-for-human", "ready-for-review")) | not)')"
     [ "$free" = true ] || continue
     # The search's -is:blocked lags behind edges added seconds ago, as when an issue is split.
     blockers="$(gh api "repos/$repo/issues/$n/dependencies/blocked_by" --paginate |
       jq -s '[add // [] | .[] | select(.state == "open")] | length')" || continue
     [ "$blockers" = 0 ] || continue
-    gh issue edit "$n" --add-label in-progress >/dev/null
-    gh issue comment "$n" --body "maestro: claimed" >/dev/null
-    if err="$("${t3[@]}" thread start "$folder" "Use the \`maestro-worker\` skill for issue #$n in $repo." \
-      --title "mw-$n $title" --worktree "$base" "${model_args[@]}" 2>&1 >/dev/null)"; then
+    start_thread "$folder" "$name" "$n" "mw-$n $title" "maestro: claimed" \
+      "Use the \`maestro-worker\` skill for issue #$n in $repo." --worktree "$base" "${model_args[@]}" &&
       started=$((started + 1))
-      log "$name #$n dispatched: $title" >&2
-    else
-      # A failed start is a setup problem, not a vanished worker: say what failed, don't retry it.
-      needs_help "$n" "could not start a worker: $(tail -n 3 <<<"$err" | tr '\n' ' ')"
-      log "$name #$n could not start a worker: $err" >&2
-    fi
   done <<<"$frontier"
   echo "$started"
 }
@@ -239,6 +302,10 @@ tick() {
       cd "$folder" || exit 1
       requeue "$name" "${lives[$i]}"
     ) || log "$name: requeue failed"
+    (
+      cd "$folder" || exit 1
+      flag_stalls "$name" "${lives[$i]}"
+    ) || log "$name: stall check failed"
     local started
     started="$(cd "$folder" && dispatch "$folder" "$name" "${lives[$i]}" $((max - running)))" ||
       log "$name: dispatch failed"
