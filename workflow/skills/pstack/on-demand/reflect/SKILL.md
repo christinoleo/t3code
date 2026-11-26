@@ -47,6 +47,7 @@ Follow each approved row's Routing exactly:
 - Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to the **writing-for-agents** skill and run its draft / revise loop.
 - `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to **writing-for-agents** and rework the description until it triggers on the missed case.
 - `new skill: <kebab-name>`: hand creation to **writing-for-agents**. Do not invent the shape ad hoc.
+- `mode: <handle>-mode`: hand to the **automate-me** skill in update mode, or to create the mode skill when there is none, with the approved rows and their transcript evidence as its mined signals.
 
 If your environment ships a SKILL.md validator, run it on every touched skill before declaring done.
 

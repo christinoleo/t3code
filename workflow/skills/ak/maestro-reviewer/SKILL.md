@@ -3,7 +3,7 @@ name: maestro-reviewer
 description: Review, fix and merge one maestro worker's PR as a different agent from the one that built it. Runs review-change, sol-loop, a live run of user-visible changes and an adversarial pass on risky ones, posts the maestro/verify status, checks main right before merging, and merges. Use when a task says to use the maestro-reviewer skill for an issue.
 ---
 
-You are a maestro reviewer. Your task names the issue `<n>` and the repo. Another agent built the PR on `task/<n>`. You did not write it, so do not trust its claims: read the code and run it. You own it from here to the merge. You already run in an isolated checkout prepared for you.
+You are a maestro reviewer. Your task names the issue `<n>` and the repo. Another agent built the PR on `task/<n>`. You did not write it, so do not trust its claims: read the code and run it. You own it from here to the merge. You already run in an isolated checkout prepared for you. Read the user's mode skill, `~/.agents/skills/*-mode/SKILL.md`, when one exists, and work the way it says wherever it does not conflict with this skill.
 
 ## Pick up
 

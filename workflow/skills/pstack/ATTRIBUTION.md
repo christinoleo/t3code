@@ -72,6 +72,9 @@ is all this plugin has. Beyond that:
   disclosure. `arena` defaults to three runners, `swarm` caps at twelve workers, and both have to
   state N and the reason when they go higher. `swarm` also lost `environment: "cloud"`, which has
   no Claude Code equivalent, so its workers run locally.
+- `automate-me` also mines the harness's saved feedback and user memories, which count as confirmed
+  instances, and in update mode mines only the signals a caller hands over. `reflect` routes findings
+  about the user's general preferences to `mode: <handle>-mode`, handled by `automate-me`.
 - `automate-me` was ported off Cursor's built-in `create-skill`, which has no Claude Code
   equivalent. Authoring routes to `writing-for-agents` in the vendored Matt Pocock set.
   `AskQuestion` became `AskUserQuestion` (`allow_multiple` became `multiSelect`, four options

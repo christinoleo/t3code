@@ -19,6 +19,7 @@ Apply each criterion to every finding:
 - Decision-changing: a future agent does something different because of the edit, not just reads more text.
 - Structural-mechanism check: route to Backlog when a lint rule, script, metadata flag, or runtime check already enforces the rule or could enforce it cheaply. Skill prose is for things mechanisms cannot enforce.
 - Skill-was-used: accept only findings that route to a skill, tool, or MCP the parent invoked in the transcript. If the skill wasn't used but should have been, route to `tune description: <skill path>`. If neither, reject as `skill-not-used`.
+- User-preference: a finding about how the user wants agents to work in general (response style, autonomy, verification, process), not tied to one skill, routes to `mode: <handle>-mode`. Skill-was-used does not apply to it, but it still needs the user's own correction or statement in the transcript as evidence.
 - Already-covered: read the target skill before accepting any body-edit row. If the proposal duplicates clear, well-placed existing guidance, reject as `already-covered`, because the issue is execution, not the skill. If the existing guidance is buried, weak, or easy to skip past, accept the row but reframe the proposal as a wording / placement improvement that makes it fire (not a duplicate addition).
 
 Drop (implementation details that drift):
@@ -42,6 +43,7 @@ Output exactly the format below. No preamble, no narration. One sentence per cel
 | <failure mode in a skill the parent used> | <change to that skill's body> | <skill path + section> |
 | <skill existed but didn't trigger> | <tune the skill's description so it fires next time> | <tune description: <skill path>> |
 | <new pattern, no existing skill is a real home> | <draft a new skill via writing-for-agents> | <new skill: <kebab-name>> |
+| <how the user wants agents to work, across skills> | <the rule for their mode skill> | <mode: <handle>-mode> |
 
 One row per finding. The user approves row by row.
 

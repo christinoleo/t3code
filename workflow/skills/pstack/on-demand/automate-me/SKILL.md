@@ -19,7 +19,7 @@ Look for `workflow/skills/ak/*-mode/SKILL.md` in this repo matching the user's h
 - Start fresh (rare, ask why before doing it)
 
 Update mode changes the rest of the flow:
-- Step 1 mines only history since the skill was last edited (`git log -1 --format=%cI <path>`).
+- Step 1 mines only history and memories since the skill was last edited (`git log -1 --format=%cI <path>`). When the caller already hands over the signals (`reflect`'s approved rows, an epic's threads), mine only those.
 - Step 2 asks what's changed or missing, not what to capture from zero.
 - Step 4 edits the existing file in place. Preserve sections the user hasn't contradicted. Revise ones with new evidence. Add new sections only for genuinely new rules.
 
@@ -33,6 +33,8 @@ Mine this project's history as `recall` step 3 does (active project only, a chea
 - Code and prose discipline (style, principles cited, lint/format tools)
 - Process conventions (worktrees, commits, PRs, review/merge tooling)
 - Meta preferences (fixing skills mid-task, proposing new ones)
+
+Read the harness's saved memories about the user too, where it keeps them (Claude Code: the `*.md` files under `~/.claude/projects/<project-slug>/memory/` with `type: feedback` or `type: user`; read every project's when the user works across several). A feedback memory was written from the user's own correction, so it counts as a confirmed instance. Memories reach only the harness that wrote them; the mode skill carries them to every provider. Leave out anything a memory marks as private to one project.
 
 Cross-check across slices before elevating a signal. Patterns seen in 2+ slices are high-confidence. Lone signals are weak and usually get dropped.
 
