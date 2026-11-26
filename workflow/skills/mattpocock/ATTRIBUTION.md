@@ -107,6 +107,9 @@ and `writing-for-agents`.
     this fork's `explain-work`), merged in; pstack upstream changes to it land in that section. Both
     share its rules on grounding, plain words and building diagrams up, and lessons explain their
     knowledge the way Explain mode does.
+  - `to-tickets` gained "Sketch the shared shape": work that changes types, signatures or module
+    boundaries across modules runs pstack's `architect` (Phases A to C, checkpoint on) first, and the
+    agreed sketch becomes a scaffold ticket that blocks every slice. Later steps are renumbered.
   - `research` does the work itself when it already runs as the delegated agent, and saves where its
     caller says. `wayfinder`'s research subagents record their own resolution (comment, close,
     Decisions-so-far line) after pushing their `research/<name>` branch.

@@ -301,6 +301,7 @@ flowchart LR
   to_spec --> replan
   to_spec --> setup_matt_pocock_skills
   to_spec --> to_tickets
+  to_tickets --> architect
   to_tickets --> codebase_design
   to_tickets --> maestro
   to_tickets --> replan

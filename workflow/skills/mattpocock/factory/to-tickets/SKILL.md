@@ -21,7 +21,13 @@ If you have not already explored the codebase, do so to understand the current s
 
 Look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."
 
-### 3. Draft vertical slices
+### 3. Sketch the shared shape
+
+When the work adds or changes types, signatures or module boundaries in more than one module, and no agreed sketch exists yet, run the `architect` skill's Phases A to C first, with its checkpoint on: the user signs off the shape before any slice is drafted. Skip it when the work stays inside one module.
+
+The agreed sketch becomes the **first ticket**, a scaffold: commit the types, signatures and module map with `not implemented` bodies, and nothing else. Put the synthesized design itself in that ticket's body (the caller's usage, the type sketch, the signatures, the module map and the rationale), since the runners' files are temporary and builders work in other checkouts. Every other ticket is blocked by it and fills in its part of the sketch instead of inventing a shape; a slice that needs something the sketch lacks says so in its ticket. When the repo's checks reject unused stubs (an unused-export lint, for one), file the work under an `integration` epic, so the scaffold lands on the epic's branch and never on main alone.
+
+### 4. Draft vertical slices
 
 Break the work into **tracer bullet** tickets. If reshaping a module first would make the slices simpler, judge the shape with the `codebase-design` skill and make that refactor the first ticket.
 
@@ -38,7 +44,7 @@ Give each ticket its **blocking edges**: the other tickets that must complete be
 
 **Wide refactors are the exception to vertical slicing.** A **wide refactor** is one mechanical change (rename a column, retype a shared symbol) whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Don't force it into a tracer bullet; sequence it as **expand–contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites over in batches sized by blast radius (per package, per directory), each batch its own ticket blocked by the expand, keeping CI green batch to batch because the old form still exists. Finally contract: delete the old form once no caller remains, in a ticket blocked by every migrate batch. When even the batches can't stay green alone, keep the sequence but let them share an integration branch that all block a final integrate-and-verify ticket; green is promised only there.
 
-### 4. Quiz the user
+### 5. Quiz the user
 
 When the source is the conversation or a plan, not a spec issue, run `replan` on the draft breakdown first so every stated requirement has a ticket.
 
@@ -56,7 +62,7 @@ Ask the user, as structured questions if your harness offers them:
 
 Iterate until the user approves the breakdown.
 
-### 5. Publish the tickets to the configured tracker
+### 6. Publish the tickets to the configured tracker
 
 Publish the approved tickets. **How** depends on the tracker `/setup-matt-pocock-skills` configured; the tickets are the same either way, only the shape of the blocking edges changes:
 
