@@ -19,4 +19,4 @@ Delegate to one read-only subagent (in T3 Code: `delegate_task`) that explores a
 
 Present the subagent's output. Light edits for clarity or context from the conversation are fine. Do not substantially rewrite it.
 
-**Related:** For how and why together, offer `explain-work`. Ask before switching skills.
+**Related:** For how and why together, offer `teach`'s Explain mode. Ask before switching skills.

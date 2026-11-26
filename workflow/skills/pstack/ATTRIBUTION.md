@@ -8,7 +8,7 @@ full license text is kept alongside this file as `LICENSE.pstack`.
 ## What was taken
 
 Twenty `principle-*` skills (twenty-three upstream, three removed after review; see below), plus `architect`, `arena`, `automate-me`, `benchmark-checklist`,
-`blast-radius`, `bro`, `correct`, `create-verification-skill`, `explain-work`, `figure-it-out`, `how`, `interrogate`,
+`blast-radius`, `bro`, `correct`, `create-verification-skill`, `figure-it-out`, `how`, `interrogate`,
 `maintain-verification-skill`, `no-comments`, `recall`, `reflect`, `show-me-your-work`, `swarm`,
 `technical-writing`, `typescript-best-practices`, `unslop`, `why`, `in-your-own-words`, `sharpen`,
 `ketchup`, `ketchup-video`, and `statechart`. The `comment-sicko` agent
@@ -47,7 +47,7 @@ came across too, since `no-comments` spawns it.
 
 ## Local modifications
 
-- `how` and `why` end with one `**Related:**` line pointing at `explain-work`.
+- `how` and `why` end with one `**Related:**` line pointing at `teach`'s Explain mode.
 - `bro` absorbed Matt Pocock's `wait-what`: one added sentence asking for a little context and the
   repo's `GLOSSARY.md` terms.
 
@@ -82,8 +82,9 @@ is all this plugin has. Beyond that:
   guard; `why` now matches them, as one sentence since upstream cut `why` to a single paragraph.
 - `figure-it-out` lost its citation of `principle-never-block-on-the-human` and its instruction to
   read poteto-mode's principles index, which point at things not vendored here.
-- `teach` was renamed `explain-work`. Its job is explaining a body of work in this codebase, which
-  is a different job from the `teach` in the Matt Pocock set, and two skills cannot share a name.
+- `teach` became Explain mode of the Matt Pocock set's `teach` (see `mattpocock/ATTRIBUTION.md`).
+  It was first renamed `explain-work`, since two skills cannot share a name, then merged. Sync its
+  upstream changes into that section of `mattpocock/on-demand/teach/SKILL.md`.
 - `comment-sicko`'s agent name was lowercased to `comment-sicko` so `subagent_type` resolves.
 - `show-me-your-work`'s transcript audit moved to `~/.claude/projects/<project-slug>/`, and its
   mandatory cross-model review became a reviewer with an assigned skeptic's lens.
@@ -113,7 +114,7 @@ is all this plugin has. Beyond that:
   because those are a user's personal register and should not switch on by themselves.
 - `how` and `why` follow upstream down to one file each. `how` spawns one read-only explainer and
   `why` reads the record itself, so their `references/` folders are gone, and `architect`,
-  `blast-radius`, `no-comments`, `recall`, and `explain-work` no longer point into them.
+  `blast-radius`, `no-comments`, `recall`, and `teach` no longer point into them.
 - `no-comments` spawned `subagent_type: "Comment Sicko"`, which never resolved after the agent was
   renamed. It now spawns `ak:comment-sicko`.
 - `reflect` routed new skills and description tuning to Cursor's `create-skill`. Both now go to
@@ -144,8 +145,7 @@ is all this plugin has. Beyond that:
     `handoff` document as a state capsule; its description now says "across chats". `automate-me`
     leaves prose style to `writing-for-agents`. `show-me-your-work` briefs its reviewer as
     `second-opinion` does.
-  - `explain-work` drops the sentence rules `unslop` already owns, and its heading no longer says
-    "Teach". `technical-writing` drops the short-word rule and the passive-voice clause that
+  - `teach`'s Explain mode drops the sentence rules `unslop` already owns. `technical-writing` drops the short-word rule and the passive-voice clause that
     `unslop` already covers.
   - `correct` judges tests by `principle-test-behavior-not-implementation`.
 

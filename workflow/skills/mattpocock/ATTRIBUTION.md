@@ -101,6 +101,10 @@ and `writing-for-agents`.
   - `tdd` gained "Should this test exist?", asked before each red test, so the loop stops writing
     tests no regression needs; unattended runs record their seams for the reviewer instead of
     approving them silently. A slice an existing case can absorb gets a row, not a new test.
+  - `teach` has two modes. Course mode is upstream's `teach`. Explain mode is pstack's `teach` (once
+    this fork's `explain-work`), merged in; pstack upstream changes to it land in that section. Both
+    share its rules on grounding, plain words and building diagrams up, and lessons explain their
+    knowledge the way Explain mode does.
   - `research` does the work itself when it already runs as the delegated agent, and saves where its
     caller says. `wayfinder`'s research subagents record their own resolution (comment, close,
     Decisions-so-far line) after pushing their `research/<name>` branch.
