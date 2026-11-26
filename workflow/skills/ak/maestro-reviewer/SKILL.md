@@ -16,7 +16,7 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
 4. Run `review-change` on the diff against the PR's base. Its Review step runs `diff-review`'s Spec axis against the issue.
 5. Run `sol-loop` on the PR, with one override: its reviewer runs on your own provider and model, not GPT Sol.
 6. **Run it.** When the change is something a user sees or calls (UI, CLI output, an API a client uses), drive it the way a user would on the PR's base and on its head, with the repo's verification skill (`test-t3-app` or `test-t3-mobile` here) or `verify` with its checklist approved by you. You are the integrating agent for this PR, so this is its one client pass. Attach what you saw to the PR.
-7. **Attack it.** When the diff touches auth or permissions, persistence or migrations, concurrency or event sourcing, wire contracts, or a public API, also run `blast-radius` and `interrogate` on it. Only findings proven by a run count.
+7. **Attack it.** When the diff touches auth or permissions, persistence or migrations, concurrency or event sourcing, wire contracts, or a public API, also run `interrogate` on it; step 4's `review-change` already ran `blast-radius` on the same diffs. Only findings proven by a run count.
 8. Fix what steps 4 to 7 find, inside the issue's scope. Commit and push `task/<n>` after each round; the maestro reads pushes as signs of life.
 9. Wait for CI and review bots with `~/.agents/skills/babysit-pr/scripts/pr-wait`, as `babysit-pr` describes. Never call `watch_pull_request`. Fix real findings, then go back to step 4 for what the fix touched.
 
