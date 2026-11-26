@@ -3,43 +3,37 @@ flowchart LR
   n0("ready-for-agent")
   n1("claimed, worker not started")
   n2("builder running")
-  n3("needs-help, master decides")
+  n3("worker ended, maestro not yet looked")
   n4("ready-for-review")
   n5("needs-help raised, worker ending, maestro not yet looked")
-  n6("worker ended, maestro not yet looked")
+  n6("needs-help, master decides")
   n7("merged")
   n8("reviewer running")
   n2 -->|"<W> labels <issue> needs-help"| n5
-  n2 -->|"maestro flags <W> stalled on <issue>: needs-help"| n3
   n2 -->|"<W> opens the PR, labels <issue> ready-for-review"| n4
-  n2 -->|"<W> dies on <issue>"| n6
-  n2 -->|"<W> quits early on <issue>"| n6
+  n2 -->|"<W> dies or gives up on <issue>"| n3
+  n2 -->|"<W> quits early on <issue>"| n3
+  n2 -->|"maestro stops <W>, stalled on <issue>"| n3
   n1 -->|"maestro spawns <W> on <issue>"| n2
   n1 -->|"maestro spawns <W> on <issue>"| n8
-  n5 -->|"maestro reaps <W>: <issue> needs-help, tells master"| n3
-  n3 -->|"<W> reviews and merges <issue>"| n7
-  n3 -->|"master finishes <issue> by hand"| n7
-  n3 -->|"master removes needs-help on <issue>"| n0
-  n3 -->|"master removes needs-help on <issue>"| n4
+  n5 -->|"maestro reaps <W>: <issue> needs-help, tells master"| n6
+  n6 -->|"master finishes <issue> by hand"| n7
+  n6 -->|"master removes needs-help on <issue>"| n0
+  n6 -->|"master removes needs-help on <issue>"| n4
   n0 -->|"maestro claims <issue> (adds in-progress)"| n1
-  n0 -->|"<W> labels <issue> needs-help"| n5
-  n0 -->|"maestro gives up nudging <W>: <issue> needs-help"| n3
-  n0 -->|"maestro gives up on <issue>: died twice, needs-help"| n3
-  n0 -->|"<W> opens the PR, labels <issue> ready-for-review"| n4
   n4 -->|"maestro claims review of <issue> (adds in-progress)"| n1
-  n4 -->|"<W> reviews and merges <issue>"| n7
-  n4 -->|"<W> labels <issue> needs-help"| n5
   n8 -->|"<W> reviews and merges <issue>"| n7
   n8 -->|"<W> labels <issue> needs-help"| n5
-  n8 -->|"maestro flags <W> stalled on <issue>: needs-help"| n3
-  n8 -->|"<W> dies on <issue>"| n6
-  n8 -->|"<W> quits early on <issue>"| n6
-  n6 -->|"maestro nudges <W>: <issue> still open"| n2
-  n6 -->|"maestro gives up nudging <W>: <issue> needs-help"| n3
-  n6 -->|"maestro gives up on <issue>: died twice, needs-help"| n3
-  n6 -->|"maestro requeues <issue> (worker <W> died)"| n0
-  n6 -->|"maestro requeues <issue> (worker <W> died)"| n4
-  n6 -->|"maestro nudges <W>: <issue> still open"| n8
+  n8 -->|"<W> dies or gives up on <issue>"| n3
+  n8 -->|"<W> quits early on <issue>"| n3
+  n8 -->|"maestro stops <W>, stalled on <issue>"| n3
+  n3 -->|"maestro nudges <W>: <issue> still open"| n2
+  n3 -->|"maestro gives up on <issue>: attempts used, needs-help"| n6
+  n3 -->|"maestro retries <issue> (worker <W> died)"| n0
+  n3 -->|"maestro retries <issue> (worker <W> quit)"| n0
+  n3 -->|"maestro retries <issue> (worker <W> died)"| n4
+  n3 -->|"maestro retries <issue> (worker <W> quit)"| n4
+  n3 -->|"maestro nudges <W>: <issue> still open"| n8
   classDef warn fill:#fff3e6,stroke:#e8730c
   classDef done fill:#e3ffe8,stroke:#2a9d4a
   class n5 warn

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The maestro dispatcher without a model. Each tick, per project: requeue issues whose worker
-# thread is gone, flag workers that stalled, start a maestro-reviewer thread per ready-for-review
+# thread is gone (a fresh worker each time, MAESTRO_RETRIES times), stop workers that stalled, start a maestro-reviewer thread per ready-for-review
 # issue and a maestro-worker thread per frontier issue while fewer than MAESTRO_MAX_WORKERS
 # threads run across all listed projects, close finished epics, and tell the project's master
 # thread about needs-help, epic done and unblocked human tasks.
@@ -11,7 +11,7 @@
 # Run it as a T3 Code daemon (Settings > Daemons, or `t3 daemon add`) with --loop; one per server.
 # Env: MAESTRO_MAX_WORKERS (8), MAESTRO_PROVIDER + MAESTRO_MODEL (else the project's default
 # model), MAESTRO_REVIEW_MODELS (space-separated `provider/model` or `model`; each review picks
-# one at random, else it runs on the builders' model), MAESTRO_STALL_MINUTES (60),
+# one at random, else it runs on the builders' model), MAESTRO_STALL_MINUTES (60), MAESTRO_RETRIES (2),
 # T3_BIN (else this server's own build, then `t3` on PATH).
 set -uo pipefail
 
@@ -68,6 +68,7 @@ elif [ -n "${MAESTRO_MODEL:-}" ]; then
   model_args=(--model "$MAESTRO_MODEL")
 fi
 stall_minutes="${MAESTRO_STALL_MINUTES:-60}"
+retries="${MAESTRO_RETRIES:-2}"
 read -r -a review_models <<<"${MAESTRO_REVIEW_MODELS:-}"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/maestro-queue"
 mkdir -p "$state_dir"
@@ -98,6 +99,18 @@ live_workers() {
     | .title | capture("^mw-(?<n>[0-9]+) ").n' | sort -u
 }
 
+# true when no `maestro: retry` comment follows the issue's last claim, so the attempt left no report.
+attempt_unreported() {
+  gh issue view "$1" --json comments --jq '[.comments[].body] as $b
+    | ([$b | to_entries[] | select(.value | startswith("maestro: claimed")) | .key] | max // -1) as $claim
+    | ([$b | to_entries[] | select(.value | startswith("maestro: retry")) | .key] | max // -1) as $retry
+    | $retry < $claim'
+}
+
+failed_attempts() {
+  gh issue view "$1" --json comments --jq '[.comments[] | select(.body | startswith("maestro: retry"))] | length'
+}
+
 has_comment() {
   gh issue view "$1" --json comments --jq "any(.comments[]; .body | startswith(\"$2\"))"
 }
@@ -115,9 +128,10 @@ tell_master() {
   "${t3[@]}" thread send "$master" "$line" >/dev/null || log "$name: could not message the master"
 }
 
-# An in-progress issue this dispatcher claimed whose worker thread is gone.
+# An in-progress issue this dispatcher claimed whose worker thread is gone: a fresh worker, until
+# MAESTRO_RETRIES attempts after the first have failed. Each failed attempt leaves one retry comment.
 requeue() {
-  local name="$1" live="$2" claimed n labels
+  local name="$1" live="$2" claimed n labels failed
   claimed="$(gh issue list --label in-progress --state open --limit 100 --json number,labels \
     --jq '.[] | "\(.number) \([.labels[].name] | join(","))"')" || return 1
   while read -r n labels; do
@@ -128,21 +142,25 @@ requeue() {
     if [[ ",$labels," == *",needs-help,"* ]]; then
       gh issue edit "$n" --remove-label in-progress >/dev/null
       log "$name #$n needs help; dropped in-progress"
-    elif [ "$(has_comment "$n" "maestro: requeued")" = true ]; then
-      needs_help "$n" "worker disappeared twice without finishing."
     else
-      gh issue comment "$n" \
-        --body "maestro: requeued after the worker ended without finishing." >/dev/null
-      gh issue edit "$n" --remove-label in-progress >/dev/null
-      log "$name #$n requeued"
+      if [ "$(attempt_unreported "$n")" = true ]; then
+        gh issue comment "$n" --body "maestro: retry: the worker ended without finishing or leaving a report." >/dev/null
+      fi
+      failed="$(failed_attempts "$n")"
+      if [ "${failed:-0}" -gt "$retries" ]; then
+        needs_help "$n" "$failed attempts failed; each \`maestro: retry\` comment says what it tried."
+      else
+        gh issue edit "$n" --remove-label in-progress >/dev/null
+        log "$name #$n retried ($failed failed so far)"
+      fi
     fi
   done <<<"$claimed"
 }
 
-# A live worker whose issue, branch and PR have not moved for MAESTRO_STALL_MINUTES. Its thread keeps
-# running and stays in the live set, so nothing else is dispatched on the issue until it ends.
-flag_stalls() {
-  local name="$1" live="$2" repo n labels last branch prs now
+# A live worker whose issue, branch and PR have not moved for MAESTRO_STALL_MINUTES is stopped with a
+# retry comment; the next tick finds its issue orphaned and retries it.
+stop_stalls() {
+  local name="$1" live="$2" folder="$3" repo n labels last branch prs now thread
   repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || return 1
   now="$(date +%s)"
   while read -r n labels; do
@@ -154,8 +172,14 @@ flag_stalls() {
     prs="$(gh pr list --head "task/$n" --state all --json updatedAt --jq '.[].updatedAt' 2>/dev/null)" || prs=""
     last="$(printf '%s\n' "$last" "$branch" $prs | grep . | sort | tail -n 1)"
     [ $((now - $(date -d "$last" +%s))) -ge $((stall_minutes * 60)) ] || continue
-    needs_help "$n" "the worker made no push, comment or label change for $stall_minutes minutes, but its thread still runs. Check the \`mw-$n\` thread; remove needs-help to let it carry on."
-    log "$name #$n flagged as stalled"
+    thread="$("${t3[@]}" thread list --project "$folder" --json | jq -r --argjson live "$live_statuses" --arg n "$n" '[.[]
+      | select(.title | startswith("mw-" + $n + " ")) | select(.status as $s | $live | index($s)) | .threadId] | first // empty')"
+    if [ -n "$thread" ] && "${t3[@]}" thread stop "$thread" --reason "maestro: no push, comment or label change for $stall_minutes minutes" >/dev/null; then
+      gh issue comment "$n" --body "maestro: retry: the worker made no push, comment or label change for $stall_minutes minutes, so the maestro stopped it." >/dev/null
+      log "$name #$n stopped as stalled"
+    else
+      needs_help "$n" "the worker made no push, comment or label change for $stall_minutes minutes, and the maestro could not stop its thread."
+    fi
   done < <(gh issue list --label in-progress --state open --limit 100 --json number,labels \
     --jq '.[] | "\(.number) \([.labels[].name] | join(","))"')
 }
@@ -304,7 +328,7 @@ tick() {
     ) || log "$name: requeue failed"
     (
       cd "$folder" || exit 1
-      flag_stalls "$name" "${lives[$i]}"
+      stop_stalls "$name" "${lives[$i]}" "$folder"
     ) || log "$name: stall check failed"
     local started
     started="$(cd "$folder" && dispatch "$folder" "$name" "${lives[$i]}" $((max - running)))" ||

@@ -6,6 +6,7 @@ ISSUES = ["A", "B"]  # a third free issue multiplies the graph past what fits in
 DEPS = {"A": [], "B": ["A"]}  # B is blocked by A
 W = 2  # worker slots (N)
 NUDGE_MAX = 1  # real skill: 3; reduced to keep the graph small
+RETRIES = 2  # fresh workers after the first attempt fails, before needs-help
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,7 @@ class Cfg:
 # hb    in on | paused | deleted
 def init():
     n = len(ISSUES)
-    return (("Ready",) * n, (False,) * n, (0,) * n, (("Idle",),) * W, None, True, "on", False, 0, (False,) * n)
+    return (("Ready",) * n, (0,) * n, (0,) * n, (("Idle",),) * W, None, True, "on", False, 0, (False,) * n)
 
 
 def holds(wk, i):
@@ -41,12 +42,12 @@ def open_(pr, i):
     return "Review" if pr[i] else "Ready"
 
 
-def requeue(s, rq, pr, i):
-    return (put(s, i, "Help"), rq) if rq[i] else (put(s, i, open_(pr, i)), put(rq, i, True))
+def requeue(s, rq, pr, i):  # rq[i] counts failed attempts: died, gave up, stalled and stopped, out of nudges
+    return (put(s, i, "Help"), rq) if rq[i] >= RETRIES else (put(s, i, open_(pr, i)), put(rq, i, rq[i] + 1))
 
 
-def settled(v):  # the worker's part is over: merged, handed to review, or already with the master (stalled)
-    return v in ("Merged", "Review", "Help")
+def settled(v):  # the worker's part is over: merged, or handed to review
+    return v in ("Merged", "Review")
 
 
 def maestro(st, cfg):
@@ -65,11 +66,9 @@ def maestro(st, cfg):
             out.append((f"maestro reaps {n}: {I} needs-help, tells master", (put(s, i, "Help"), rq, nud, put(wk, w, ("Idle",)), pend, wake, hb, owe, rs, pr)))
         elif r == "quit" and nud[i] < NUDGE_MAX:
             out.append((f"maestro nudges {n}: {I} still open", (s, rq, put(nud, i, nud[i] + 1), put(wk, w, ("Run", i)), pend, wake, hb, owe, rs, pr)))
-        elif r == "quit":
-            out.append((f"maestro gives up nudging {n}: {I} needs-help", (put(s, i, "Help"), rq, nud, put(wk, w, ("Idle",)), pend, wake, hb, owe, rs, pr)))
-        else:  # died
+        else:  # died, gave up, stopped as stalled, or out of nudges
             s2, rq2 = requeue(s, rq, pr, i)
-            lab = f"maestro requeues {I} (worker {n} died)" if not rq[i] else f"maestro gives up on {I}: died twice, needs-help"
+            lab = f"maestro retries {I} (worker {n} {'quit' if r == 'quit' else 'died'})" if rq[i] < RETRIES else f"maestro gives up on {I}: attempts used, needs-help"
             out.append((lab, (s2, rq2, nud, put(wk, w, ("Idle",)), pend, wake, hb, owe, rs, pr)))
     for i, I in enumerate(ISSUES):  # orphan needs-help after a restart: the skill's first tick reaps it (gap 1 fix)
         if s[i] == "ClaimedHelp" and holds(wk, i) == 0:
@@ -78,9 +77,9 @@ def maestro(st, cfg):
         if s[i] == "Claimed" and pend != i and holds(wk, i) == 0:
             s2, rq2 = requeue(s, rq, pr, i)
             out.append((f"maestro requeues orphan {I}", (s2, rq2, nud, wk, pend, wake, hb, owe, rs, pr)))
-    for w, x in enumerate(wk):  # stuck detection: no push, comment or label change for too long; the thread keeps running
+    for w, x in enumerate(wk):  # stuck detection: no push, comment or label change for too long; `t3 thread stop`, then retried
         if x[0] == "Run" and s[x[1]] == "Claimed":
-            out.append((f"maestro flags W{w+1} stalled on {ISSUES[x[1]]}: needs-help", (put(s, x[1], "Help"), rq, nud, wk, pend, wake, hb, owe, rs, pr)))
+            out.append((f"maestro stops W{w+1}, stalled on {ISSUES[x[1]]}", (s, rq, nud, put(wk, w, ("Fin", x[1], "died")), pend, wake, hb, owe, rs, pr)))
     if pend is None and any(x[0] == "Idle" for x in wk):
         for i, I in enumerate(ISSUES):
             ok = s[i] in ("Ready", "Review") if cfg.recheck else s[i] in ("Ready", "Review", "Claimed")  # stale search result may still list a claimed issue
@@ -91,7 +90,7 @@ def maestro(st, cfg):
         for w, x in enumerate(wk):
             if x[0] == "Idle":
                 out.append((f"maestro spawns W{w+1} on {ISSUES[pend]}", (s, rq, nud, put(wk, w, ("Run", pend)), None, wake, hb, owe, rs, pr)))
-    if not [o for o in out if " stalled on " not in o[0]]:  # tick has nothing left to do: end it and manage the heartbeat
+    if not [o for o in out if ", stalled on " not in o[0]]:  # tick has nothing left to do: end it and manage the heartbeat
         busy = any(x[0] != "Idle" for x in wk)
         front = any(s[i] in ("Ready", "Review") and unblocked(s, i) for i in range(len(ISSUES)))
         waiting_on_people = any(v == "Help" for v in s) or any(s[i] != "Merged" and not unblocked(s, i) for i in range(len(ISSUES)))
@@ -107,8 +106,8 @@ def workers(st, cfg):
             continue
         i, n, I = x[1], f"W{w+1}", ISSUES[x[1]]
 
-        def fin(r, v=None, pr2=pr):  # a stalled worker that ends late leaves needs-help and a closed issue as they are
-            s2 = s if v is None or (s[i] in ("Help", "Merged") and v != "Merged") else put(s, i, v)
+        def fin(r, v=None, pr2=pr):
+            s2 = s if v is None else put(s, i, v)
             return (s2, rq, nud, put(wk, w, ("Fin", i, r)), pend, True, hb, owe, rs, pr2)
 
         if pr[i]:
@@ -117,7 +116,7 @@ def workers(st, cfg):
             yield f"{n} opens the PR, labels {I} ready-for-review", fin("pr", "Review", put(pr, i, True))
         yield f"{n} labels {I} needs-help", fin("help", "ClaimedHelp")
         yield f"{n} quits early on {I}", fin("quit")
-        yield f"{n} dies on {I}", fin("died")
+        yield f"{n} dies or gives up on {I}", fin("died")
 
 
 def heartbeat(st, cfg):
@@ -149,9 +148,9 @@ def spontaneous_nudge(st, cfg):
 
 def successors(st, cfg):
     """yields (label, next, kind). kind 'auto' = maestro, workers, heartbeat, an owed nudge. 'human' = a decision or a poke nobody was told to make.
-    A stall flag is 'human' too: an alarm the dispatcher may raise, never one it must."""
+    A stall stop is 'human' too: an alarm the dispatcher may raise, never one it must."""
     for lab, nx in maestro(st, cfg):
-        yield lab, nx, "human" if " stalled on " in lab else "auto"
+        yield lab, nx, "human" if ", stalled on " in lab else "auto"
     for lab, nx in workers(st, cfg):
         yield lab, nx, "auto"
     for lab, nx in heartbeat(st, cfg):

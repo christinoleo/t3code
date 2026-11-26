@@ -8,14 +8,14 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
 ## Pick up
 
 1. `gh issue view <n>`. Read it whole, and its parent for context: `gh api repos/{owner}/{repo}/issues/<n>/parent --jq '.number, .title, .body'`. Older issues name the parent with a `Part of #<epic>` line instead.
-2. Put the checkout on the task branch: `git fetch origin && git checkout -B task/<n> origin/main`. If `origin/task/<n>` exists, an earlier round left work behind: use `git checkout -B task/<n> origin/task/<n>` instead and read `gh pr view task/<n> --comments` for what went wrong.
+2. Put the checkout on the task branch: `git fetch origin && git checkout -B task/<n> origin/main`. If `origin/task/<n>` exists, an earlier attempt left work behind: use `git checkout -B task/<n> origin/task/<n>` instead. Read its `maestro: retry` and `maestro: decided` comments on the issue and `gh pr view task/<n> --comments`: keep its decisions unless they caused the failure, and try what its report says to try next.
 3. If `.t3/setup-done` is missing and `.t3/setup-running` names no live PID, run the repo's install step.
-4. If the issue lacks what you need to start, ask for help (below). Do not guess. Judge it by `bcheck`'s Step 3 table, after reading the code: any ❌ or a scope over about 5 files means needs-help, do not start.
+4. Judge the issue by `bcheck`'s Step 3 table, after reading the code. A ❌ is a gap to close, not a reason to stop: close it with a decision as `maestro`'s [Decide or escalate](../maestro/SKILL.md#decide-or-escalate) says, and escalate only what that section names. A scope over about 5 files gets split (below).
 
 ## Build
 
-5. Follow the `full-send` skill's steps 1, 2 and 4: finish the change, prove it per its Proof section, and file the PR with `file-pr`. Leave out `validate-change`, `sol-loop`, babysitting and the merge; the reviewer owns those. Wherever `full-send` would ask the user, ask for help (below) instead.
-6. Push `task/<n>` after your first commit and after each one that follows. The maestro reads pushes, comments and label changes as signs of life; a worker that shows none for an hour is flagged as stalled.
+5. Follow the `full-send` skill's steps 1, 2 and 4: finish the change, prove it per its Proof section, and file the PR with `file-pr`. Leave out `review-change`, `sol-loop`, babysitting and the merge; the reviewer owns those. Wherever `full-send` would ask the user, follow Decide or escalate instead.
+6. Push `task/<n>` after your first commit and after each one that follows. The maestro reads pushes, comments and label changes as signs of life; a worker that shows none for an hour is stopped and retried.
 
 ## Hand off
 
@@ -26,9 +26,9 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
    gh issue edit <n> --add-label ready-for-review --remove-label in-progress
    ```
 
-## Ask for help
+## Decide, give up, or ask for help
 
-When the issue lacks what you need, a rebase conflict touches logic you do not understand or would drop someone else's work, or you are stuck after a real attempt: push what you have, open the PR if there is one, and hand over. Write the comment body per `leaving-pr-comments`:
+Follow `maestro`'s Decide or escalate. Decide reversible calls and log each one. When you are stuck after a real attempt, give up as that section says, so a fresh worker tries next. Ask for help only for what it names: push what you have, open the PR if there is one, and write the comment body per `leaving-pr-comments`:
 
 ```bash
 gh issue edit <n> --add-label needs-help
@@ -48,7 +48,8 @@ Before your final message, settle every thread you started (research children, b
 Exactly one line, nothing else:
 
 - `#<n> pr <PR url>`
+- `#<n> retry: <why>`
 - `#<n> needs-help: <why>`
 - `#<n> split into #<a>, #<b>, …`
 
-If the maestro tells you the issue is still open, hand it off or ask for help, then end with that line again.
+If the maestro tells you the issue is still open, hand it off, give up, or ask for help, then end with that line again.
