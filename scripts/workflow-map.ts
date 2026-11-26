@@ -31,7 +31,7 @@ export function buildSkillMap(skillsRoot: string): SkillMap {
   const group = new Map<string, string>();
   const userOnly = new Set<string>();
   for (const [name, dir] of skills) {
-    group.set(name, NodePath.basename(NodePath.dirname(dir)));
+    group.set(name, NodePath.relative(skillsRoot, dir).split(NodePath.sep)[0] ?? "");
     const text = readSkillText(dir);
     if (/^disable-model-invocation:\s*true/m.test(text)) userOnly.add(name);
     const mentioned = names.filter((other) => {

@@ -186,6 +186,8 @@ Its scripts were reviewed before they came across:
 
 ## Upstream sync
 
+Skills here sit in role folders (`factory/`, `on-demand/`, `guidance/`), as `workflow/README.md` describes; upstream keeps them flat, so each upstream `<skill>/` maps to the one `<role>/<skill>/` folder of that name.
+
 Last synced against `cursor/plugins` commit `bf0c7cd` (2026-11-14). Earlier syncs were taken at
 `ae5650f` (2026-10-31), `ccb5507` (2026-10-06), `12d587d` (2026-09-23), and the first import at `63d938c` (2026-08-13). Each sync is a three-way merge per file with the previous sync commit as
 the base, so local ports survive and upstream prose changes come across. Upstream changes that only

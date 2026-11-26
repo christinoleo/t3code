@@ -105,6 +105,8 @@ and `writing-for-agents`.
 
 ## Upstream sync
 
+Skills here sit in role folders (`factory/`, `on-demand/`), as `workflow/README.md` describes; upstream keeps them flat, so each upstream `<skill>/` maps to the one `<role>/<skill>/` folder of that name.
+
 Last synced against `mattpocock/skills` commit `4ae2317` (2026-10-31). To sync again, run a three-way
 merge per file with the previous sync commit as the base, so local changes survive and upstream
 prose comes across, mapping `triage` to `triage-issues` and `code-review` to `diff-review`.
