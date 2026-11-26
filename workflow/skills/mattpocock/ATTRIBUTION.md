@@ -12,7 +12,7 @@ read by the marketplace.
 
 Every skill but one in upstream's plugin manifest. From `skills/engineering/`: `code-review` (now `diff-review`),
 `codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `research`, `retro`,
-`setup-matt-pocock-skills`, `tdd`, `to-spec`, `to-tickets`, `triage`, `wayfinder`, and `wizard`. From
+`setup-matt-pocock-skills`, `tdd`, `to-spec`, `to-tickets`, `triage`, and `wayfinder`. From
 `skills/productivity/`: `grill-me`, `grilling`, `handoff`, `teach`, `to-questionnaire`,
 and `writing-for-agents`.
 
@@ -30,6 +30,8 @@ and `writing-for-agents`.
   steps of `full-send` (which `full-stop` follows), and `implement-spec` runs the maestro's task graph
   inside one session. The maestro took over the two things only `implement-spec` had: an
   integration branch per epic, and notes shared through the parent issue. Skip both when syncing.
+- `wizard`, removed after it came across: human-only steps get a numbered checklist in the ticket
+  instead of a generated script. Skip it when syncing.
 - Each skill's `agents/openai.yaml`. It configures another vendor's agent and nothing here reads it.
 
 ## Local modifications
@@ -81,7 +83,7 @@ and `writing-for-agents`.
 - Tie-ins so related skills run where they belong: `wayfinder` scans existing code with
   `improve-codebase-architecture` while mapping the frontier; `to-tickets` makes a refactor judged with
   `codebase-design` the first ticket when it simplifies the slices, and gives human-only tickets a
-  `wizard` script; `grilling` sends external-fact questions to `research` and look-and-feel questions
+  numbered checklist; `grilling` sends external-fact questions to `research` and look-and-feel questions
   to `prototype`.
 - `wayfinder` ends a finished map by filing implementation tickets with `to-tickets` and handing them
   to `maestro`, so charting runs straight into dispatch. One added step under "Work through the map".
@@ -95,7 +97,7 @@ and `writing-for-agents`.
     `setup-matt-pocock-skills` says `triage-issues` where it meant `triage`, and records a glossary
     the repo already keeps elsewhere instead of creating a root `GLOSSARY.md`.
   - `to-spec` and `to-tickets` run `replan` on the draft. `wayfinder` publishes a spec destination with
-    `to-spec` first and hands human-only credential or dashboard tasks a `wizard` script.
+    `to-spec` first and hands human-only credential or dashboard tasks a numbered checklist.
   - `diff-review`'s Standards
     prompt adds `typescript-best-practices` for `.ts` and `.tsx` diffs.
   - `tdd` gained "Should this test exist?", asked before each red test, so the loop stops writing
@@ -123,10 +125,8 @@ Last synced against `mattpocock/skills` commit `4ae2317` (2026-10-31). To sync a
 merge per file with the previous sync commit as the base, so local changes survive and upstream
 prose comes across, mapping `triage` to `triage-issues` and `code-review` to `diff-review`.
 
-## The two vendored shell templates
+## The vendored shell template
 
-`diagnosing-bugs/scripts/hitl-loop.template.sh` and `wizard/template.sh` were reviewed line by line.
-Both are templates that an agent copies and edits for one task, and nothing in this plugin runs them
-on its own. The first only prompts in the terminal and prints what it captured. The second opens
-URLs in a browser, writes `.env` values at mode 0600, and sets GitHub secrets and variables through
-`gh` only when a generated wizard calls those helpers. No change was needed.
+`diagnosing-bugs/scripts/hitl-loop.template.sh` was reviewed line by line. It is a template that an
+agent copies and edits for one task, and nothing in this plugin runs it on its own. It only prompts
+in the terminal and prints what it captured. No change was needed.

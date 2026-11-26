@@ -5,7 +5,7 @@ An arrow means the first skill's files name the second, so it may hand work to i
 
 - **Entry points** (call others, nothing calls them): ak-help, figure-it-out, grill-me, ketchup-video (user-only), reflect
 - **Hubs** (call others and are called): architect, arena, automate-me, babysit-pr, bcheck, benchmark-checklist, blast-radius, caveman (user-only), codebase-design, comment-sicko, correct (user-only), council, create-verification-skill, diagnosing-bugs, diff-review, domain-modeling, file-pr, full-send, full-stop, grill-with-docs, grilling, handoff, how, improve-codebase-architecture, interrogate, ketchup, leaving-pr-comments, maestro, maestro-reviewer, maestro-worker, maintain-verification-skill, modernize, no-comments, plan-to-issues (user-only), principle-attack-the-premise (user-only), principle-build-the-lever (user-only), principle-explain-the-number (user-only), principle-fix-root-causes, principle-minimize-reader-load (user-only), principle-prove-it-works, principle-type-system-discipline (user-only), recall, replan, research, retro, review-change, second-opinion, setup-matt-pocock-skills, show-me-your-work, swarm, takeover, tdd, teach, technical-writing, to-spec, to-tickets, triage-issues, typescript-best-practices, verify, wayfinder, why, writing-for-agents
-- **Leaves** (called, call nothing): bro, frontend-design, in-your-own-words, principle-boundary-discipline (user-only), principle-encode-lessons-in-structure (user-only), principle-experience-first (user-only), principle-foundational-thinking (user-only), principle-guard-the-context-window (user-only), principle-laziness-protocol, principle-make-operations-idempotent (user-only), principle-model-the-domain (user-only), principle-outcome-oriented-execution (user-only), principle-redesign-from-first-principles (user-only), principle-separate-before-serializing-shared-state (user-only), principle-sequence-verifiable-units (user-only), principle-test-behavior-not-implementation, prototype, sol-loop, statechart (user-only), to-questionnaire, unslop, wizard
+- **Leaves** (called, call nothing): bro, frontend-design, in-your-own-words, principle-boundary-discipline (user-only), principle-encode-lessons-in-structure (user-only), principle-experience-first (user-only), principle-foundational-thinking (user-only), principle-guard-the-context-window (user-only), principle-laziness-protocol, principle-make-operations-idempotent (user-only), principle-model-the-domain (user-only), principle-outcome-oriented-execution (user-only), principle-redesign-from-first-principles (user-only), principle-separate-before-serializing-shared-state (user-only), principle-sequence-verifiable-units (user-only), principle-test-behavior-not-implementation, prototype, sol-loop, statechart (user-only), to-questionnaire, unslop
 - **Standalone** (no links either way): sharpen, update-t3
 
 ```mermaid
@@ -48,7 +48,6 @@ flowchart LR
     to_tickets["to-tickets"]
     triage_issues["triage-issues"]
     wayfinder["wayfinder"]
-    wizard["wizard"]
     writing_for_agents["writing-for-agents"]
   end
   subgraph pstack
@@ -202,7 +201,6 @@ flowchart LR
   maestro --> triage_issues
   maestro --> verify
   maestro --> wayfinder
-  maestro --> wizard
   maestro_reviewer --> babysit_pr
   maestro_reviewer --> blast_radius
   maestro_reviewer --> diff_review
@@ -308,7 +306,6 @@ flowchart LR
   to_tickets --> replan
   to_tickets --> setup_matt_pocock_skills
   to_tickets --> to_spec
-  to_tickets --> wizard
   triage_issues --> bcheck
   triage_issues --> grilling
   triage_issues --> how
@@ -327,7 +324,6 @@ flowchart LR
   wayfinder --> setup_matt_pocock_skills
   wayfinder --> to_spec
   wayfinder --> to_tickets
-  wayfinder --> wizard
   why --> teach
   writing_for_agents --> unslop
 ```
