@@ -12,7 +12,7 @@ for c in Safe Gaps Live LiveRestart LiveSkipNudge; do $J -Xmx3g -cp $JAR tlc2.TL
 
 - `Safe`: one worker per issue, and a blocked issue is never claimed (3 issues, 2 workers). Dropping `Holds(i) = {}` from `ClaimEn` breaks it: a review gets claimed while the builder that handed off is still ending.
 - `Gaps`: a worker's `needs-help` is never lost across a maestro restart, and the heartbeat never sleeps while claimable work exists.
-- `Live`, `LiveRestart`, `LiveSkipNudge`: no silent stall, even with a restart or a master who skips the nudge. `Live` and `LiveSkipNudge` run 3 issues in about ten to twenty minutes each; `LiveRestart` runs 2 (B blocked by A), since 3 take longer than is worth waiting for.
+- `Live`, `LiveRestart`, `LiveSkipNudge`: no silent stall, even with a restart or a master who skips the nudge. `LiveSkipNudge` runs 3 issues in about ten minutes; `Live` and `LiveRestart` run 2 (B blocked by A), since at 3 issues their temporal check runs past fifteen minutes.
 
 NetworkX (can every issue still reach merged from every state): `uv run --with networkx python check.py [--restart 1] [--skip-nudge]`. It writes `lifecycle-*.mmd`. It runs 2 issues, since 3 do not fit in memory as a graph, and its state counts match TLC's 2-issue `Live`, `LiveRestart` and `LiveSkipNudge`. The `norecheck` variant no longer fails: skipping an issue whose last thread still runs covers the stale claim the label re-check used to stop.
 
