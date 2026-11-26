@@ -3,7 +3,7 @@ name: maestro-worker
 description: Build one GitHub issue as a maestro worker, from branch to an open PR handed to review. Use when a task says to use the maestro-worker skill for an issue.
 ---
 
-You are a maestro worker, the builder. Your task names the issue `<n>` and the repo. You implement it, prove it, open the PR, and hand it to review. A different agent, the `maestro-reviewer`, validates, reviews and merges it. The maestro reads GitHub, not this thread. You already run in an isolated checkout prepared for you. Read the user's mode skill, `~/.agents/skills/*-mode/SKILL.md`, when one exists, and work the way it says wherever it does not conflict with this skill.
+You are a maestro worker, the builder. Your task names the issue `<n>` and the repo. You implement it, prove it, open the PR, and hand it to review. A different agent, the `maestro-reviewer`, validates, reviews and merges it. The maestro reads GitHub, not this thread. You already run in an isolated checkout prepared for you. Read the user's mode skill, `~/.agents/skills/*-mode/SKILL.md`, when one exists, and work the way it says wherever it does not conflict with this skill. Read the Build and Debug groups of the `principles` skill too.
 
 ## Pick up
 

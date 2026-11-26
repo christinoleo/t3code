@@ -56,7 +56,7 @@ export function renderSkillMap(map: SkillMap): string {
     names.filter(filter).map(tag).join(", ") || "none";
 
   // The principles all hang off the same few skills; one node keeps the chart readable.
-  const node = (name: string) => (name.startsWith("principle-") ? "principles" : name);
+  const node = (name: string) => (name.startsWith("principle-") ? "principle-leaves" : name);
   const id = (name: string) => node(name).replaceAll("-", "_");
   const groups = [...new Set(map.group.values())].toSorted();
   const mermaid = ["flowchart LR"];
@@ -67,7 +67,7 @@ export function renderSkillMap(map: SkillMap): string {
     ))
       mermaid.push(`    ${id(name)}["${tag(name)}"]`);
     if (names.some((n) => map.group.get(n) === g && n.startsWith("principle-")))
-      mermaid.push(`    principles["principle-* (see lists above)"]`);
+      mermaid.push(`    principle_leaves["principle-* (see lists above)"]`);
     mermaid.push("  end");
   }
   const edges = new Set<string>();

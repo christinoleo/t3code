@@ -110,6 +110,7 @@ and `writing-for-agents`.
   - `to-tickets` gained "Sketch the shared shape": work that changes types, signatures or module
     boundaries across modules runs pstack's `architect` (Phases A to C, checkpoint on) first, and the
     agreed sketch becomes a scaffold ticket that blocks every slice. Later steps are renumbered.
+  - `wayfinder` and `to-tickets` read the Plan group of this fork's `principles` index.
   - `research` does the work itself when it already runs as the delegated agent, and saves where its
     caller says. `wayfinder`'s research subagents record their own resolution (comment, close,
     Decisions-so-far line) after pushing their `research/<name>` branch.

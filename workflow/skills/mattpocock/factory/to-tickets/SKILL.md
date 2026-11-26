@@ -21,6 +21,8 @@ If you have not already explored the codebase, do so to understand the current s
 
 Look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."
 
+Read the Plan group of the `principles` skill before drafting.
+
 ### 3. Sketch the shared shape
 
 When the work adds or changes types, signatures or module boundaries in more than one module, and no agreed sketch exists yet, run the `architect` skill's Phases A to C first, with its checkpoint on: the user signs off the shape before any slice is drafted. Skip it when the work stays inside one module.
