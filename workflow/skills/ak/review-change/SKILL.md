@@ -7,7 +7,7 @@ Run these in order on the diff against the base branch. Fix what each step finds
 
 1. **Checks.** Run the project's lint, typecheck, and the tests near the change until they pass. Use the commands the repo documents.
 2. **Simplify.** Look for reuse, needless code, and dead code in the diff. Use your harness's built-in simplify skill when it has one (Claude Code: `simplify`). Otherwise do the pass yourself, by the `laziness-protocol` skill.
-3. **Tests.** Judge every test the diff adds or changes by the `principle-test-behavior-not-implementation` skill. Rewrite or delete each one that fails it.
+3. **Tests.** Judge every test the diff adds or changes by the `principle-test-behavior-not-implementation` skill. Rewrite or delete each one that fails it. Then judge the count, by `tdd`'s "Should this test exist?": each new case must name the regression it catches, or it goes; a case that fits an existing test or table becomes a row there; the same check repeated at two layers keeps only the lowest. When the change logged its test seams, flag tests outside them.
 4. **Comments.** Run the `no-comments` skill over the diff. When the diff edits docs or a README, run `technical-writing` on those files; when it edits a `SKILL.md`, `AGENTS.md` or `CLAUDE.md`, run `writing-for-agents`.
 5. **Design.** When the diff adds a module, layer, or abstraction, or touches more than about 5 files:
    - Judge what it adds with the `codebase-design` skill: deep, or a pass-through?

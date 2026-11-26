@@ -21,7 +21,18 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 **Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the user. No test is written at an unconfirmed seam. You can't test everything, so agreeing the seams up front is how testing effort lands on the critical paths and complex logic instead of every edge case.
 
-Ask: "What's the public interface, and which seams should we test?" Give each proposed seam a one-line note on what it catches and what it misses.
+Ask: "What's the public interface, and which seams should we test?" Give each proposed seam a one-line note on what it catches and what it misses. When nobody can confirm them, as in an unattended run, record the seams and those notes where the reviewer will read them (under `maestro`: a `maestro: decided` comment on the issue), and treat that record as the agreement.
+
+## Should this test exist?
+
+Ask before writing each red test. Write it only when every answer holds:
+
+- **It catches a regression someone would hit.** Name it in one line. "Covers the function" is not a regression.
+- **No existing test already covers it.** If one is close, add a row or an assertion to it instead of a new case.
+- **It sits at one layer, the lowest that would fail without the change.** Do not repeat it in a wrapper, at each call site, or in a copy of the same logic.
+- **It is not something a test should leave out:** what the types already guarantee, trivial logic, copy text, a smoke run, a mirror of mock calls, callback wiring, or markup rendered with no behavior behind it.
+
+The repo's own testing guide wins where it says more. A bug fix gets the fewest tests that fail for the bug's reason, then the fix.
 
 When the shape of that interface is itself in question (how deep the module is, where the seam belongs, what the interface should expose), use the "codebase-design" skill for the vocabulary. It is the shared source of the module, interface, depth, seam, adapter, leverage and locality terms, and it is a reference to consult, not a session to run.
 
@@ -36,5 +47,5 @@ When the shape of that interface is itself in question (how deep the module is, 
 Order the loop's steps and commits per `~/.agents/skills/principle-sequence-verifiable-units/SKILL.md`.
 
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
-- **One slice at a time.** One seam, one test, one minimal implementation per cycle.
+- **One slice at a time.** One seam, one test, one minimal implementation per cycle. A slice that an existing case can absorb gets a new row there, not a new test.
 - **Refactoring is not part of the loop.** It belongs to the review stage (see the `review-change` skill), not the red → green implementation cycle.

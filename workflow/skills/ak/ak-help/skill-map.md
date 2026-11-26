@@ -225,6 +225,7 @@ flowchart LR
   maestro_worker --> maestro_reviewer
   maestro_worker --> review_change
   maestro_worker --> sol_loop
+  maestro_worker --> tdd
   maintain_verification_skill --> create_verification_skill
   modernize --> leaving_pr_comments
   modernize --> review_change
@@ -263,6 +264,7 @@ flowchart LR
   review_change --> no_comments
   review_change --> principles
   review_change --> replan
+  review_change --> tdd
   review_change --> technical_writing
   review_change --> to_tickets
   review_change --> writing_for_agents
@@ -292,6 +294,7 @@ flowchart LR
   takeover --> modernize
   takeover --> review_change
   tdd --> codebase_design
+  tdd --> maestro
   tdd --> principles
   tdd --> review_change
   teach --> research

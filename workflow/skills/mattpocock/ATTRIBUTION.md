@@ -98,6 +98,9 @@ and `writing-for-agents`.
     `to-spec` first and hands human-only credential or dashboard tasks a `wizard` script.
   - `diff-review`'s Standards
     prompt adds `typescript-best-practices` for `.ts` and `.tsx` diffs.
+  - `tdd` gained "Should this test exist?", asked before each red test, so the loop stops writing
+    tests no regression needs; unattended runs record their seams for the reviewer instead of
+    approving them silently. A slice an existing case can absorb gets a row, not a new test.
   - `research` does the work itself when it already runs as the delegated agent, and saves where its
     caller says. `wayfinder`'s research subagents record their own resolution (comment, close,
     Decisions-so-far line) after pushing their `research/<name>` branch.
