@@ -1,6 +1,6 @@
 ---
 name: review-change
-description: Review a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, a design and architecture scan of structural changes, and the harness's own code reviewer, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
+description: Review a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, a design and architecture scan of structural changes, the harness's own code reviewer, and a check of any performance number it claims, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
 ---
 
 Run these in order on the diff against the base branch. Fix what each step finds before the next one, and keep every fix inside the change's scope.
@@ -15,7 +15,7 @@ Run these in order on the diff against the base branch. Fix what each step finds
 
    When the diff touches a migration, auth, concurrency, or a public API, run the `blast-radius` skill.
 
-6. **Review.** Run your harness's own code reviewer on the diff (Claude Code: the `code-review` skill at its default level). When the change implements an issue or spec, also run only `diff-review`'s Spec sub-agent against the base branch, since its Standards axis repeats steps 1-5; run both axes when the harness has no reviewer you can invoke. When it implements neither, run `replan` in delivered mode against the conversation.
+6. **Review.** Run your harness's own code reviewer on the diff (Claude Code: the `code-review` skill at its default level). When the change implements an issue or spec, also run only `diff-review`'s Spec sub-agent against the base branch, since its Standards axis repeats steps 1-5; run both axes when the harness has no reviewer you can invoke. When it implements neither, run `replan` in delivered mode against the conversation. When the change or its PR claims a performance number (a speedup, a regression fixed, a latency, a size or a memory figure), vet the measurement with the `benchmark-checklist` skill before accepting it; a number that fails it gets re-measured or comes out of the PR.
 7. **Checks again**, if any step above changed code.
 
 Report one line per step: what it found and what you changed.

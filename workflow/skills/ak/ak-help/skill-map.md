@@ -252,6 +252,7 @@ flowchart LR
   retro --> correct
   retro --> principles
   retro --> writing_for_agents
+  review_change --> benchmark_checklist
   review_change --> blast_radius
   review_change --> codebase_design
   review_change --> diff_review
