@@ -23,6 +23,12 @@ Every file is byte-identical to upstream except these:
   uses the closest strong model from a provider the council does not already have, taken from
   `orchestrator_capabilities`, and says which one stood in. It still reports when three providers
   cannot be reached.
+- `council` has two modes. Review mode is upstream's `council`, now judged against a rubric of 3 to 6
+  criteria, so each PR cell counts the criteria met instead of a score out of 10, and a round ends
+  when every member finds every criterion met. Build mode is pstack's `arena`, merged in, with the
+  council's members and provider fallback as its runners and a judge from another provider. When
+  three providers cannot be reached, it reports and runs with the providers it has. pstack upstream
+  changes to `arena` land in Build mode.
 - `sol-loop` used to report a blocker when no route ran GPT Sol, and told Claude Code users to use
   a custom subagent set up for Sol. It now reviews with Sol only and never with Grok or another xAI
   model, whose quota is kept for image and video generation. When no Sol is reachable it skips, and

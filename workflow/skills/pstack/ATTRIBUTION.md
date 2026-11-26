@@ -7,7 +7,7 @@ full license text is kept alongside this file as `LICENSE.pstack`.
 
 ## What was taken
 
-Twenty `principle-*` skills (twenty-three upstream, three removed after review; see below), plus `architect`, `arena`, `automate-me`, `benchmark-checklist`,
+Twenty `principle-*` skills (twenty-three upstream, three removed after review; see below), plus `architect`, `automate-me`, `benchmark-checklist`,
 `blast-radius`, `bro`, `correct`, `create-verification-skill`, `figure-it-out`, `how`, `interrogate`,
 `maintain-verification-skill`, `no-comments`, `recall`, `reflect`, `show-me-your-work`, `swarm`,
 `technical-writing`, `typescript-best-practices`, `unslop`, `why`, `in-your-own-words`, `sharpen`,
@@ -58,7 +58,7 @@ equivalents. Where a skill got reviewer or candidate diversity by mixing model v
 diversity now comes from an assigned lens or a distinct starting constraint, because one vendor
 is all this plugin has. Beyond that:
 
-- `interrogate` follows upstream's rewrite: adversaries run through `arena`'s Phase A steps 3 and 4
+- `interrogate` follows upstream's rewrite: adversaries run through `arena`'s Phase A steps 3 and 4 (now the `council` skill's Build mode)
   and Phase B, and only findings proven by a run survive. Its four reference files went with the
   old reviewer flow. Adversaries spawn as `general-purpose`, and the `pstack-models.mdc` role line
   is gone.
@@ -67,7 +67,8 @@ is all this plugin has. Beyond that:
   output path. Its Phase A called `why` to recover the rationale behind an existing shape; it now
   names concrete sources (git history, the PRs that introduced the files, ADRs) and says to flag
   what it cannot find rather than assume it away.
-- `arena` and `swarm` were capped. Upstream took N from the user with no ceiling and no cost
+- `arena` is now the Build mode of tstack's `council` (see `tstack/ATTRIBUTION.md`); sync its upstream changes into that section. Before the merge, `arena` and `swarm` were capped. Upstream took N from the user with no ceiling and no cost
+  `interrogate`, `swarm` and `figure-it-out` name `council`'s Build mode, or a design bakeoff, where they named `arena`.
   disclosure. `arena` defaults to three runners, `swarm` caps at twelve workers, and both have to
   state N and the reason when they go higher. `swarm` also lost `environment: "cloud"`, which has
   no Claude Code equivalent, so its workers run locally.
