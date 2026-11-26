@@ -1,6 +1,6 @@
 # Skill pipeline model
 
-TLA+ model of one idea through the skills, from what each SKILL.md says: grilling, to-spec / wayfinder / plan+replan, to-tickets / plan-to-issues, maestro, maestro-worker (which ships through full-send and validate-change), merged; by hand: bcheck (also through full-send), implement-spec, triage. Results: `results.md`, before and after the skills closed the first ten gaps.
+TLA+ model of one idea through the skills, from what each SKILL.md says: grilling, to-spec / wayfinder / plan+replan, to-tickets / plan-to-issues, maestro, maestro-worker (which ships through full-send and review-change), merged; by hand: bcheck (also through full-send), implement-spec, triage. Results: `results.md`, before and after the skills closed the first ten gaps.
 
 Rerun all into a new folder (mise, Node 22+, uv; each checker alone under a 2 GB cap): `sh run.sh /tmp/pipeline-out`
 

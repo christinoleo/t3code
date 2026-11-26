@@ -110,4 +110,4 @@ Capture everything resolved during grilling under "established so far" so the wo
 
 If prior triage notes exist on the issue or PR, read them, check whether the reporter has answered any outstanding questions, and present an updated picture before continuing. Don't re-ask resolved questions.
 
-**Related:** Not for review findings: that is `triage`. Issues it marks `ready-for-agent` go to `maestro` or `bcheck`. Ask before switching skills.
+**Related:** Issues it marks `ready-for-agent` go to `maestro` or `bcheck`. Ask before switching skills.

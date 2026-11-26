@@ -26,7 +26,7 @@ Skill folder names are unique across all groups, because providers see one flat 
 vp run workflow:link
 ```
 
-It symlinks every skill into `~/.claude/skills`, `~/.agents/skills`, and `~/.codex/skills`, which between them cover every provider. The links point into the main checkout, so pulling the fork updates skill content in place. Rerun it after adding or removing a skill. The in-app source update and the `t3code-update` skill run it for you.
+It symlinks every skill into `~/.claude/skills`, `~/.agents/skills`, and `~/.codex/skills`, which between them cover every provider. The links point into the main checkout, so pulling the fork updates skill content in place. Rerun it after adding or removing a skill. The in-app source update and the `update-t3` skill run it for you.
 
 `vp run workflow:map` rewrites `skills/ak/ak-help/skill-map.md`, the chart of which skill names which. Rerun it and commit the result when skills change.
 

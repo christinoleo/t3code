@@ -34,7 +34,7 @@ Every file is byte-identical to upstream except these:
   `pr` prescribed a body template (summary visual, evidence, merge danger), while `file-pr`
   prescribes a title and plain-language description.
 
-- `full-send` runs this fork's `validate-change` skill (in `ak/`) right after its Prove step, one
+- `full-send` runs this fork's `review-change` skill (in `ak/`) right after its Prove step, one
   added line, so every full send gets the checks, simplify, test, no-comments and native-review pass
   before `sol-loop`.
 
@@ -44,7 +44,7 @@ Every file is byte-identical to upstream except these:
   `benchmark-checklist` in Proof, and keeps decisions with `show-me-your-work` on a multi-phase run.
   `council` briefs a question or design as `second-opinion` does. `file-pr` and `leaving-pr-comments`
   run their text through `technical-writing` and `unslop`. `takeover` and `modernize` run
-  `validate-change` after logic changes of their own.
+  `review-change` after logic changes of their own.
 
 Otherwise `full-send` is unchanged. It names `AskUserQuestion` (Claude Code) and `request_user_input`
 (Codex) and falls back to "the question tool your harness has", so it already works under every

@@ -34,8 +34,8 @@ and `writing-for-agents`.
 - The `engineering/` and `productivity/` split is flattened, because this folder is one `skills`
   entry in the manifest.
 - `triage` is `triage-issues`, including its frontmatter name and every reference that means the
-  skill. `/triage` is already the `ak` command that walks through review findings, and two entries
-  in one plugin cannot share a name. Prose about triage as an activity and the example tickets in
+  skill. It was renamed while the `ak` set had its own `triage` for review findings; that one is
+  gone, and the name stays so references do not churn. Prose about triage as an activity and the example tickets in
   `AGENT-BRIEF.md` are unchanged.
 - Sixteen skills had `disable-model-invocation` removed, for the same reason as the pstack set: the
   agent should reach for a skill when the situation comes up. The fork carried this change already.
@@ -64,8 +64,8 @@ and `writing-for-agents`.
 - `diff-review`, `diagnosing-bugs`, `tdd`, `implement`, `codebase-design`, `retro`, and `to-spec`
   each gained one sentence citing the pstack principles that apply, by name when the principle is
   a visible skill and by `~/.agents/skills/principle-<name>/SKILL.md` when it is hidden.
-- `implement`, `implement-spec`, and `tdd` point at this fork's `validate-change` skill where they
-  pointed at `diff-review`. `validate-change` runs checks, simplify, a test-quality pass,
+- `implement`, `implement-spec`, and `tdd` point at this fork's `review-change` skill where they
+  pointed at `diff-review`. `review-change` runs checks, simplify, a test-quality pass,
   `no-comments`, and the harness's own reviewer, and still runs `diff-review` for its Spec axis
   when the change implements an issue or spec.
 - Fixes from the pipeline model (`ak/ak-help/model/`): `to-spec` labels its spec `epic` instead of
@@ -93,7 +93,7 @@ and `writing-for-agents`.
     the repo already keeps elsewhere instead of creating a root `GLOSSARY.md`.
   - `to-spec` and `to-tickets` run `replan` on the draft. `wayfinder` publishes a spec destination with
     `to-spec` first and hands human-only credential or dashboard tasks a `wizard` script.
-  - `implement-spec` builds each ticket with `implement`, minus its final `validate-change`, which
+  - `implement-spec` builds each ticket with `implement`, minus its final `review-change`, which
     runs once on the branch. `implement` offers `verify` after a UI change. `diff-review`'s Standards
     prompt adds `typescript-best-practices` for `.ts` and `.tsx` diffs.
   - `diagnosing-bugs` vets measurements with `benchmark-checklist`, runs `why` on a suspect that

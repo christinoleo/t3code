@@ -1,6 +1,6 @@
 ---
-name: validate-change
-description: Validate a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, and the harness's own code reviewer, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
+name: review-change
+description: Review a finished diff before it ships. Runs the checks, a simplify pass, a test-quality check, the no-comments pass, and the harness's own code reviewer, fixing what each finds. Use after a change works and before filing or merging its PR; full-send and maestro-reviewer run it.
 ---
 
 Run these in order on the diff against the base branch. Fix what each step finds before the next one, and keep every fix inside the change's scope.

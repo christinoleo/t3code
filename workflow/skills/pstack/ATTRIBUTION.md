@@ -103,7 +103,7 @@ is all this plugin has. Beyond that:
   rule folded into `principle-outcome-oriented-execution` as a guardrail. Skip both when syncing.
 - The subtract-before-you-add principle skill was deleted and its one line not already in
   `principle-laziness-protocol` (add no speculative validators or guards beyond the spec) moved
-  there as a "Subtract before you add" bullet. `validate-change` and `architect` cite
+  there as a "Subtract before you add" bullet. `review-change` and `architect` cite
   `laziness-protocol` instead. Skip it when syncing.
 - Every other vendored skill had `disable-model-invocation` removed. Upstream ships most of them as
   user-invoked only. Here the agent should reach for them on its own: a skill helps when the
@@ -136,7 +136,7 @@ is all this plugin has. Beyond that:
   - `architect` judges depth with `codebase-design`'s terms and deletion test, and
     `principle-minimize-reader-load` points its layer bullets there. `blast-radius` hands a big and
     wide change to `interrogate`. `figure-it-out` points at `swarm`, `to-tickets`, `maestro`, and
-    `wayfinder` when it fans out, and at `validate-change` and `full-send` for code to merge.
+    `wayfinder` when it fans out, and at `review-change` and `full-send` for code to merge.
     `swarm` sends shipping code to `to-tickets` and competing attempts to `arena`.
   - `recall`, `reflect`, `automate-me`, and `show-me-your-work` share one history-scope rule from
     `recall`. `recall` routes a single chat to `takeover`, this chat to `ketchup`, and counts a

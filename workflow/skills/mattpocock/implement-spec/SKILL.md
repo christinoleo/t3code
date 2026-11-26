@@ -27,14 +27,14 @@ Communication to and from subagents should be sparse. Communicate primarily thro
 
 4. Use a fresh **implementer subagent** for each ticket, each in its own worktree on its own branch (in T3 Code: `delegate_task` with `isolation: "worktree"`, which checks out the parent's current commit, so commit the integration branch tip first; uncommitted edits stay behind). Each implementer subagent:
    - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
-   - builds the ticket with the `implement` skill, minus its final `validate-change`, which step 7 runs once on the branch;
+   - builds the ticket with the `implement` skill, minus its final `review-change`, which step 7 runs once on the branch;
    - merges the integration branch tip into its own branch before reporting done
 
 5. Once an **implementer subagent** completes, merge its work to the integration branch with a **merger subagent**.
 
 6. If this changes the **frontier** of available tickets, kick off more **implementer subagents** to work on the new tickets. This allows for maximum concurrency.
 
-7. Once all tickets are complete, use the `validate-change` skill on the integration branch. Fix all issues raised by it in a single fresh **implementer subagent**.
+7. Once all tickets are complete, use the `review-change` skill on the integration branch. Fix all issues raised by it in a single fresh **implementer subagent**.
 
 8. If a draft PR exists, mark it ready for review. Otherwise, resolve each ticket the way the issue tracker closes work, and report the integration branch.
 

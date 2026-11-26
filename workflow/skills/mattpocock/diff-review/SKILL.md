@@ -89,4 +89,4 @@ A change can pass one axis and fail the other:
 
 Reporting them separately stops one axis from masking the other.
 
-**Related:** `validate-change` runs it as part of its pass; use it alone to review a branch without fixing. Ask before switching skills.
+**Related:** `review-change` runs it as part of its pass; use it alone to review a branch without fixing. Ask before switching skills.
