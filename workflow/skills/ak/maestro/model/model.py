@@ -113,7 +113,8 @@ def workers(st, cfg):
         if pr[i]:
             yield f"{n} reviews and merges {I}", fin("merged", "Merged")
         else:
-            yield f"{n} opens the PR, labels {I} ready-for-review", fin("pr", "Review", put(pr, i, True))
+            s2, w2 = put(s, i, "Review"), put(wk, w, ("Fin", i, "pr"))  # handoff starts the review phase's own retry budget
+            yield f"{n} opens the PR, labels {I} ready-for-review", (s2, put(rq, i, 0), nud, w2, pend, True, hb, owe, rs, put(pr, i, True))
         yield f"{n} labels {I} needs-help", fin("help", "ClaimedHelp")
         yield f"{n} quits early on {I}", fin("quit")
         yield f"{n} dies or gives up on {I}", fin("died")

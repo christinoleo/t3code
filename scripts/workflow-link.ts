@@ -13,8 +13,7 @@ export interface LinkReport {
   readonly skipped: ReadonlyArray<string>;
 }
 
-/** Every `skills/<source>/<name>/SKILL.md` folder, keyed by skill folder name. */
-/** Skills sit at `<source>/<skill>` or one level down in a role folder, `<source>/<role>/<skill>`. */
+/** Every skill folder, keyed by its name. Skills sit at `<source>/<skill>` or one level down in a role folder, `<source>/<role>/<skill>`. */
 export function listWorkflowSkills(skillsRoot: string): Map<string, string> {
   const skills = new Map<string, string>();
   const add = (dir: string) => {

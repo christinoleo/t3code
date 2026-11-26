@@ -23,8 +23,11 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
 
    ```bash
    gh label create ready-for-review --force --color ededed >/dev/null
+   gh issue comment <n> --body "maestro: handed off <PR url>"
    gh issue edit <n> --add-label ready-for-review --remove-label in-progress
    ```
+
+   The handoff comment starts the reviewer's own retry budget.
 
 ## Decide, give up, or ask for help
 

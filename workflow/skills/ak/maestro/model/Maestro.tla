@@ -63,12 +63,13 @@ MaestroEndsTick           == /\ wake
 
 \* ---- workers ----
 WorkerEnds(w, st, r) == /\ wk[w].k = "Run" /\ s' = [s EXCEPT ![wk[w].i] = st] /\ wk' = [wk EXCEPT ![w] = [k |-> "Fin", i |-> wk[w].i, r |-> r]]
-                        /\ wake' = TRUE /\ UNCHANGED <<tries, nud, pend, hb, owe, rs>>
-\* a builder (no PR yet) hands off; only a reviewer merges
+                        /\ wake' = TRUE /\ UNCHANGED <<nud, pend, hb, owe, rs>>
+\* a builder (no PR yet) hands off, and the review phase starts its own retry budget; only a reviewer merges
 WorkerHandsOff(w) == /\ wk[w].k = "Run" /\ ~pr[wk[w].i] /\ WorkerEnds(w, "Review", "pr") /\ pr' = [pr EXCEPT ![wk[w].i] = TRUE]
-WorkerMerges(w)  == /\ wk[w].k = "Run" /\ pr[wk[w].i] /\ WorkerEnds(w, "Merged", "merged") /\ pr' = pr
+                     /\ tries' = [tries EXCEPT ![wk[w].i] = 0]
+WorkerMerges(w)  == /\ wk[w].k = "Run" /\ pr[wk[w].i] /\ WorkerEnds(w, "Merged", "merged") /\ pr' = pr /\ tries' = tries
 \* only for a product call, an irreversible step, or a migration to merge; anything else it gives up on, which is WorkerDies
-WorkerAsksHelp(w) == WorkerEnds(w, "ClaimedHelp", "help") /\ pr' = pr
+WorkerAsksHelp(w) == WorkerEnds(w, "ClaimedHelp", "help") /\ pr' = pr /\ tries' = tries
 WorkerQuits(w)   == /\ wk[w].k = "Run" /\ wk' = [wk EXCEPT ![w] = [k |-> "Fin", i |-> wk[w].i, r |-> "quit"]] /\ wake' = TRUE /\ UNCHANGED <<s, tries, nud, pend, hb, owe, rs, pr>>
 \* dies, or gives up with a `maestro: retry` comment: either way the issue is an orphan to requeue
 WorkerDies(w)    == /\ wk[w].k = "Run" /\ wk' = [wk EXCEPT ![w] = [k |-> "Fin", i |-> wk[w].i, r |-> "died"]] /\ wake' = TRUE /\ UNCHANGED <<s, tries, nud, pend, hb, owe, rs, pr>>

@@ -107,8 +107,12 @@ attempt_unreported() {
     | $retry < $claim'
 }
 
+# Failed attempts in the current phase: retry comments after the builder's last handoff, so a
+# reviewer gets its own budget instead of whatever the build phase left.
 failed_attempts() {
-  gh issue view "$1" --json comments --jq '[.comments[] | select(.body | startswith("maestro: retry"))] | length'
+  gh issue view "$1" --json comments --jq '[.comments[].body] as $b
+    | ([$b | to_entries[] | select(.value | startswith("maestro: handed off")) | .key] | max // -1) as $handoff
+    | [$b | to_entries[] | select(.key > $handoff and (.value | startswith("maestro: retry")))] | length'
 }
 
 has_comment() {
@@ -160,9 +164,8 @@ requeue() {
 # A live worker whose issue, branch and PR have not moved for MAESTRO_STALL_MINUTES is stopped with a
 # retry comment; the next tick finds its issue orphaned and retries it.
 stop_stalls() {
-  local name="$1" live="$2" folder="$3" repo n labels last branch prs now thread
+  local name="$1" live="$2" folder="$3" repo n labels last branch prs age thread
   repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || return 1
-  now="$(date +%s)"
   while read -r n labels; do
     [ -n "$n" ] || continue
     grep -qx "$n" <<<"$live" || continue
@@ -171,10 +174,13 @@ stop_stalls() {
     branch="$(gh api "repos/$repo/branches/task/$n" --jq .commit.commit.committer.date 2>/dev/null)" || branch=""
     prs="$(gh pr list --head "task/$n" --state all --json updatedAt --jq '.[].updatedAt' 2>/dev/null)" || prs=""
     last="$(printf '%s\n' "$last" "$branch" $prs | grep . | sort | tail -n 1)"
-    [ $((now - $(date -d "$last" +%s))) -ge $((stall_minutes * 60)) ] || continue
+    age="$(jq -rn --arg t "$last" '(now - ($t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) | floor')" || continue
+    [ "$age" -ge $((stall_minutes * 60)) ] || continue
     thread="$("${t3[@]}" thread list --project "$folder" --json | jq -r --argjson live "$live_statuses" --arg n "$n" '[.[]
       | select(.title | startswith("mw-" + $n + " ")) | select(.status as $s | $live | index($s)) | .threadId] | first // empty')"
-    if [ -n "$thread" ] && "${t3[@]}" thread stop "$thread" --reason "maestro: no push, comment or label change for $stall_minutes minutes" >/dev/null; then
+    # Ended since the tick began (or the list failed): next tick's requeue sees an orphan.
+    [ -n "$thread" ] || continue
+    if "${t3[@]}" thread stop "$thread" --reason "maestro: no push, comment or label change for $stall_minutes minutes" >/dev/null; then
       gh issue comment "$n" --body "maestro: retry: the worker made no push, comment or label change for $stall_minutes minutes, so the maestro stopped it." >/dev/null
       log "$name #$n stopped as stalled"
     else
@@ -184,19 +190,46 @@ stop_stalls() {
     --jq '.[] | "\(.number) \([.labels[].name] | join(","))"')
 }
 
-# The branch an issue's PR targets: epic/<parent> when its parent epic is labelled integration (the
-# branch is created from the default branch the first time), else empty for the default branch.
+# The branch an issue's PR targets: epic/<e> when its nearest epic ancestor (a split part's parent is
+# the ticket it came from) is labelled integration, created from the default branch the first time;
+# empty for the default branch. Returns 1 when GitHub could not be read, 2 when the branch could not
+# be created (after printing its name).
 integration_base() {
-  local repo="$1" default="$2" n="$3" parent sha
-  parent="$(gh api "repos/$repo/issues/$n/parent" \
-    --jq 'select(any(.labels[]; .name == "integration")) | .number' 2>/dev/null)" || return 0
-  [ -n "$parent" ] || return 0
-  if ! gh api "repos/$repo/git/ref/heads/epic/$parent" >/dev/null 2>&1; then
-    sha="$(gh api "repos/$repo/git/ref/heads/$default" --jq .object.sha)" || return 1
-    gh api "repos/$repo/git/refs" -f ref="refs/heads/epic/$parent" -f sha="$sha" >/dev/null 2>&1 ||
-      gh api "repos/$repo/git/ref/heads/epic/$parent" >/dev/null 2>&1 || return 1
-  fi
-  echo "epic/$parent"
+  local repo="$1" default="$2" n="$3" depth parent sha epic integration
+  for depth in 1 2 3 4 5; do
+    if ! parent="$(gh api "repos/$repo/issues/$n/parent" \
+      --jq '"\(.number) \(any(.labels[]; .name == "epic")) \(any(.labels[]; .name == "integration"))"' 2>&1)"; then
+      grep -q "404" <<<"$parent" && return 0
+      return 1
+    fi
+    read -r n epic integration <<<"$parent"
+    [ "$integration" = true ] && break
+    [ "$epic" = true ] && return 0
+  done
+  [ "${integration:-false}" = true ] || return 0
+  echo "epic/$n"
+  gh api "repos/$repo/git/ref/heads/epic/$n" >/dev/null 2>&1 && return 0
+  sha="$(gh api "repos/$repo/git/ref/heads/$default" --jq .object.sha 2>/dev/null)" || return 2
+  gh api "repos/$repo/git/refs" -f ref="refs/heads/epic/$n" -f sha="$sha" >/dev/null 2>&1 ||
+    gh api "repos/$repo/git/ref/heads/epic/$n" >/dev/null 2>&1 || return 2
+}
+
+# Resolves an issue's integration base for dispatch; prints it, or fails after saying why.
+dispatch_base() {
+  local name="$1" repo="$2" default="$3" n="$4" target rc
+  target="$(integration_base "$repo" "$default" "$n")"
+  rc=$?
+  case $rc in
+    0) echo "$target" ;;
+    2)
+      needs_help "$n" "could not create the integration branch \`$target\` from \`$default\`."
+      return 1
+      ;;
+    *)
+      log "$name #$n: could not read its parent issues; trying again next tick" >&2
+      return 1
+      ;;
+  esac
 }
 
 # Claims issue $3 and starts a thread on it; returns 1 when the start failed.
@@ -217,7 +250,7 @@ start_thread() {
 
 # Starts reviewers for ready-for-review issues, then builders for frontier issues; prints the number started.
 dispatch() {
-  local folder="$1" name="$2" live="$3" room="$4" repo base reviews frontier n title free blockers started=0 args target
+  local folder="$1" name="$2" live="$3" room="$4" repo base reviews frontier n title free blockers started=0 args arg target
   [ "$room" -gt 0 ] || {
     echo 0
     return
@@ -234,10 +267,11 @@ dispatch() {
     grep -qx "$n" <<<"$live" && continue
     free="$(gh issue view "$n" --json state,labels --jq '.state == "OPEN" and any(.labels[]; .name == "ready-for-review") and (any(.labels[]; .name | IN("in-progress", "needs-help", "ready-for-human")) | not)')"
     [ "$free" = true ] || continue
-    mapfile -t args < <(review_model_args)
-    target="$(integration_base "$repo" "$base" "$n")" || continue
+    args=()
+    while IFS= read -r arg; do args+=("$arg"); done < <(review_model_args)
+    target="$(dispatch_base "$name" "$repo" "$base" "$n")" || continue
     start_thread "$folder" "$name" "$n" "mw-$n review $title" "maestro: claimed review" \
-      "Use the \`maestro-reviewer\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" "${args[@]}" &&
+      "Use the \`maestro-reviewer\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" ${args[@]+"${args[@]}"} &&
       started=$((started + 1))
   done <<<"$reviews"
   frontier="$(gh issue list --label ready-for-agent --state open --limit 50 \
@@ -254,9 +288,9 @@ dispatch() {
     blockers="$(gh api "repos/$repo/issues/$n/dependencies/blocked_by" --paginate |
       jq -s '[add // [] | .[] | select(.state == "open")] | length')" || continue
     [ "$blockers" = 0 ] || continue
-    target="$(integration_base "$repo" "$base" "$n")" || continue
+    target="$(dispatch_base "$name" "$repo" "$base" "$n")" || continue
     start_thread "$folder" "$name" "$n" "mw-$n $title" "maestro: claimed" \
-      "Use the \`maestro-worker\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" "${model_args[@]}" &&
+      "Use the \`maestro-worker\` skill for issue #$n in $repo.${target:+ Base branch: $target.}" --worktree "$base" ${model_args[@]+"${model_args[@]}"} &&
       started=$((started + 1))
   done <<<"$frontier"
   echo "$started"
@@ -309,8 +343,9 @@ report() {
       jq -rs 'add // [] | "\(length) \([.[] | select(.state == "open")] | length)"')
     [ "${total:-0}" -gt 0 ] && [ "${open_subs:-1}" -eq 0 ] || continue
     if [ "$integration" = true ]; then
-      # The user merges it; the merge closes the epic. An open PR means this was already reported.
-      [ -z "$(gh pr list --head "epic/$n" --state open --json number --jq '.[].number')" ] || continue
+      # The user merges it; the merge closes the epic. Any PR from the branch, even one the user
+      # closed, means this was already reported.
+      [ -z "$(gh pr list --head "epic/$n" --state all --json number --jq '.[].number')" ] || continue
       default="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)" || continue
       pr="$(gh pr create --base "$default" --head "epic/$n" --title "$title" \
         --body "Closes #$n. Every sub-issue merged into \`epic/$n\`." 2>&1 | tail -n 1)" || {
