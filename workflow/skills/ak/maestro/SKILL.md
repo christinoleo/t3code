@@ -65,6 +65,7 @@ Blocking is never a label. It lives in GitHub's native issue dependencies.
 | `in-progress`         | a worker owns it, builder or reviewer                                                                     |
 | `needs-help`          | a decision only a person can make (see Decide or escalate), or every attempt failed                       |
 | `provider:<instance>` | optional: dispatch this issue's worker on that provider instance instead of the maestro's own             |
+| `mistake-log`         | the one issue where reviewers log each mistake class they catch; never claimed or dispatched              |
 | `integration`         | on an `epic`: its sub-issues merge into `epic/<n>`, and the user merges one PR to main (below)            |
 
 Keep an issue away from the maestro with `ready-for-human`, or by removing `ready-for-agent`, never with `needs-help`. There is no `hold` label. `needs-help` means someone is blocked on you. Drop `in-progress` when you take a task back from a worker. `wayfinder` tickets carry only `wayfinder:*` labels, so the maestro never touches them.

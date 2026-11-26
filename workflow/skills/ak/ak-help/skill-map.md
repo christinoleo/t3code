@@ -203,6 +203,7 @@ flowchart LR
   maestro --> wayfinder
   maestro_reviewer --> babysit_pr
   maestro_reviewer --> blast_radius
+  maestro_reviewer --> correct
   maestro_reviewer --> diff_review
   maestro_reviewer --> full_send
   maestro_reviewer --> interrogate

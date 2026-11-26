@@ -61,6 +61,13 @@ gh issue edit <n> --add-label needs-help
 gh issue comment <n> --body "<what needs a decision, and what you would do>"
 ```
 
+## Log what you caught
+
+Agents repeat mistakes, and one review sees one case. Each repo keeps a single issue titled `maestro: mistake log`, labelled `mistake-log`; create it the first time, with no other label, so no dispatcher claims it.
+
+1. For every problem steps 4 to 9 found and fixed, the live run's included, comment on the log: `maestro: caught <class>: <what was wrong, one line> (#<n>)`. Name the class in kebab case after the kind of mistake, not this instance. Read the log first and reuse an existing class name when it is the same kind.
+2. When a class reaches 2 catches, file a ticket titled `Make <class> impossible`, linking each catch, with this body: `Fix this one mistake class by following ~/.agents/skills/correct/SKILL.md, its "Fix each class at the highest level that works" and "Fix and prove" sections.` Add `ready-for-agent` last. Skip it while such a ticket is open. When one is closed and the class came back, its fix did not hold: file a new ticket that links the old one and says to fix it a level higher.
+
 ## Settle
 
 Before your final message, settle every thread you started (review and research children, by their `childThreadId`) with `t3_thread_organize` and `action: "settle"`. When you end without a merge, settle your own thread too: the same call without `threadId`. A merged PR settles it already.
