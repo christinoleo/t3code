@@ -43,6 +43,7 @@ import {
   wantedOlderSettledPages,
   type OlderSettled,
   type OlderSettledPages,
+  type OlderSettledShelfEnvironment,
 } from "./olderSettledThreads.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -82,7 +83,7 @@ describe("olderSettledCountKey", () => {
   const key = (
     threads: ReadonlyArray<OrchestrationV2ThreadShell>,
     removedAt: ReadonlyMap<ThreadId, number> = new Map(),
-  ) => olderSettledCountKey(threads, older.beforeMs, removedAt);
+  ) => olderSettledCountKey(threads, older.beforeMs, removedAt).tagged;
   const base = [row("kept-old", { settledDay: 10 }), row("open", { createdDay: 60 })];
 
   it("changes on every event that can change the older count", () => {
@@ -102,6 +103,14 @@ describe("olderSettledCountKey", () => {
     );
     // An older row that enters or leaves a folder.
     expect(key([{ ...base[0]!, tags: ["work"] }, base[1]!])).not.toBe(start);
+  });
+
+  it("keeps tags out of the tag-agnostic key", () => {
+    const tagged = [{ ...base[0]!, tags: ["work"] }, base[1]!];
+    const start = olderSettledCountKey(base, older.beforeMs, new Map());
+    const moved = olderSettledCountKey(tagged, older.beforeMs, new Map());
+    expect(moved.base).toBe(start.base);
+    expect(moved.tagged).not.toBe(start.tagged);
   });
 
   it("stays put for new threads and subagents", () => {
@@ -396,12 +405,13 @@ const shellSnapshot = (input: {
   readonly sequence: number;
   readonly asOfSequence: number;
   readonly count: number;
+  readonly tags?: ReadonlyArray<string>;
 }) =>
   Option.some({
     schemaVersion: 1,
     snapshotSequence: input.sequence,
     projects: [],
-    threads: [row("recent", { settledDay: 60 })],
+    threads: [row("recent", { settledDay: 60, tags: input.tags ?? [] })],
     archivedThreads: [],
     olderSettled: {
       before,
@@ -540,22 +550,20 @@ describe("createOlderSettledThreadAtoms", () => {
       };
       const shelf = atoms.shelfAtom([{ scope: folder, pages: 1 }]);
       registry.mount(shelf);
-      // Until its own count arrives, the folder holds its cut but counts nothing.
       const folderKey = olderSettledScopeKey(folder);
-      expect(registry.get(shelf).get(folderKey)?.older?.counts.size).toBe(0);
-      yield* Queue.offer(replies, Effect.succeed({ snapshotSequence: 3, threads: [], counts: [] }));
-      yield* Queue.offer(
-        replies,
-        Effect.succeed({
-          snapshotSequence: 3,
-          threads: [],
-          counts: [{ projectId: project, count: 4 }],
-        }),
-      );
-      yield* TestClock.adjust("500 millis");
+      // One reply serves both reads: an empty page and the folder's counts.
+      const reply = Effect.succeed({
+        snapshotSequence: 3,
+        threads: [],
+        counts: [{ projectId: project, count: 4 }],
+      });
+      yield* Queue.offer(replies, reply);
+      yield* Queue.offer(replies, reply);
       const read = yield* until(
         shelf,
-        (value) => value.get(folderKey)?.older?.counts.get(project) === 4,
+        (value) =>
+          value.get(folderKey)?.older?.counts.get(project) === 4 &&
+          value.get(folderKey)?.pages.status === "ready",
       );
       expect(read.get(folderKey)?.pages.status).toBe("ready");
       const tagScope = { type: "tagged", tags: ["home", "work"] };
@@ -565,6 +573,107 @@ describe("createOlderSettledThreadAtoms", () => {
           { before: { settledAt: before }, tagScope, limit: 0 },
         ]),
       );
+      expect(requests).toHaveLength(2);
+    }),
+  );
+
+  it.effect("a tag scope counts steadily across scope switches and tag changes", () =>
+    Effect.gen(function* () {
+      const { replies, requests, atoms, registry, setShell, until } = yield* makeAtoms();
+      const snapshot = shellSnapshot({ sequence: 3, asOfSequence: 3, count: 30 });
+      setShell({ snapshot, generation: 1 });
+      const folder = {
+        environmentId,
+        projectIds: null,
+        tagScope: { type: "tagged" as const, tags: ["work"] as const },
+      };
+      const folderKey = olderSettledScopeKey(folder);
+      const shelf = () => atoms.shelfAtom([{ scope: folder, pages: 0 }]);
+      const folderCount = (value: ReadonlyMap<string, OlderSettledShelfEnvironment>) =>
+        value.get(folderKey)?.older?.counts.get(project);
+      registry.mount(atoms.olderSettledAtom(environmentId));
+
+      // Until its own read lands, the folder shows the environment's counts, never zero.
+      const release = registry.mount(shelf());
+      expect(folderCount(registry.get(shelf()))).toBe(30);
+      // Its first read does not wait for a burst of changes to settle.
+      yield* TestClock.adjust("1 millis");
+      expect(requests).toEqual([
+        { before: { settledAt: before }, tagScope: { type: "tagged", tags: ["work"] }, limit: 0 },
+      ]);
+      yield* Queue.offer(
+        replies,
+        Effect.succeed({
+          snapshotSequence: 3,
+          threads: [],
+          counts: [{ projectId: project, count: 4 }],
+        }),
+      );
+      yield* until(shelf(), (value) => folderCount(value) === 4);
+
+      // Switching away and back shows the folder's last count at once and reads nothing.
+      release();
+      yield* TestClock.adjust("1 millis");
+      registry.mount(shelf());
+      expect(folderCount(registry.get(shelf()))).toBe(4);
+      yield* TestClock.adjust("500 millis");
+      expect(requests).toHaveLength(1);
+
+      // Tagging a thread re-reads the folder's counts, not the tag-agnostic ones.
+      setShell({
+        snapshot: shellSnapshot({ sequence: 4, asOfSequence: 3, count: 30, tags: ["work"] }),
+        generation: 1,
+      });
+      expect(folderCount(registry.get(shelf()))).toBe(4);
+      yield* Queue.offer(
+        replies,
+        Effect.succeed({
+          snapshotSequence: 4,
+          threads: [],
+          counts: [{ projectId: project, count: 5 }],
+        }),
+      );
+      yield* TestClock.adjust("500 millis");
+      yield* until(shelf(), (value) => folderCount(value) === 5);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toMatchObject({ tagScope: { type: "tagged", tags: ["work"] } });
+      expect(registry.get(atoms.olderSettledAtom(environmentId))?.counts.get(project)).toBe(30);
+
+      // A reconnect keeps the same cut's count up while it reads again.
+      setShell({
+        snapshot: shellSnapshot({ sequence: 5, asOfSequence: 5, count: 30, tags: ["work"] }),
+        generation: 2,
+      });
+      expect(folderCount(registry.get(shelf()))).toBe(5);
+      yield* TestClock.adjust("1 millis");
+      expect(requests).toHaveLength(3);
+    }),
+  );
+
+  it.effect("a tag scope's first read does not skip the delay for a burst of tag changes", () =>
+    Effect.gen(function* () {
+      const { requests, atoms, registry, setShell } = yield* makeAtoms();
+      setShell({
+        snapshot: shellSnapshot({ sequence: 3, asOfSequence: 3, count: 30 }),
+        generation: 1,
+      });
+      const folder = {
+        environmentId,
+        projectIds: null,
+        tagScope: { type: "tagged" as const, tags: ["work"] as const },
+      };
+      registry.mount(atoms.shelfAtom([{ scope: folder, pages: 0 }]));
+      yield* TestClock.adjust("1 millis");
+      expect(requests).toHaveLength(1);
+      for (const [index, tag] of ["a", "b", "c", "d"].entries()) {
+        setShell({
+          snapshot: shellSnapshot({ sequence: 4 + index, asOfSequence: 3, count: 30, tags: [tag] }),
+          generation: 1,
+        });
+        yield* TestClock.adjust("1 millis");
+      }
+      expect(requests).toHaveLength(1);
+      yield* TestClock.adjust("500 millis");
       expect(requests).toHaveLength(2);
     }),
   );
