@@ -30,6 +30,7 @@ import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -69,6 +70,7 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
     SecureRandom.SecureRandom,
+    ServerSettings.ServerSettingsService,
   ],
 })
   .annotate(Tool.Title, "Organize a thread")

@@ -61,6 +61,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   type ContextMenuSource,
+  folderIconsPatchAfterEdit,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -248,7 +249,6 @@ import {
   folderEditPlan,
   folderEditTargets,
   railKeysAfterFolderEdit,
-  folderIconsPatchAfterEdit,
   type ProjectRailTile,
   folderEditOutcome,
   railOrderAfterMove,

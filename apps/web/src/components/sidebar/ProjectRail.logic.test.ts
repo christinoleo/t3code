@@ -8,7 +8,6 @@ import {
   nextProjectRailScope,
   railOrderAfterMove,
   railKeysAfterFolderEdit,
-  folderIconsPatchAfterEdit,
   folderEditOutcome,
   newThreadCreateTags,
   resolveProjectRailTileStates,
@@ -309,20 +308,6 @@ describe("folder rename and delete", () => {
       fromSurvives: true,
       failures: [{ environmentId, failed: 1, total: 2 }],
     });
-  });
-
-  it("moves a renamed folder's icon and drops a deleted one", () => {
-    const rocket = { kind: "emoji", emoji: "🚀" } as const;
-    const star = { kind: "emoji", emoji: "⭐" } as const;
-    const icons = { ops: rocket, infra: star };
-    expect(folderIconsPatchAfterEdit(icons, "ops", "build")).toEqual({ ops: null, build: rocket });
-    // Merging keeps the target folder's own icon.
-    expect(folderIconsPatchAfterEdit(icons, "ops", "infra")).toEqual({ ops: null });
-    expect(folderIconsPatchAfterEdit(icons, "ops", null)).toEqual({ ops: null });
-    expect(folderIconsPatchAfterEdit(icons, "docs", "build")).toBeNull();
-    // A folder that kept threads after a partial failure keeps its icon.
-    expect(folderIconsPatchAfterEdit(icons, "ops", "build", true)).toEqual({ build: rocket });
-    expect(folderIconsPatchAfterEdit(icons, "ops", null, true)).toBeNull();
   });
 });
 

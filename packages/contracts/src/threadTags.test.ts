@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { folderTagChanges } from "./threadTags.ts";
+import { folderIconsPatchAfterEdit, folderTagChanges } from "./threadTags.ts";
 
 describe("folderTagChanges", () => {
   it.each([
@@ -33,5 +33,21 @@ describe("folderTagChanges", () => {
     { name: "is a no-op back in the project", tags: [], folder: null, expected: [] },
   ])("$name", ({ tags, folder, expected }) => {
     expect(folderTagChanges(tags, folder)).toEqual(expected);
+  });
+});
+
+describe("folderIconsPatchAfterEdit", () => {
+  it("moves a renamed folder's icon and drops a deleted one", () => {
+    const rocket = { kind: "emoji", emoji: "🚀" } as const;
+    const star = { kind: "emoji", emoji: "⭐" } as const;
+    const icons = { ops: rocket, infra: star };
+    expect(folderIconsPatchAfterEdit(icons, "ops", "build")).toEqual({ ops: null, build: rocket });
+    // Merging keeps the target folder's own icon.
+    expect(folderIconsPatchAfterEdit(icons, "ops", "infra")).toEqual({ ops: null });
+    expect(folderIconsPatchAfterEdit(icons, "ops", null)).toEqual({ ops: null });
+    expect(folderIconsPatchAfterEdit(icons, "docs", "build")).toBeNull();
+    // A folder that kept threads after a partial failure keeps its icon.
+    expect(folderIconsPatchAfterEdit(icons, "ops", "build", true)).toEqual({ build: rocket });
+    expect(folderIconsPatchAfterEdit(icons, "ops", null, true)).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   type RunId,
   OrchestratorMcpFailure,
   type OrchestrationV2Command,
+  folderIconsPatchAfterEdit,
   folderTagChanges,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -27,6 +28,7 @@ import type * as ThreadManagement from "../../../orchestration-v2/ThreadManageme
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { rejectionText } from "../../../orchestration-v2/runOutput.ts";
 import { ThreadToolkit } from "./tools.ts";
@@ -420,7 +422,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         const from = yield* required(input.folder, "folder");
         const to = input.action === "delete_folder" ? null : yield* required(input.to, "to");
         const { threads } = yield* readCaller();
-        return yield* threads
+        const result = yield* threads
           .renameThreadTag({ commandId: yield* newCommandId(), from, to })
           .pipe(
             Effect.mapError(
@@ -428,6 +430,22 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
                 new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
             ),
           );
+        // No thread here held the folder, so its icon may belong to another environment's.
+        if (result.threadCount === 0) return result;
+        const settings = yield* ServerSettings.ServerSettingsService;
+        // The rename already landed, so a failed icon move must not report it as failed.
+        yield* settings.getSettings.pipe(
+          Effect.flatMap(({ folderIcons }) => {
+            const folderIconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
+            return folderIconsPatch === null
+              ? Effect.void
+              : settings.updateSettings({ folderIcons: folderIconsPatch });
+          }),
+          Effect.catch((cause) =>
+            Effect.logWarning("folder icon did not follow the folder edit", { from, to, cause }),
+          ),
+        );
+        return result;
       }),
     ),
     writesThread((input) =>

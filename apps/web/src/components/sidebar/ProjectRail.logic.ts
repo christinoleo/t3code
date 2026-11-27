@@ -1,4 +1,4 @@
-import type { ProjectIconOverride, ThreadFolderTagChange } from "@t3tools/contracts";
+import type { ThreadFolderTagChange } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
@@ -254,24 +254,6 @@ export function folderEditOutcome<TEnvironmentId>(
     fromSurvives: failures.length > 0,
     failures,
   };
-}
-
-/**
- * The `folderIcons` settings patch that moves folder `from`'s icon to `to`, or
- * drops it when `to` is null. A merge keeps the target folder's own icon, and
- * a `from` that kept some threads after a partial failure keeps its icon too.
- */
-export function folderIconsPatchAfterEdit(
-  icons: Readonly<Record<string, ProjectIconOverride>>,
-  from: string,
-  to: string | null,
-  fromSurvives = false,
-): Record<string, ProjectIconOverride | null> | null {
-  const icon = icons[from];
-  if (icon === undefined || from === to) return null;
-  const patch: Record<string, ProjectIconOverride | null> = fromSurvives ? {} : { [from]: null };
-  if (to !== null && icons[to] === undefined) patch[to] = icon;
-  return Object.keys(patch).length > 0 ? patch : null;
 }
 
 /** What "Filter by" on a thread picks: its folder when tagged, else its project unless archived. */
