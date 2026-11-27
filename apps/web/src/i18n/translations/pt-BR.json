@@ -2619,6 +2619,8 @@
   "0b58e43fd858408a": "Nenhuma thread ativa em {project}",
   "297c00f959338825": "Ainda não há threads neste filtro",
   "981053bcf95b3d3f": "Ainda não há threads em {project}",
+  "9a6298d645751cd7": "As threads deste filtro estão em pastas",
+  "86747ad23a3c304a": "As threads de {project} estão em pastas",
   "151767f20fa67c48": "Fixadas",
   "db8f17154d4f0cfa": "Ativas",
   "9578dc3e84f82081": "Trabalhando",

@@ -2619,6 +2619,8 @@
   "0b58e43fd858408a": "Keine aktiven Threads in {project}",
   "297c00f959338825": "Noch keine Threads in diesem Filter",
   "981053bcf95b3d3f": "Noch keine Threads in {project}",
+  "9a6298d645751cd7": "Die Threads in diesem Filter liegen in Ordnern",
+  "86747ad23a3c304a": "Die Threads in {project} liegen in Ordnern",
   "151767f20fa67c48": "Angeheftet",
   "db8f17154d4f0cfa": "Aktiv",
   "9578dc3e84f82081": "In Arbeit",

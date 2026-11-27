@@ -40,6 +40,7 @@ import {
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
   isThreadInSidebarScope,
+  scopedProjectFolderTags,
   olderSettledScopes,
   resolveSidebarThreadScope,
   withoutRemovedCheckout,
@@ -1621,6 +1622,23 @@ describe("olderSettledScopes", () => {
       { environmentId: tagged, projectIds: null },
       { environmentId: legacy, projectIds: null },
     ]);
+  });
+});
+
+describe("scopedProjectFolderTags", () => {
+  it("names the folders outside the scope that hold the scoped projects' threads", () => {
+    const scope = { projectKeys: new Set(["env:finances"]), tags: new Set(["taxes"]) };
+    const threads = [
+      { environmentId: "env", projectId: "finances", tags: ["budget"] },
+      { environmentId: "env", projectId: "finances", tags: ["taxes", "receipts"] },
+      { environmentId: "env", projectId: "finances", tags: ["budget"] },
+      { environmentId: "env", projectId: "finances", tags: [] },
+      { environmentId: "env", projectId: "finances", tags: undefined },
+      { environmentId: "env", projectId: "garden", tags: ["seeds"] },
+      { environmentId: "other", projectId: "finances", tags: ["elsewhere"] },
+    ];
+    expect(scopedProjectFolderTags(scope, threads)).toEqual(["budget", "receipts"]);
+    expect(scopedProjectFolderTags(null, threads)).toEqual([]);
   });
 });
 
