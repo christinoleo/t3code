@@ -638,6 +638,15 @@ describe("createOlderSettledThreadAtoms", () => {
       expect(requests).toHaveLength(2);
       expect(requests[1]).toMatchObject({ tagScope: { type: "tagged", tags: ["work"] } });
       expect(registry.get(atoms.olderSettledAtom(environmentId))?.counts.get(project)).toBe(30);
+
+      // A reconnect keeps the same cut's count up while it reads again.
+      setShell({
+        snapshot: shellSnapshot({ sequence: 5, asOfSequence: 5, count: 30, tags: ["work"] }),
+        generation: 2,
+      });
+      expect(folderCount(registry.get(shelf()))).toBe(5);
+      yield* TestClock.adjust("1 millis");
+      expect(requests).toHaveLength(3);
     }),
   );
 

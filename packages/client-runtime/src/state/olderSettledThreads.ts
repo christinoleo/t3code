@@ -429,10 +429,10 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
       const base = get(olderSettledAtom(environmentId));
       const state = shellStateValue(get(shellStateAtom(environmentId)));
       if (base === null || state === null || state.generation === 0) return null;
-      let last = taggedReads.get(scopeKey);
-      if (last?.generation !== state.generation || last.older.before !== base.before) {
-        last = undefined;
-      }
+      const kept = taggedReads.get(scopeKey);
+      // A reconnect re-reads, but the same cut's last count stays up until that read lands.
+      const shown = kept?.older.before === base.before ? kept.older : base;
+      const last = kept?.generation === state.generation && shown !== base ? kept : undefined;
       const key = get(countKeyAtom(environmentId))?.tagged ?? "";
       if (last?.key === key) return last.older;
       let first = firstReads.get(scopeKey);
@@ -455,7 +455,7 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
           }),
         ),
       );
-      if (read === null) return last?.older ?? base;
+      if (read === null) return shown;
       const older = { ...base, counts: countsOf(read) };
       taggedReads.set(scopeKey, { generation: state.generation, key, older });
       return older;
