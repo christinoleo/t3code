@@ -51,11 +51,11 @@ import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentPro
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
-import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -128,7 +128,7 @@ function existingThreadIdsForCommand(
     // while a thread is open, so keeping them off the import path matters.
     case "thread.visit":
     case "thread.mark-unread":
-    // A tag rename rewrites only tags, across a whole folder of threads.
+    // Tag renames never touch messages either.
     case "thread.tag.rename":
       return [];
     case "thread.fork":

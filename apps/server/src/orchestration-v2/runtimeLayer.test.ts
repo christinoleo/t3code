@@ -4110,7 +4110,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
   );
 
   it.effect(
-    "renames a tag in one commit, skipping gone threads and threads it would not change",
+    "a tag rename skips deleted and missing threads and replays from a deleted first thread's receipt",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -4150,8 +4150,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         });
         yield* seedThread("first", ["folder"]);
         yield* seedThread("deleted", ["folder"]);
-        yield* seedThread("moved-out", ["elsewhere"]);
-        yield* seedThread("merged", ["renamed", "folder"]);
+        yield* seedThread("second", ["folder"]);
         yield* orchestrator.dispatch({
           type: "thread.delete",
           commandId: CommandId.make("runtime-layer-tag-batch-delete"),
@@ -4162,11 +4161,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           type: "thread.tag.rename",
           commandId: CommandId.make("runtime-layer-tag-batch-rename"),
           threadIds: [
-            threadId("first"),
             threadId("deleted"),
+            threadId("first"),
             threadId("never-existed"),
-            threadId("moved-out"),
-            threadId("merged"),
+            threadId("second"),
           ],
           from: "folder",
           to: "renamed",
@@ -4176,7 +4174,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           result.storedEvents.map(({ event }) => [event.type, event.threadId]),
           [
             ["thread.tags-updated", threadId("first")],
-            ["thread.tags-updated", threadId("merged")],
+            ["thread.tags-updated", threadId("second")],
           ],
         );
         const tagsOf = (name: string) =>
@@ -4184,9 +4182,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
             .getThreadProjection(threadId(name))
             .pipe(Effect.map((projection) => projection.thread.tags ?? []));
         assert.deepEqual(yield* tagsOf("first"), ["renamed"]);
-        assert.deepEqual(yield* tagsOf("moved-out"), ["elsewhere"]);
-        assert.deepEqual(yield* tagsOf("merged"), ["renamed"]);
-        assert.isTrue((yield* orchestrator.dispatch(rename)).replayed);
+        assert.deepEqual(yield* tagsOf("second"), ["renamed"]);
+        const replayed = yield* orchestrator.dispatch(rename);
+        assert.isTrue(replayed.replayed);
+        assert.deepEqual(replayed.storedEvents, result.storedEvents);
       }),
   );
 

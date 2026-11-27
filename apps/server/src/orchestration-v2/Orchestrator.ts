@@ -734,19 +734,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
 }
 
 type ThreadTagRenameCommand = Extract<OrchestrationV2ServerCommand, { type: "thread.tag.rename" }>;
-/** One thread's share of a `thread.tag.rename`, decided under that thread's lock. */
 type ThreadTagRenameMutation = Omit<ThreadTagRenameCommand, "threadIds"> & {
   readonly threadId: ThreadId;
-};
-
-/** Keeps `from`'s place for `to`, or drops `from` when the thread already has `to`. */
-const renameThreadTags = (
-  tags: ReadonlyArray<string>,
-  from: string,
-  to: string | null,
-): ReadonlyArray<string> => {
-  const kept = tags.filter((tag) => tag !== from);
-  return to === null || kept.includes(to) ? kept : tags.map((tag) => (tag === from ? to : tag));
 };
 
 // Validate before resolving the request: adapters may otherwise coerce unusable answers.
@@ -5237,11 +5226,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : current.filter((tag) => tag !== command.tag),
           };
         }
-        case "thread.tag.rename":
+        case "thread.tag.rename": {
+          const { from, to } = command;
+          const current = thread.tags ?? [];
+          const kept = current.filter((tag) => tag !== from);
           return {
             ...thread,
-            tags: renameThreadTags(thread.tags ?? [], command.from, command.to),
+            tags:
+              to === null || kept.includes(to)
+                ? kept
+                : current.map((tag) => (tag === from ? to : tag)),
           };
+        }
         case "thread.mark-unread": {
           // Retire the wake before rewinding the visit, preserving its settlement timer.
           const snoozeExpired =
@@ -16259,23 +16255,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       case "thread.tag.rename": {
         // Every share commits together; a thread gone or already moved since the list is skipped.
-        for (const threadId of new Set(command.threadIds)) {
+        if (command.from === command.to) break;
+        const { threadIds, ...rename } = command;
+        for (const threadId of new Set(threadIds)) {
           const thread = yield* findThread(threadId);
           if (thread === null || thread.deletedAt !== null) continue;
-          const tags = thread.tags ?? [];
-          const renamed = renameThreadTags(tags, command.from, command.to);
-          if (renamed.length === tags.length && renamed.every((tag, index) => tag === tags[index]))
-            continue;
-          const { threadIds: _threadIds, ...rename } = command;
-          yield* dispatchThreadMutation(
-            {
-              ...rename,
-              commandId: CommandId.make(`${command.commandId}:${threadId}`),
-              threadId,
-            },
-            events,
-            effects,
-          );
+          if (!(thread.tags ?? []).includes(command.from)) continue;
+          yield* dispatchThreadMutation({ ...rename, threadId }, events, effects);
         }
         break;
       }
