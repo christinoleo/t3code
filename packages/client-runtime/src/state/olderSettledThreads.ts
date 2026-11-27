@@ -415,6 +415,11 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
       readonly older: OlderSettled;
     }
   >();
+  // Only a scope's first read per generation and cut skips the delay, so a burst still collapses.
+  const firstReads = new Map<
+    string,
+    { readonly generation: number; readonly before: string; readonly key: string }
+  >();
 
   // Snapshot counts ignore tags, so a tag scope reads its own, again whenever the tagged key moves.
   // Until its first read lands it shows the environment's counts: an upper bound, never a zero.
@@ -430,6 +435,12 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
       }
       const key = get(countKeyAtom(environmentId))?.tagged ?? "";
       if (last?.key === key) return last.older;
+      let first = firstReads.get(scopeKey);
+      if (first?.generation !== state.generation || first.before !== base.before) {
+        first = { generation: state.generation, before: base.before, key };
+        firstReads.set(scopeKey, first);
+      }
+      const immediate = last === undefined && first.key === key;
       const read = selectEnvironmentQueryData(
         get(
           countReadAtom({
@@ -439,8 +450,7 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
               before: base.before,
               key,
               tagScope,
-              // With nothing of its own to show yet, it does not wait out a burst.
-              ...(last === undefined ? { immediate: true as const } : {}),
+              ...(immediate ? { immediate: true as const } : {}),
             },
           }),
         ),

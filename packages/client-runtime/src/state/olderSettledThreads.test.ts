@@ -641,6 +641,34 @@ describe("createOlderSettledThreadAtoms", () => {
     }),
   );
 
+  it.effect("a tag scope's first read does not skip the delay for a burst of tag changes", () =>
+    Effect.gen(function* () {
+      const { requests, atoms, registry, setShell } = yield* makeAtoms();
+      setShell({
+        snapshot: shellSnapshot({ sequence: 3, asOfSequence: 3, count: 30 }),
+        generation: 1,
+      });
+      const folder = {
+        environmentId,
+        projectIds: null,
+        tagScope: { type: "tagged" as const, tags: ["work"] as const },
+      };
+      registry.mount(atoms.shelfAtom([{ scope: folder, pages: 0 }]));
+      yield* TestClock.adjust("1 millis");
+      expect(requests).toHaveLength(1);
+      for (const [index, tag] of ["a", "b", "c", "d"].entries()) {
+        setShell({
+          snapshot: shellSnapshot({ sequence: 4 + index, asOfSequence: 3, count: 30, tags: [tag] }),
+          generation: 1,
+        });
+        yield* TestClock.adjust("1 millis");
+      }
+      expect(requests).toHaveLength(1);
+      yield* TestClock.adjust("500 millis");
+      expect(requests).toHaveLength(2);
+    }),
+  );
+
   it.effect("searches read once per generation, and nothing before the first snapshot", () =>
     Effect.gen(function* () {
       const { replies, requests, atoms, registry, setShell, until } = yield* makeAtoms();
