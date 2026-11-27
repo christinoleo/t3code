@@ -10,7 +10,6 @@ import {
   railKeysAfterFolderEdit,
   folderIconsPatchAfterEdit,
   newThreadCreateTags,
-  newThreadFolderTag,
   pruneStaleFolderKeys,
   resolveProjectRailTileStates,
   threadFilterTarget,
@@ -285,18 +284,11 @@ describe("thread filter target", () => {
 });
 
 describe("new thread in a folder scope", () => {
-  it("takes the folder only when it is the whole scope", () => {
-    expect(newThreadFolderTag(["tag:ops"])).toBe("ops");
-    expect(newThreadFolderTag([])).toBeNull();
-    expect(newThreadFolderTag(["group:a"])).toBeNull();
-    expect(newThreadFolderTag(["tag:ops", "group:a"])).toBeNull();
-    expect(newThreadFolderTag(["tag:ops", "tag:infra"])).toBeNull();
-  });
-
-  it("creates the thread already carrying that folder", () => {
+  it("creates the thread in the folder only when it is the whole scope", () => {
     expect(newThreadCreateTags(["tag:ops"])).toEqual({ tags: ["ops"] });
     expect(newThreadCreateTags([])).toEqual({});
     expect(newThreadCreateTags(["group:a"])).toEqual({});
+    expect(newThreadCreateTags(["tag:ops", "group:a"])).toEqual({});
     expect(newThreadCreateTags(["tag:ops", "tag:infra"])).toEqual({});
   });
 });

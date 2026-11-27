@@ -273,14 +273,9 @@ export function threadFilterTarget(
 }
 
 /** A thread started while the sidebar shows exactly one folder, and nothing else, is born in it. */
-export function newThreadFolderTag(scopeKeys: readonly string[]): string | null {
-  return scopeKeys.length === 1 ? folderTagOfScopeKey(scopeKeys[0]!) : null;
-}
-
-/** The `tags` a thread-creating command carries, so the thread is born in the scope's folder. */
 export function newThreadCreateTags(scopeKeys: readonly string[]): {
   readonly tags?: readonly [string];
 } {
-  const tag = newThreadFolderTag(scopeKeys);
+  const tag = scopeKeys.length === 1 ? folderTagOfScopeKey(scopeKeys[0]!) : null;
   return tag === null ? {} : { tags: [tag] };
 }
