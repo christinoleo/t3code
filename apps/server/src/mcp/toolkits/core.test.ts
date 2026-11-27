@@ -1797,15 +1797,15 @@ const folderToolkit = (options: {
             }),
             tags: options.tags,
           }),
-        getProjectThreadRecords: ({ threadId: id }) =>
-          Effect.succeed({
-            ...McpToolAccessTestkit.idleThreadProjection(McpToolAccessTestkit.liveThreadShell(id)),
-            thread: {
-              ...McpToolAccessTestkit.idleThreadProjection(McpToolAccessTestkit.liveThreadShell(id))
-                .thread,
-              tags: options.tags,
-            },
-          }),
+        getProjectThreadRecords: ({ threadId: id }) => {
+          const projection = McpToolAccessTestkit.idleThreadProjection(
+            McpToolAccessTestkit.liveThreadShell(id),
+          );
+          return Effect.succeed({
+            ...projection,
+            thread: { ...projection.thread, tags: options.tags },
+          });
+        },
         dispatch: (command) => {
           options.dispatched.push(command);
           return Effect.succeed({ sequence: options.dispatched.length, storedEvents: [] });
@@ -1828,7 +1828,7 @@ const organize = (args: Record<string, unknown>) =>
       ),
   );
 
-it.effect("move_to_folder files the thread in one folder, as the sidebar does", () => {
+it.effect("move_to_folder adds the new folder before dropping the old, as the sidebar does", () => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   return Effect.gen(function* () {
     const moved = yield* organize({ action: "move_to_folder", folder: "Review" });

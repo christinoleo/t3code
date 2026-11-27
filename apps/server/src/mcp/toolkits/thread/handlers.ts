@@ -483,7 +483,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
           }
           case "rename_folder":
           case "delete_folder":
-            return yield* Effect.die(`${input.action} is handled with environment access.`);
+            return yield* Effect.die("unreachable");
           default:
             command = { ...common, type: `thread.${input.action}` };
         }
