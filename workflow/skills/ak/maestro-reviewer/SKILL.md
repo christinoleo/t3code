@@ -72,7 +72,7 @@ Agents repeat mistakes, and one review sees one case. Each repo keeps a single i
 
 ## Settle
 
-Before your final message, settle every thread you started (review and research children, by their `childThreadId`) with `t3_thread_organize` and `action: "settle"`. When you end without a merge, settle your own thread too: the same call without `threadId`. A merged PR settles it already.
+Before your final message, settle every thread you started (review and research children, by their `childThreadId`) with `t3_thread_organize` and `action: "settle"`. Then settle your own thread, merged or not: the same call without `threadId`. The PR is linked to the builder's thread, so its merge never settles yours.
 
 ## Final message
 
