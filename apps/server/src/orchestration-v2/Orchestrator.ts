@@ -669,7 +669,6 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pin.reorder":
     case "thread.active.reorder":
     case "thread.tag.set":
-    case "thread.tag.rename":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -729,8 +728,26 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.fork":
     case "thread.merge_back":
       return command.targetThreadId;
+    case "thread.tag.rename":
+      return command.threadIds[0];
   }
 }
+
+type ThreadTagRenameCommand = Extract<OrchestrationV2ServerCommand, { type: "thread.tag.rename" }>;
+/** One thread's share of a `thread.tag.rename`, decided under that thread's lock. */
+type ThreadTagRenameMutation = Omit<ThreadTagRenameCommand, "threadIds"> & {
+  readonly threadId: ThreadId;
+};
+
+/** Keeps `from`'s place for `to`, or drops `from` when the thread already has `to`. */
+const renameThreadTags = (
+  tags: ReadonlyArray<string>,
+  from: string,
+  to: string | null,
+): ReadonlyArray<string> => {
+  const kept = tags.filter((tag) => tag !== from);
+  return to === null || kept.includes(to) ? kept : tags.map((tag) => (tag === from ? to : tag));
+};
 
 // Validate before resolving the request: adapters may otherwise coerce unusable answers.
 const decodeUserInputAnswers = Schema.decodeUnknownEffect(
@@ -1818,7 +1835,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const makeEvent =
     /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
     Effect.fnUntraced(function* <Event extends OrchestrationV2DomainEvent>(
-      command: OrchestrationV2ServerCommand,
+      command: Pick<OrchestrationV2ServerCommand, "commandId" | "type">,
       event: Omit<Event, "id">,
     ) {
       const eventId = yield* mapDispatchError(command)(
@@ -1834,7 +1851,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   const emit =
-    (events: Ref.Ref<Array<OrchestrationV2DomainEvent>>, command: OrchestrationV2ServerCommand) =>
+    (
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      command: Pick<OrchestrationV2ServerCommand, "commandId" | "type">,
+    ) =>
     <Event extends OrchestrationV2DomainEvent>(event: Omit<Event, "id">) =>
       Effect.gen(function* () {
         const withId = yield* makeEvent(command, event);
@@ -4486,41 +4506,42 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
-    command: Extract<
-      OrchestrationV2ServerCommand,
-      {
-        readonly type:
-          | "thread.archive"
-          | "thread.unarchive"
-          | "thread.settle"
-          | "thread.unsettle"
-          | "thread.snooze"
-          | "thread.unsnooze"
-          | "thread.auto-settle.set"
-          | "thread.pin"
-          | "thread.unpin"
-          | "thread.pin.reorder"
-          | "thread.tag.set"
-          | "thread.tag.rename"
-          | "thread.active.reorder"
-          | "thread.mark-unread"
-          | "thread.metadata.update"
-          | "thread.pull-request.link"
-          | "thread.pull-request.unlink"
-          | "thread.pull-request-link.sync"
-          | "thread.issue.link"
-          | "thread.issue.unlink"
-          | "thread.pull-request.watch"
-          | "thread.pull-request-watch.sync"
-          | "thread.pull-request-watch.checks-reopen"
-          | "thread.pull-request.sync"
-          | "thread.title.regeneration.complete"
-          | "thread.runtime-mode.set"
-          | "thread.interaction-mode.set"
-          | "thread.model-selection.set"
-          | "provider.switch";
-      }
-    >,
+    command:
+      | Extract<
+          OrchestrationV2ServerCommand,
+          {
+            readonly type:
+              | "thread.archive"
+              | "thread.unarchive"
+              | "thread.settle"
+              | "thread.unsettle"
+              | "thread.snooze"
+              | "thread.unsnooze"
+              | "thread.auto-settle.set"
+              | "thread.pin"
+              | "thread.unpin"
+              | "thread.pin.reorder"
+              | "thread.tag.set"
+              | "thread.active.reorder"
+              | "thread.mark-unread"
+              | "thread.metadata.update"
+              | "thread.pull-request.link"
+              | "thread.pull-request.unlink"
+              | "thread.pull-request-link.sync"
+              | "thread.issue.link"
+              | "thread.issue.unlink"
+              | "thread.pull-request.watch"
+              | "thread.pull-request-watch.sync"
+              | "thread.pull-request-watch.checks-reopen"
+              | "thread.pull-request.sync"
+              | "thread.title.regeneration.complete"
+              | "thread.runtime-mode.set"
+              | "thread.interaction-mode.set"
+              | "thread.model-selection.set"
+              | "provider.switch";
+          }
+        >
+      | ThreadTagRenameMutation,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) {
@@ -5216,18 +5237,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : current.filter((tag) => tag !== command.tag),
           };
         }
-        case "thread.tag.rename": {
-          const { from, to } = command;
-          const current = thread.tags ?? [];
-          const kept = current.filter((tag) => tag !== from);
+        case "thread.tag.rename":
           return {
             ...thread,
-            tags:
-              to === null || kept.includes(to)
-                ? kept
-                : current.map((tag) => (tag === from ? to : tag)),
+            tags: renameThreadTags(thread.tags ?? [], command.from, command.to),
           };
-        }
         case "thread.mark-unread": {
           // Retire the wake before rewinding the visit, preserving its settlement timer.
           const snoozeExpired =
@@ -16243,6 +16257,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
         };
       }
+      case "thread.tag.rename": {
+        // Every share commits together; a thread gone or already moved since the list is skipped.
+        for (const threadId of new Set(command.threadIds)) {
+          const thread = yield* findThread(threadId);
+          if (thread === null || thread.deletedAt !== null) continue;
+          const tags = thread.tags ?? [];
+          const renamed = renameThreadTags(tags, command.from, command.to);
+          if (renamed.length === tags.length && renamed.every((tag, index) => tag === tags[index]))
+            continue;
+          const { threadIds: _threadIds, ...rename } = command;
+          yield* dispatchThreadMutation(
+            {
+              ...rename,
+              commandId: CommandId.make(`${command.commandId}:${threadId}`),
+              threadId,
+            },
+            events,
+            effects,
+          );
+        }
+        break;
+      }
       case "thread.archive":
       case "thread.unarchive": {
         const parentArchivedAt = (yield* findThread(command.threadId))?.archivedAt ?? null;
@@ -16287,7 +16323,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pin.reorder":
       case "thread.active.reorder":
       case "thread.tag.set":
-      case "thread.tag.rename":
       case "thread.mark-unread":
       case "thread.pull-request.link":
       case "thread.pull-request.unlink":
@@ -16694,6 +16729,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.background-work.settle" ||
           // A stale visit changes no read state.
           command.type === "thread.visit" ||
+          // A rename that raced every thread out of the folder changes nothing.
+          command.type === "thread.tag.rename" ||
           // A read can answer a watch again before a push's reopen lands; nothing is left to clear.
           command.type === "thread.pull-request-watch.checks-reopen" ||
           command.type === "thread.interrupt.unresponsive" ||
@@ -16920,6 +16957,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
 
+  /**
+   * Cascades and subagent follow-ups lock a parent before its child; a dispatch holding many
+   * thread locks takes them shallowest lineage first so it never waits against that order.
+   */
+  const ancestorsFirst = Effect.fn("Orchestrator.ancestorsFirst")(function* (
+    threadIds: ReadonlyArray<ThreadId>,
+  ) {
+    const depths = new Map<ThreadId, number>();
+    for (const threadId of new Set(threadIds)) {
+      let depth = 0;
+      const seen = new Set<ThreadId>([threadId]);
+      let parentThreadId = (yield* findThread(threadId))?.lineage.parentThreadId ?? null;
+      while (parentThreadId !== null && !seen.has(parentThreadId)) {
+        depth += 1;
+        seen.add(parentThreadId);
+        parentThreadId = (yield* findThread(parentThreadId))?.lineage.parentThreadId ?? null;
+      }
+      depths.set(threadId, depth);
+    }
+    return [...depths]
+      .toSorted(([leftId, left], [rightId, right]) =>
+        left === right ? leftId.localeCompare(rightId) : left - right,
+      )
+      .map(([threadId]) => threadId);
+  });
+
   // dispatchWithReceiptEffect owns the dispatch span; this wrapper selects the thread locks.
   const dispatchWithReceipt = Effect.fnUntraced(function* (command: OrchestrationV2ServerCommand) {
     // The latest stable run is the one with a checkpoint. Wait for a just-completed run's capture,
@@ -16947,6 +17010,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* skipsSourceLock
         ? dispatch
         : threadDispatch.withLock(command.sourceThreadId, dispatch);
+    }
+    if (command.type === "thread.tag.rename") {
+      const lockOrder = yield* ancestorsFirst(command.threadIds);
+      return yield* lockOrder.reduceRight(
+        (locked, threadId) => threadDispatch.withLock(threadId, locked),
+        dispatchWithReceiptEffect(command),
+      );
     }
     if (
       command.type === "thread.delete" ||

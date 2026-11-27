@@ -55,6 +55,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -543,7 +544,7 @@ export interface ThreadManagementServiceShape {
   readonly forceStopThread: (
     input: OrchestrationV2ForceStopThreadInput,
   ) => Effect.Effect<OrchestrationV2ForceStopThreadResult, OrchestrationV2ForceStopThreadError>;
-  /** One `thread.tag.rename` per thread carrying the tag, keyed off the input command id. */
+  /** One `thread.tag.rename` over every thread carrying the tag, so the rename lands whole. */
   readonly renameThreadTag: (
     input: OrchestrationV2RenameThreadTagInput,
   ) => Effect.Effect<OrchestrationV2RenameThreadTagResult, OrchestrationV2RenameThreadTagError>;
@@ -1631,21 +1632,18 @@ const make = Effect.gen(function* () {
   )(
     function* ({ commandId, from, to }) {
       const threadIds = yield* orchestrator.listThreadIdsWithTag(from);
-      if (to !== from) {
-        yield* Effect.forEach(
-          threadIds,
-          (threadId) =>
-            orchestrator.dispatch({
-              type: "thread.tag.rename",
-              commandId: CommandId.make(`${commandId}:${threadId}`),
-              threadId,
-              from,
-              to,
-            }),
-          { discard: true },
-        );
-      }
-      return { threadCount: threadIds.length };
+      if (to === from || !Arr.isReadonlyArrayNonEmpty(threadIds)) return { threadCount: 0 };
+      const { storedEvents } = yield* orchestrator.dispatch({
+        type: "thread.tag.rename",
+        commandId,
+        threadIds,
+        from,
+        to,
+      });
+      return {
+        threadCount: storedEvents.filter(({ event }) => event.type === "thread.tags-updated")
+          .length,
+      };
     },
     (effect, input) =>
       effect.pipe(
