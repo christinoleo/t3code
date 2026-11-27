@@ -128,6 +128,8 @@ function existingThreadIdsForCommand(
     // while a thread is open, so keeping them off the import path matters.
     case "thread.visit":
     case "thread.mark-unread":
+    // A tag rename rewrites only tags, across a whole folder of threads.
+    case "thread.tag.rename":
       return [];
     case "thread.fork":
       return [command.sourceThreadId];
