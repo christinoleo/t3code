@@ -282,15 +282,14 @@ interface ProjectScopeMenuItem {
   readonly label: string;
 }
 
-/** The Projects filter lists the rail's folders after the projects, so the two never disagree. */
+/** The rail's folders, in rail order, after the projects, so the filter and the rail never disagree. */
 export function projectScopeMenuItems(
   projectItems: readonly ProjectScopeMenuItem[],
   tiles: readonly ProjectRailTile<RailGroup>[],
 ): ProjectScopeMenuItem[] {
-  const folders = tiles
-    .flatMap((tile) => (tile.kind === "folder" ? [tile] : []))
-    .toSorted((left, right) => left.tag.localeCompare(right.tag))
-    .map((tile) => ({ value: tile.key, label: tile.tag }));
+  const folders = tiles.flatMap((tile) =>
+    tile.kind === "folder" ? [{ value: tile.key, label: tile.tag }] : [],
+  );
   return [...projectItems, ...folders];
 }
 

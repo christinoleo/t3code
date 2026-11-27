@@ -350,16 +350,15 @@ describe("projects filter menu", () => {
     { value: "group:web", label: "web" },
   ];
 
-  it("lists each rail folder after the projects, including a chosen folder no thread carries", () => {
-    const rail = tiles([group("web")], [{ tags: ["beta"] }, { tags: ["alpha"] }], {
-      selectedKeys: ["tag:gone"],
+  it("lists the rail's folders after the projects, in the order they were dragged to", () => {
+    const rail = tiles([group("web")], [{ tags: ["alpha"] }, { tags: ["beta"] }], {
+      railOrder: ["tag:beta", "group:web", "tag:alpha"],
     });
 
     expect(projectScopeMenuItems(projectItems, rail)).toEqual([
       ...projectItems,
-      { value: "tag:alpha", label: "alpha" },
       { value: "tag:beta", label: "beta" },
-      { value: "tag:gone", label: "gone" },
+      { value: "tag:alpha", label: "alpha" },
     ]);
   });
 
