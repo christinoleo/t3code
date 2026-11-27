@@ -53,6 +53,7 @@ vi.mock("../state/session", () => ({
   readEnvironmentScopeDenied: (environmentId: string) => !state.granted.has(environmentId),
 }));
 vi.mock("../state/entities", () => ({
+  readEnvironmentHiddenThreadTags: () => null,
   readEnvironmentServerConfigLoaded: () => true,
   readEnvironmentSupportsAutoSettleOptOut: () => true,
   readThreadShell: () => ({

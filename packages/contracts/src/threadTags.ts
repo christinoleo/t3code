@@ -23,13 +23,27 @@ export interface ThreadFolderTagChange {
   readonly tagged: boolean;
 }
 
-/** Adds the folder before removing other tags, so a partial failure never drops the thread back to its project. */
+/** Tags clients hide threads by, or null while hiding is off. Trims hand-edited entries so " private" still matches. */
+export function activeHiddenThreadTags(settings: {
+  readonly hideTaggedThreads: boolean;
+  readonly hiddenThreadTags: ReadonlyArray<string>;
+}): ReadonlyArray<string> | null {
+  if (!settings.hideTaggedThreads) return null;
+  const tags = settings.hiddenThreadTags.map((tag) => tag.trim()).filter((tag) => tag !== "");
+  return tags.length > 0 ? tags : null;
+}
+
+/**
+ * Adds the folder before removing other tags, so a partial failure never drops the thread back to
+ * its project. Hidden tags stay, so filing a hidden thread never unhides it.
+ */
 export function folderTagChanges(
   currentTags: ReadonlyArray<string>,
   folder: string | null,
+  hiddenTags: ReadonlyArray<string> | null,
 ): ReadonlyArray<ThreadFolderTagChange> {
   const removals = currentTags
-    .filter((tag) => tag !== folder)
+    .filter((tag) => tag !== folder && hiddenTags?.includes(tag) !== true)
     .map((tag) => ({ tag, tagged: false }));
   return folder === null || currentTags.includes(folder)
     ? removals

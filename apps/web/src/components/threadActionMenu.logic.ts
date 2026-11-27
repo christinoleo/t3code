@@ -141,6 +141,8 @@ export interface ThreadFolderMenuState {
   readonly names: ReadonlyArray<string>;
   /** The current tags of each thread the menu acts on. */
   readonly threadTags: ReadonlyArray<ReadonlyArray<string>>;
+  /** Tags the threads' environment hides; moves keep them. The sidebar never lists hidden threads. */
+  readonly hiddenTags?: ReadonlyArray<string> | null;
 }
 
 export function threadFolderNames(
@@ -177,6 +179,7 @@ export function buildFolderMenuItem(
 ): ContextMenuItem<ThreadActionMenuId> {
   const everyThread = (predicate: (tags: ReadonlyArray<string>) => boolean) =>
     folders.threadTags.every(predicate);
+  const hidden = folders.hiddenTags ?? null;
   return {
     id: "folder",
     label: resolve(msg("Folder", { $context: "submenu to move threads into a folder" })),
@@ -186,7 +189,7 @@ export function buildFolderMenuItem(
         id: `folder:${name}` as const,
         label: name,
         checked: everyThread((tags) => tags.includes(name)),
-        disabled: everyThread((tags) => folderTagChanges(tags, name).length === 0),
+        disabled: everyThread((tags) => folderTagChanges(tags, name, hidden).length === 0),
       })),
       {
         id: "folder-new" as const,
@@ -197,7 +200,7 @@ export function buildFolderMenuItem(
       {
         id: "folder-none" as const,
         label: resolve(msg("Back to project")),
-        disabled: everyThread((tags) => tags.length === 0),
+        disabled: everyThread((tags) => folderTagChanges(tags, null, hidden).length === 0),
       },
     ],
   };

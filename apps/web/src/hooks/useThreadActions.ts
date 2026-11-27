@@ -50,6 +50,7 @@ import {
   readEnvironmentSupportsAutoSettleOptOut,
   readEnvironmentThreadRefs,
   readProject,
+  readEnvironmentHiddenThreadTags,
   readThreadShell,
   readThreadShells,
 } from "../state/entities";
@@ -836,7 +837,11 @@ export function useThreadActions() {
   const moveThreadToFolder = (target: ScopedThreadRef, folder: string | null) =>
     applyThreadTagChanges(
       target,
-      folderTagChanges(readThreadShell(target)?.source.tags ?? [], folder),
+      folderTagChanges(
+        readThreadShell(target)?.source.tags ?? [],
+        folder,
+        readEnvironmentHiddenThreadTags(target.environmentId),
+      ),
     );
 
   /** Renames or removes (`to` null) a tag on every thread of one environment, loaded or not. */
