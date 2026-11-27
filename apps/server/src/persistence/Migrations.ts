@@ -10,6 +10,7 @@ import {
   DATABASE_MIGRATIONS_STARTED_MESSAGE,
 } from "@t3tools/shared/databaseMigrationLog";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import { ensureForkSchema } from "./forkSchema.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -130,7 +131,6 @@ import Migration0116 from "./Migrations/116_ForkHistoryMembership.ts";
 import Migration0117 from "./Migrations/117_WorkflowMailSender.ts";
 import Migration0118 from "./Migrations/118_WorkflowPools.ts";
 import Migration0119 from "./Migrations/119_WorkflowRunSubject.ts";
-import Migration0120 from "./Migrations/120_ProjectionThreadTags.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -253,7 +253,6 @@ const migrationEntries = [
   [117, "WorkflowMailSender", Migration0117],
   [118, "WorkflowPools", Migration0118],
   [119, "WorkflowRunSubject", Migration0119],
-  [120, "ProjectionThreadTags", Migration0120],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -389,6 +388,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   }).pipe(
     Effect.ensuring(Option.isSome(progress) ? Ref.set(progress.value.current, null) : Effect.void),
   );
+  if (toMigrationInclusive === undefined) yield* ensureForkSchema();
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
