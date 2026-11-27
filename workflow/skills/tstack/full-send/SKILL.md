@@ -81,7 +81,19 @@ reproduction, a screenshot. Use the most direct proof the change allows:
   repo's verification skill, or `verify` with its checklist approved by you.
   Pick the browser in the order `verify` gives under "Which browser".
   Green mocked tests do not prove that the user experience works. Attach
-  screenshots to the PR when they help and you have a way to upload them.
+  screenshots to the PR when they help. Never commit or push them, not even on
+  a branch of their own. On GitHub, when you can write to the repo, upload them
+  as assets of its `pr-evidence` prerelease, named with the PR or issue number
+  so they stay unique, and link each one by its download URL:
+
+  ```bash
+  gh release view pr-evidence >/dev/null 2>&1 || gh release create pr-evidence \
+    --prerelease --title "PR evidence" --notes "Images for PR descriptions. Not a release."
+  gh release upload pr-evidence issue-<n>-desktop.png --clobber
+  # ![desktop](https://github.com/<owner>/<repo>/releases/download/pr-evidence/issue-<n>-desktop.png)
+  ```
+
+  When you cannot upload, describe what you saw instead.
 - For a performance claim, measure it per the `benchmark-checklist` skill.
 
 When you cannot find a way to prove a change, you do not have full confidence.

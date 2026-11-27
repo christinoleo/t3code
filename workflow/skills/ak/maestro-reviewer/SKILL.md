@@ -52,7 +52,7 @@ You run `full-send` on someone else's PR. The builder did `full-send`'s step 1, 
       --jq '.statuses[] | select(.context == "maestro/verify") | .state'
     ```
 
-    Merge with the method the repo uses, as `full-send` says. A merge into the default branch closes the issue. A merge into an integration branch (`epic/<n>`) does not, so close it yourself: `gh issue close <n> --comment "maestro: merged into <base> in <PR url>"`.
+    Merge with the method the repo uses, as `full-send` says. Once GitHub reports the PR merged, delete its branch, `git push origin --delete task/<n>`; GitHub retargets any PR based on it. A merge into the default branch closes the issue. A merge into an integration branch (`epic/<n>`) does not, so close it yourself: `gh issue close <n> --comment "maestro: merged into <base> in <PR url>"`.
 
 ## Decide, give up, or ask for help
 
