@@ -229,15 +229,31 @@ export function railKeysAfterFolderEdit(
   return next;
 }
 
-/** Folder keys whose tag no live folder holds, dropped so a later folder of that name starts fresh. */
-export function pruneStaleFolderKeys(
-  keys: readonly string[],
-  liveTags: ReadonlySet<string>,
-): string[] {
-  return keys.filter((key) => {
-    const tag = folderTagOfScopeKey(key);
-    return tag === null || liveTags.has(tag);
-  });
+/** A failed server rename (`moved: null`) moved none of that environment's threads, loaded or not. */
+export function folderEditOutcome<TEnvironmentId>(
+  renames: ReadonlyArray<{ readonly environmentId: TEnvironmentId; readonly moved: number | null }>,
+  plan: ReadonlyArray<{ readonly environmentId: TEnvironmentId; readonly ok: boolean }>,
+) {
+  const failures: Array<{
+    environmentId: TEnvironmentId;
+    failed: number | null;
+    total: number | null;
+  }> = renames.flatMap(({ environmentId, moved }) =>
+    moved === null ? [{ environmentId, failed: null, total: null }] : [],
+  );
+  for (const environmentId of new Set(plan.map((entry) => entry.environmentId))) {
+    const entries = plan.filter((entry) => entry.environmentId === environmentId);
+    const failed = entries.filter((entry) => !entry.ok).length;
+    if (failed > 0) failures.push({ environmentId, failed, total: entries.length });
+  }
+  const movedCount =
+    renames.reduce((sum, { moved }) => sum + (moved ?? 0), 0) +
+    plan.filter((entry) => entry.ok).length;
+  return {
+    changed: failures.length === 0 || movedCount > 0,
+    fromSurvives: failures.length > 0,
+    failures,
+  };
 }
 
 /**

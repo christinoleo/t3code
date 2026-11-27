@@ -9,8 +9,8 @@ import {
   railOrderAfterMove,
   railKeysAfterFolderEdit,
   folderIconsPatchAfterEdit,
+  folderEditOutcome,
   newThreadCreateTags,
-  pruneStaleFolderKeys,
   resolveProjectRailTileStates,
   threadFilterTarget,
 } from "./ProjectRail.logic";
@@ -241,10 +241,74 @@ describe("folder rename and delete", () => {
     expect(railKeysAfterFolderEdit(keys, "ops", null, true)).toEqual(keys);
   });
 
-  it("prunes folder keys no live folder holds, so a later folder of that name starts fresh", () => {
+  it("changes nothing when every rename and tag change fails", () => {
+    const other = EnvironmentId.make("environment-other");
     expect(
-      pruneStaleFolderKeys(["group:a", "tag:gone", "tag:ops", "group:b"], new Set(["ops"])),
-    ).toEqual(["group:a", "tag:ops", "group:b"]);
+      folderEditOutcome([{ environmentId, moved: null }], [{ environmentId: other, ok: false }]),
+    ).toEqual({
+      changed: false,
+      fromSurvives: true,
+      failures: [
+        { environmentId, failed: null, total: null },
+        { environmentId: other, failed: 1, total: 1 },
+      ],
+    });
+    expect(
+      folderEditOutcome([{ environmentId, moved: 0 }], [{ environmentId: other, ok: false }])
+        .changed,
+    ).toBe(false);
+  });
+
+  it("keeps the old folder when any environment failed, and counts failures per environment", () => {
+    const other = EnvironmentId.make("environment-other");
+    const third = EnvironmentId.make("environment-third");
+    expect(
+      folderEditOutcome(
+        [
+          { environmentId, moved: 3 },
+          { environmentId: third, moved: null },
+        ],
+        [
+          { environmentId: other, ok: true },
+          { environmentId: other, ok: false },
+          { environmentId: other, ok: false },
+        ],
+      ),
+    ).toEqual({
+      changed: true,
+      fromSurvives: true,
+      failures: [
+        { environmentId: third, failed: null, total: null },
+        { environmentId: other, failed: 2, total: 3 },
+      ],
+    });
+    expect(folderEditOutcome([{ environmentId, moved: 3 }], [])).toEqual({
+      changed: true,
+      fromSurvives: false,
+      failures: [],
+    });
+    expect(folderEditOutcome([], [])).toEqual({ changed: true, fromSurvives: false, failures: [] });
+  });
+
+  it("renames a folder whose server holds no thread, and keeps it when one thread change fails", () => {
+    expect(folderEditOutcome([{ environmentId, moved: 0 }], [])).toEqual({
+      changed: true,
+      fromSurvives: false,
+      failures: [],
+    });
+    expect(
+      folderEditOutcome(
+        [],
+        [
+          { environmentId, ok: true },
+          { environmentId, ok: false },
+        ],
+      ),
+    ).toEqual({
+      changed: true,
+      fromSurvives: true,
+      failures: [{ environmentId, failed: 1, total: 2 }],
+    });
   });
 
   it("moves a renamed folder's icon and drops a deleted one", () => {
