@@ -250,7 +250,7 @@ import {
   railKeysAfterFolderEdit,
   folderIconsPatchAfterEdit,
   type ProjectRailTile,
-  pruneStaleFolderKeys,
+  folderEditOutcome,
   railOrderAfterMove,
   threadFilterTarget,
 } from "./sidebar/ProjectRail.logic";
@@ -1420,31 +1420,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
       if (confirmed._tag === "Failure" || !confirmed.value) return;
     }
-    const holdsFrom = new Set(
-      folderEditPlan(readThreadShells(), from, to).map(({ thread }) => thread.environmentId),
-    );
     const renames = await Promise.all(
       environmentIds.map(async (environmentId) => ({
         environmentId,
         result: await renameThreadTag(environmentId, from, to),
       })),
     );
-    const results = [
-      ...renames.map(({ result }) => result),
-      ...(await Promise.all(
-        plan.map(({ thread, changes }) =>
-          applyThreadTagChanges(scopeThreadRef(thread.environmentId, thread.id), changes),
+    const planResults = await Promise.all(
+      plan.map(async ({ thread, changes }) => ({
+        environmentId: thread.environmentId,
+        result: await applyThreadTagChanges(
+          scopeThreadRef(thread.environmentId, thread.id),
+          changes,
         ),
-      )),
-    ];
-    // An environment none of whose loaded threads carry the folder cannot keep its tile alive.
-    const fromSurvives =
-      renames.some(
-        ({ environmentId, result }) => result._tag === "Failure" && holdsFrom.has(environmentId),
-      ) || results.slice(renames.length).some((result) => result._tag === "Failure");
-    // While every thread still carries the old tag, the folder keeps its filter and icon.
-    const anyMoved = results.length === 0 || results.some((result) => result._tag === "Success");
-    if (anyMoved) {
+      })),
+    );
+    const { changed, fromSurvives, failures } = folderEditOutcome(
+      renames.map(({ environmentId, result }) => ({
+        environmentId,
+        moved: result._tag === "Success" ? result.value.threadCount : null,
+      })),
+      planResults.map(({ environmentId, result }) => ({
+        environmentId,
+        ok: result._tag === "Success",
+      })),
+    );
+    if (changed) {
       const iconsPatch = folderIconsPatchAfterEdit(
         appAtomRegistry.get(primaryServerSettingsAtom).folderIcons,
         from,
@@ -1452,31 +1453,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         fromSurvives,
       );
       if (iconsPatch !== null) updatePrimarySettings({ folderIcons: iconsPatch });
+      const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
+      setRailOrder({
+        railOrder: railKeysAfterFolderEdit(railOrder, from, to, fromSurvives),
+        projectOrder,
+      });
+      const scopeKeys = railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to, fromSurvives);
+      if (scopeKeys.join("\n") !== sidebarProjectScopeKeys.join("\n")) {
+        setProjectScopeKeys(scopeKeys);
+      }
     }
-    const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
-    const scopeKeys = anyMoved
-      ? railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to, fromSurvives)
-      : sidebarProjectScopeKeys;
-    // A thread that failed halfway may already carry `to`, so its tile is placed even then.
-    const liveTags = new Set([
-      ...threadFolderNames(readThreadShells()),
-      ...scopeKeys.flatMap((key) => folderTagOfScopeKey(key) ?? []),
-      ...(to === null ? [] : [to]),
-    ]);
-    setRailOrder({
-      railOrder: pruneStaleFolderKeys(
-        railKeysAfterFolderEdit(railOrder, from, to, fromSurvives),
-        liveTags,
-      ),
-      projectOrder,
+    const firstFailure = [...renames, ...planResults].find(
+      ({ result }) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
+    )?.result;
+    if (firstFailure === undefined || firstFailure._tag !== "Failure") return;
+    const lines = failures.map(({ environmentId, failed, total }) => {
+      const environment = environmentLabelById.get(environmentId) ?? environmentId;
+      return failed === null || total === null
+        ? gt("{environment}: no thread moved.", { environment })
+        : gt(
+            "{total, plural, one {{environment}: {failed} of {total} thread did not move.} other {{environment}: {failed} of {total} threads did not move.}}",
+            { environment, failed, total },
+          );
     });
-    if (scopeKeys.join("\n") !== sidebarProjectScopeKeys.join("\n")) {
-      setProjectScopeKeys(scopeKeys);
-    }
-    toastThreadCommandFailures(results, (count) =>
-      environmentIds.length > 0
-        ? `Failed to ${to === null ? "delete" : "rename"} the folder`
-        : `Failed to ${to === null ? "delete" : "rename"} the folder for ${count} of ${threadCount}`,
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: to === null ? gt("Failed to delete the folder") : gt("Failed to rename the folder"),
+        description: [
+          ...lines,
+          thrownErrorMessage(squashAtomCommandFailure(firstFailure), m) ?? gt("An error occurred."),
+        ].join(" "),
+      }),
     );
   };
   const handleProjectFolderContextMenu = useStableCallback(
