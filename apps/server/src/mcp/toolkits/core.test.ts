@@ -10,6 +10,7 @@ import {
   EnvironmentId,
   NodeId,
   OrchestratorMcpThreadReadResult,
+  type ProjectIconOverride,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -86,17 +87,20 @@ const decodeThreadSearchResult = Schema.decodeUnknownEffect(
   ThreadToolkit.tools.t3_thread_search.successSchema,
 );
 
-const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
-  Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
-  Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-  Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
-  Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
-  Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
-  // Tool analytics read the registry whenever one is present.
-  Layer.provide(
-    Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-  ),
-);
+const threadToolkitWithSettings = (settings = ServerSettings.layerTest()) =>
+  McpHttpServer.layerThreadToolkit.pipe(
+    Layer.provideMerge(settings),
+    Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
+    Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+    Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+    Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
+    Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
+    // Tool analytics read the registry whenever one is present.
+    Layer.provide(
+      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+    ),
+  );
+const layerThreadToolkit = threadToolkitWithSettings();
 
 const threadId = ThreadId.make("mcp-core-thread");
 const scope: McpInvocationContext.McpInvocationScope = {
@@ -939,6 +943,7 @@ it.effect("search names the calling thread, so an agent can tell its own match a
   }).pipe(
     Effect.provide(
       McpHttpServer.layerThreadToolkit.pipe(
+        Layer.provideMerge(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(NodeCrypto.layer),
@@ -1257,6 +1262,7 @@ it.effect.each([
   }).pipe(
     Effect.provide(
       McpHttpServer.layerThreadToolkit.pipe(
+        Layer.provideMerge(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(NodeCrypto.layer),
@@ -1297,6 +1303,7 @@ it.effect("run_scheduled_task_now reports why a started run failed to dispatch",
   }).pipe(
     Effect.provide(
       McpHttpServer.layerThreadToolkit.pipe(
+        Layer.provideMerge(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(NodeCrypto.layer),
@@ -1784,8 +1791,11 @@ const folderToolkit = (options: {
   readonly runtimeMode?: "full-access" | "auto";
   readonly dispatched: Array<OrchestrationV2ServerCommand>;
   readonly renamed: Array<unknown>;
+  readonly folderIcons?: Record<string, ProjectIconOverride>;
 }) =>
-  layerThreadToolkit.pipe(
+  threadToolkitWithSettings(
+    ServerSettings.layerTest({ folderIcons: options.folderIcons ?? {} }),
+  ).pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(NodeCrypto.layer),
     Layer.provide(
@@ -1858,11 +1868,15 @@ it.effect("move_to_folder adds the new folder before dropping the old, as the si
 
 it.effect("rename_folder and delete_folder change the folder environment-wide in one call", () => {
   const renamed: Array<unknown> = [];
+  const rocket = { kind: "emoji", emoji: "🚀" } as const;
   return Effect.gen(function* () {
+    const settings = yield* ServerSettings.ServerSettingsService;
     const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
     expect(result.structuredContent).toEqual({ threadCount: 3 });
+    expect((yield* settings.getSettings).folderIcons).toEqual({ Later: rocket });
     const removed = yield* organize({ action: "delete_folder", folder: "Later" });
     expect(removed.isError).toBe(false);
+    expect((yield* settings.getSettings).folderIcons).toEqual({});
     expect(renamed).toMatchObject([
       { from: "Inbox", to: "Later" },
       { from: "Later", to: null },
@@ -1871,7 +1885,11 @@ it.effect("rename_folder and delete_folder change the folder environment-wide in
     const missing = yield* organize({ action: "rename_folder", folder: "Inbox" });
     expect(declaredFailure(missing)).toMatchObject({ message: "This action needs `to`." });
     expect(renamed).toHaveLength(2);
-  }).pipe(Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed })));
+  }).pipe(
+    Effect.provide(
+      folderToolkit({ tags: [], dispatched: [], renamed, folderIcons: { Inbox: rocket } }),
+    ),
+  );
 });
 
 it.effect(

@@ -6,6 +6,7 @@ import {
   type RunId,
   OrchestratorMcpFailure,
   type OrchestrationV2Command,
+  folderIconsPatchAfterEdit,
   folderTagChanges,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -27,6 +28,7 @@ import type * as ThreadManagement from "../../../orchestration-v2/ThreadManageme
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { rejectionText } from "../../../orchestration-v2/runOutput.ts";
 import { ThreadToolkit } from "./tools.ts";
@@ -420,7 +422,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         const from = yield* required(input.folder, "folder");
         const to = input.action === "delete_folder" ? null : yield* required(input.to, "to");
         const { threads } = yield* readCaller();
-        return yield* threads
+        const result = yield* threads
           .renameThreadTag({ commandId: yield* newCommandId(), from, to })
           .pipe(
             Effect.mapError(
@@ -428,6 +430,15 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
                 new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
             ),
           );
+        const settings = yield* ServerSettings.ServerSettingsService;
+        const { folderIcons } = yield* settings.getSettings.pipe(Effect.mapError(unavailable));
+        const iconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
+        if (iconsPatch !== null) {
+          yield* settings
+            .updateSettings({ folderIcons: iconsPatch })
+            .pipe(Effect.mapError(unavailable));
+        }
+        return result;
       }),
     ),
     writesThread((input) =>
