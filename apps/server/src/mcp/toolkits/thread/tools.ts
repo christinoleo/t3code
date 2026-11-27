@@ -35,7 +35,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
   description:
-    "Pin, snooze, settle, archive, mark unread, or file a thread in a folder. Omit `threadId` for this thread. `snooze` needs `snoozedUntil`. Settling this thread applies at turn end. A failed turn or queued message leaves it active. A thread is in at most one folder. move_to_folder: into `folder`, created if new; null takes it back to the project. rename_folder: renames `folder` to `to` on every thread of the environment; `to` null removes the folder and its threads go back to their projects. It ignores `threadId`.",
+    "Pin, snooze, settle, archive, mark unread, or file a thread in a folder. Omit `threadId` for this thread. `snooze` needs `snoozedUntil`. Settling this thread applies at turn end. A failed turn or queued message leaves it active. A thread is in at most one folder. move_to_folder: into `folder`, created if new. remove_from_folder: back to its project. rename_folder: renames `folder` to `to` on every thread of the environment. delete_folder: removes `folder`; its threads go back to their projects. These two ignore `threadId`.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     threadId: Schema.optional(ThreadId),
@@ -50,11 +50,13 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
       "unarchive",
       "mark_unread",
       "move_to_folder",
+      "remove_from_folder",
       "rename_folder",
+      "delete_folder",
     ]),
     snoozedUntil: Schema.optional(IsoDateTime),
-    folder: Schema.optional(Schema.NullOr(ThreadTag)),
-    to: Schema.optional(Schema.NullOr(ThreadTag)),
+    folder: Schema.optional(ThreadTag),
+    to: Schema.optional(ThreadTag),
   }),
   success: Schema.Union([
     OrchestrationV2DispatchCommandResult,

@@ -414,11 +414,11 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
     ),
   ),
   t3_thread_organize: McpToolAccess.either(
-    (input) => input.action === "rename_folder",
+    (input) => input.action === "rename_folder" || input.action === "delete_folder",
     McpToolAccess.writesEnvironment((input) =>
       Effect.gen(function* () {
-        const from = yield* required(input.folder ?? undefined, "folder");
-        const to = yield* required(input.to, "to");
+        const from = yield* required(input.folder, "folder");
+        const to = input.action === "delete_folder" ? null : yield* required(input.to, "to");
         const { threads } = yield* readCaller();
         return yield* threads
           .renameThreadTag({ commandId: yield* newCommandId(), from, to })
@@ -433,8 +433,9 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
     writesThread((input) =>
       Effect.gen(function* () {
         const { threads, projection, caller } = yield* readThread(input.threadId);
-        if (input.action === "move_to_folder") {
-          const folder = yield* required(input.folder, "folder");
+        if (input.action === "move_to_folder" || input.action === "remove_from_folder") {
+          const folder =
+            input.action === "remove_from_folder" ? null : yield* required(input.folder, "folder");
           const changes = folderTagChanges(projection.thread.tags ?? [], folder);
           for (const change of changes) {
             yield* threads
@@ -481,7 +482,8 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
             break;
           }
           case "rename_folder":
-            return yield* Effect.die("rename_folder is handled with environment access.");
+          case "delete_folder":
+            return yield* Effect.die(`${input.action} is handled with environment access.`);
           default:
             command = { ...common, type: `thread.${input.action}` };
         }

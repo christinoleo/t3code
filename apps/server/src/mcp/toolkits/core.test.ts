@@ -1839,7 +1839,7 @@ it.effect("move_to_folder files the thread in one folder, as the sidebar does", 
     ]);
 
     dispatched.length = 0;
-    const home = yield* organize({ action: "move_to_folder", folder: null });
+    const home = yield* organize({ action: "remove_from_folder" });
     expect(home.structuredContent).toEqual({ threadCount: 1 });
     expect(dispatched).toMatchObject([{ tag: "Inbox", tagged: false }]);
 
@@ -1856,12 +1856,12 @@ it.effect("move_to_folder files the thread in one folder, as the sidebar does", 
   }).pipe(Effect.provide(folderToolkit({ tags: ["Inbox"], dispatched, renamed: [] })));
 });
 
-it.effect("rename_folder renames the folder environment-wide in one service call", () => {
+it.effect("rename_folder and delete_folder change the folder environment-wide in one call", () => {
   const renamed: Array<unknown> = [];
   return Effect.gen(function* () {
     const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
     expect(result.structuredContent).toEqual({ threadCount: 3 });
-    const removed = yield* organize({ action: "rename_folder", folder: "Later", to: null });
+    const removed = yield* organize({ action: "delete_folder", folder: "Later" });
     expect(removed.isError).toBe(false);
     expect(renamed).toMatchObject([
       { from: "Inbox", to: "Later" },
@@ -1874,13 +1874,18 @@ it.effect("rename_folder renames the folder environment-wide in one service call
   }).pipe(Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed })));
 });
 
-it.effect("rename_folder needs a full-access caller because it changes other threads", () => {
-  const renamed: Array<unknown> = [];
-  return Effect.gen(function* () {
-    const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
-    expect(declaredFailure(result)).toMatchObject({ code: "capability_denied" });
-    expect(renamed).toEqual([]);
-  }).pipe(
-    Effect.provide(folderToolkit({ tags: [], runtimeMode: "auto", dispatched: [], renamed })),
-  );
-});
+it.effect(
+  "folder renames and deletes need a full-access caller because they change other threads",
+  () => {
+    const renamed: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
+      expect(declaredFailure(result)).toMatchObject({ code: "capability_denied" });
+      const deleted = yield* organize({ action: "delete_folder", folder: "Inbox" });
+      expect(declaredFailure(deleted)).toMatchObject({ code: "capability_denied" });
+      expect(renamed).toEqual([]);
+    }).pipe(
+      Effect.provide(folderToolkit({ tags: [], runtimeMode: "auto", dispatched: [], renamed })),
+    );
+  },
+);
