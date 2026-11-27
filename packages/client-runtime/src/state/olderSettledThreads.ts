@@ -353,11 +353,12 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
         keyInputs.before !== cut.before
       ) {
         keyInputs = { threads: snapshot.threads, removedAt: state.removedAt, before: cut.before };
-        key = olderSettledCountKey(
+        const next = olderSettledCountKey(
           snapshot.threads,
           DateTime.toEpochMillis(DateTime.makeUnsafe(cut.before)),
           state.removedAt,
         );
+        if (next.base !== key.base || next.tagged !== key.tagged) key = next;
       }
       return key;
     }).pipe(Atom.withLabel(`environment-older-settled-count-key:${environmentId}`));
