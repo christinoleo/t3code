@@ -198,6 +198,7 @@ import {
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
   resolveSidebarThreadScope,
+  scopedProjectFolderTags,
   type SidebarThreadScope,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
@@ -1305,6 +1306,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     ...scopedProjectGroups.map((project) => project.displayName),
     ...(scope?.tags ?? []),
   ];
+  const scopedFolderTags = scopedProjectFolderTags(scope, railThreads);
+  const scopedFolderTiles = railTiles.flatMap((tile) =>
+    tile.kind === "folder" && scopedFolderTags.includes(tile.tag) ? [tile] : [],
+  );
   // Drafts have no tags, so they show only under their project.
   const scopedProjectKeys = scope?.projectKeys ?? null;
   // A folder holds threads from any project, so search and folders span every project.
@@ -3829,14 +3834,35 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   ) : scopeLabels.length > 0 ? (
                     <>
                       <span>
-                        {settledCount > 0
+                        {settledCount === 0 && scopedFolderTiles.length > 0
                           ? scopeLabels.length > 1
-                            ? gt("No active threads in this filter")
-                            : gt("No active threads in {project}", { project: scopeLabels[0] })
-                          : scopeLabels.length > 1
-                            ? gt("No threads in this filter yet")
-                            : gt("No threads in {project} yet", { project: scopeLabels[0] })}
+                            ? gt("Threads in this filter are in folders")
+                            : gt("Threads in {project} are in folders", {
+                                project: scopeLabels[0],
+                              })
+                          : settledCount > 0
+                            ? scopeLabels.length > 1
+                              ? gt("No active threads in this filter")
+                              : gt("No active threads in {project}", { project: scopeLabels[0] })
+                            : scopeLabels.length > 1
+                              ? gt("No threads in this filter yet")
+                              : gt("No threads in {project} yet", { project: scopeLabels[0] })}
                       </span>
+                      {scopedFolderTiles.length > 0 ? (
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                          {scopedFolderTiles.map((tile) => (
+                            <button
+                              key={tile.key}
+                              type="button"
+                              onClick={() => setProjectScopeKeys([tile.key])}
+                              className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                            >
+                              <FolderIcon className="-mx-0.5 size-3 shrink-0" />
+                              <span className="truncate">{tile.tag}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => setProjectScopeKeys([])}

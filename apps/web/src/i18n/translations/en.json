@@ -2619,6 +2619,8 @@
   "0b58e43fd858408a": "No active threads in {project}",
   "297c00f959338825": "No threads in this filter yet",
   "981053bcf95b3d3f": "No threads in {project} yet",
+  "9a6298d645751cd7": "Threads in this filter are in folders",
+  "86747ad23a3c304a": "Threads in {project} are in folders",
   "151767f20fa67c48": "Pinned",
   "db8f17154d4f0cfa": "Active",
   "9578dc3e84f82081": "Working",

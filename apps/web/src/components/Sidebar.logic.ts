@@ -661,6 +661,22 @@ export function isThreadInSidebarScope(
     : tags.some((tag) => scope.tags.has(tag));
 }
 
+/** Folders outside the scope that hold the scoped projects' threads, so an empty project can point to them. */
+export function scopedProjectFolderTags(
+  scope: SidebarThreadScope | null,
+  threads: ReadonlyArray<SidebarScopedThread>,
+): ReadonlyArray<string> {
+  if (scope === null) return [];
+  const tags = new Set<string>();
+  for (const thread of threads) {
+    if (!scope.projectKeys.has(`${thread.environmentId}:${thread.projectId}`)) continue;
+    for (const tag of thread.tags ?? []) {
+      if (!scope.tags.has(tag)) tags.add(tag);
+    }
+  }
+  return [...tags];
+}
+
 /**
  * The sidebar's scope per environment, as `isThreadInSidebarScope` reads it: the scoped projects'
  * untagged threads, and the scoped folders' threads. Servers without tag scopes page by project only.
