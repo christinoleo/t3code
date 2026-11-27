@@ -68,7 +68,8 @@ gh issue comment <n> --body "<what needs a decision, and what you would do>"
 Agents repeat mistakes, and one review sees one case. Each repo keeps a single issue titled `maestro: mistake log`, labelled `mistake-log`; create it the first time, with no other label, so no dispatcher claims it.
 
 1. For every problem steps 4 to 9 found and fixed, the live run's included, comment on the log: `maestro: caught <class>: <what was wrong, one line> (#<n>)`. Name the class in kebab case after the kind of mistake, not this instance. Read the log first and reuse an existing class name when it is the same kind.
-2. When a class reaches 2 catches, file a ticket titled `Make <class> impossible`, linking each catch, with this body: `Fix this one mistake class by following ~/.agents/skills/correct/SKILL.md, its "Fix each class at the highest level that works" and "Fix and prove" sections.` Add `ready-for-agent` last. Skip it while such a ticket is open. When one is closed and the class came back, its fix did not hold: file a new ticket that links the old one and says to fix it a level higher.
+2. A problem inside a guard, lint or test that the factory itself added to prevent a mistake is not a new class. Fix it in this PR and log it under the class that guard was for.
+3. When a class you just logged reaches 2 catches, fix the class itself in this PR if you can do it inside the files this PR touches, or with one small local rule. Comment `maestro: fixed <class> in <PR url>` on the log. Otherwise leave it logged and file nothing: never open a ticket from the log. Hardening beyond one PR is a call for Leo, made from the epic's retro, so it never keeps the queue busy on its own.
 
 ## Settle
 
