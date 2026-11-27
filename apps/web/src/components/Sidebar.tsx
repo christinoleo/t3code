@@ -422,6 +422,7 @@ interface SidebarThreadPartitionInput {
 function toastThreadCommandFailures(
   results: ReadonlyArray<AtomCommandResult<unknown, unknown>>,
   title: (failureCount: number) => string,
+  detail: readonly string[] = [],
 ) {
   const failures = results.flatMap((result) =>
     result._tag === "Failure" && !isAtomCommandInterrupted(result) ? [result] : [],
@@ -432,7 +433,10 @@ function toastThreadCommandFailures(
     stackedThreadToast({
       type: "error",
       title: title(failures.length),
-      description: thrownErrorMessage(firstError, m) ?? m(msg("An error occurred.")),
+      description: [
+        ...detail,
+        thrownErrorMessage(firstError, m) ?? m(msg("An error occurred.")),
+      ].join(" "),
     }),
   );
 }
@@ -1463,10 +1467,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         setProjectScopeKeys(scopeKeys);
       }
     }
-    const firstFailure = [...renames, ...planResults].find(
-      ({ result }) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
-    )?.result;
-    if (firstFailure === undefined || firstFailure._tag !== "Failure") return;
     const lines = failures.map(({ environmentId, failed, total }) => {
       const environment = environmentLabelById.get(environmentId) ?? environmentId;
       return failed === null || total === null
@@ -1476,15 +1476,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             { environment, failed, total },
           );
     });
-    toastManager.add(
-      stackedThreadToast({
-        type: "error",
-        title: to === null ? gt("Failed to delete the folder") : gt("Failed to rename the folder"),
-        description: [
-          ...lines,
-          thrownErrorMessage(squashAtomCommandFailure(firstFailure), m) ?? gt("An error occurred."),
-        ].join(" "),
-      }),
+    toastThreadCommandFailures(
+      [...renames, ...planResults].map(({ result }) => result),
+      () => (to === null ? gt("Failed to delete the folder") : gt("Failed to rename the folder")),
+      lines,
     );
   };
   const handleProjectFolderContextMenu = useStableCallback(

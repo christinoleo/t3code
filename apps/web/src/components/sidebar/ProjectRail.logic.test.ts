@@ -253,7 +253,6 @@ describe("folder rename and delete", () => {
         { environmentId: other, failed: 1, total: 1 },
       ],
     });
-    // A rename that reached no thread is not a move, so a failure elsewhere still changes nothing.
     expect(
       folderEditOutcome([{ environmentId, moved: 0 }], [{ environmentId: other, ok: false }])
         .changed,
@@ -289,6 +288,27 @@ describe("folder rename and delete", () => {
       failures: [],
     });
     expect(folderEditOutcome([], [])).toEqual({ changed: true, fromSurvives: false, failures: [] });
+  });
+
+  it("renames a folder whose server holds no thread, and keeps it when one thread change fails", () => {
+    expect(folderEditOutcome([{ environmentId, moved: 0 }], [])).toEqual({
+      changed: true,
+      fromSurvives: false,
+      failures: [],
+    });
+    expect(
+      folderEditOutcome(
+        [],
+        [
+          { environmentId, ok: true },
+          { environmentId, ok: false },
+        ],
+      ),
+    ).toEqual({
+      changed: true,
+      fromSurvives: true,
+      failures: [{ environmentId, failed: 1, total: 2 }],
+    });
   });
 
   it("moves a renamed folder's icon and drops a deleted one", () => {
