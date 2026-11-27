@@ -362,12 +362,14 @@ describe("projects filter menu", () => {
     ]);
   });
 
-  it("marks the one scoped project or folder, all projects when unscoped, none for several", () => {
+  it("marks the one scoped project or folder, all projects when unscoped, none for several or unknown", () => {
     const items = projectScopeMenuItems(projectItems, tiles([group("web")], [{ tags: ["alpha"] }]));
 
     expect(selectedProjectScopeItem(items, ["tag:alpha"])?.value).toBe("tag:alpha");
     expect(selectedProjectScopeItem(items, ["group:web"])?.value).toBe("group:web");
     expect(selectedProjectScopeItem(items, [])?.value).toBe("all");
     expect(selectedProjectScopeItem(items, ["group:web", "tag:alpha"])).toBeNull();
+    // A scoped project that has not loaded yet is not "All projects".
+    expect(selectedProjectScopeItem(items, ["group:loading"])).toBeNull();
   });
 });

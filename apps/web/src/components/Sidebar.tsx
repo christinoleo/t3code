@@ -122,6 +122,7 @@ import {
   buildSidebarProjectPickerEntries,
   projectGroupsSpanEnvironments,
   resolveSidebarProjectScopeKeys,
+  folderScopeKey,
   folderTagOfScopeKey,
   getSidebarProjectSettingsKey,
   type SidebarProjectSnapshot,
@@ -960,23 +961,16 @@ function useSidebarLookups() {
   };
 }
 
-type ScopeBadge =
-  | { readonly kind: "project"; readonly key: string; readonly project: SidebarProjectSnapshot }
-  | { readonly kind: "folder"; readonly key: string; readonly tag: string };
+type ScopeBadge = { readonly key: string; readonly label: string } & (
+  | { readonly kind: "project"; readonly project: SidebarProjectSnapshot }
+  | { readonly kind: "folder"; readonly icon: ProjectIconOverride | undefined }
+);
 
-function ScopeBadgeIcon(props: {
-  badge: ScopeBadge;
-  folderIcons: Readonly<Record<string, ProjectIconOverride>>;
-  className: string;
-}) {
+function ScopeBadgeIcon(props: { badge: ScopeBadge; className: string }) {
   return props.badge.kind === "project" ? (
     <ProjectFavicon project={props.badge.project} className={props.className} />
   ) : (
-    <FolderTileIcon
-      tag={props.badge.tag}
-      icon={props.folderIcons[props.badge.tag]}
-      className={props.className}
-    />
+    <FolderTileIcon tag={props.badge.label} icon={props.badge.icon} className={props.className} />
   );
 }
 
@@ -1327,22 +1321,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scope = revealWidensScope ? null : chosenScope;
-  const scopeLabels = [
-    ...scopedProjectGroups.map((project) => project.displayName),
-    ...(scope?.tags ?? []),
-  ];
   const scopedFolderTags = scopedProjectFolderTags(scope, railThreads);
   const scopedFolderTiles = railTiles.flatMap((tile) =>
     tile.kind === "folder" && scopedFolderTags.includes(tile.tag) ? [tile] : [],
   );
+  const folderIcons = usePrimarySettings((settings) => settings.folderIcons);
   const scopeBadges: ScopeBadge[] = [
     ...scopedProjectGroups.map((project) => ({
       kind: "project" as const,
       key: project.projectKey,
+      label: project.displayName,
       project,
     })),
-    ...[...(scope?.tags ?? [])].map((tag) => ({ kind: "folder" as const, key: tag, tag })),
+    ...[...(scope?.tags ?? [])].map((tag) => ({
+      kind: "folder" as const,
+      key: folderScopeKey(tag),
+      label: tag,
+      icon: folderIcons[tag],
+    })),
   ];
+  const scopeLabels = scopeBadges.map((badge) => badge.label);
   // Drafts have no tags, so they show only under their project.
   const scopedProjectKeys = scope?.projectKeys ?? null;
   // A folder holds threads from any project, so search and folders span every project.
@@ -1428,7 +1426,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   // A touch long press can raise both the browser's contextmenu and the rail's own long-press menu.
   const contextMenuOpenRef = useRef(false);
-  const folderIcons = usePrimarySettings((settings) => settings.folderIcons);
   const folderIconsAvailable = usePrimarySettingsAvailable();
   const updatePrimarySettings = useUpdatePrimarySettings();
   const [folderIconTag, setFolderIconTag] = useState<string | null>(null);
@@ -3581,21 +3578,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                     : "-ml-1 flex rounded-[25%] bg-sidebar ring-2 ring-sidebar"
                                 }
                               >
-                                <ScopeBadgeIcon
-                                  badge={badge}
-                                  folderIcons={folderIcons}
-                                  className="size-3.5"
-                                />
+                                <ScopeBadgeIcon badge={badge} className="size-3.5" />
                               </span>
                             ))}
                           </span>
                         ) : scopeBadges[0] ? (
                           <span className="flex shrink-0">
-                            <ScopeBadgeIcon
-                              badge={scopeBadges[0]}
-                              folderIcons={folderIcons}
-                              className="size-4"
-                            />
+                            <ScopeBadgeIcon badge={scopeBadges[0]} className="size-4" />
                           </span>
                         ) : (
                           <FolderIcon className="size-4" />
@@ -3623,8 +3612,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             const scopeKey = highlightedProjectScopeKeyRef.current;
                             const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
-                            const isFolder =
-                              scopeKey !== null && folderTagOfScopeKey(scopeKey) !== null;
                             // The thread pin shortcut pins the highlighted project here.
                             if (
                               project &&
@@ -3638,7 +3625,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             if (event.ctrlKey || event.altKey || event.metaKey) return;
                             if (event.shiftKey && event.key === "Enter") {
-                              if (!scopeKey || (!project && !isFolder)) return;
+                              if (!scopeKey || (!project && folderTagOfScopeKey(scopeKey) === null))
+                                return;
                               event.preventDefault();
                               toggleProjectScopeKey(scopeKey);
                               return;
@@ -3676,9 +3664,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             const project = projectGroupByScopeKey.get(item.value) ?? null;
                             const folderTag = folderTagOfScopeKey(item.value);
                             const isSelected =
-                              project || folderTag !== null
-                                ? projectScopeKeys.includes(item.value)
-                                : projectScopeKeys.length === 0;
+                              item.value === "all"
+                                ? projectScopeKeys.length === 0
+                                : projectScopeKeys.includes(item.value);
                             return (
                               <ComboboxItem
                                 key={item.value}
