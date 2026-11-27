@@ -480,6 +480,8 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
             command = { ...common, type: "thread.pin", ...(orderKey ? { orderKey } : {}) };
             break;
           }
+          case "rename_folder":
+            return yield* Effect.die("rename_folder is handled with environment access.");
           default:
             command = { ...common, type: `thread.${input.action}` };
         }
