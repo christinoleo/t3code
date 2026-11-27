@@ -4301,6 +4301,7 @@
   "ac242b57dbfa5259": "Manage scheduled tasks",
   "d93c0db04f4c8e46": "Edit automation",
   "3fe420ed9b5bdb75": "Run now",
+  "fdf273ca647a967f": "Delete",
   "0c433351a8606e50": [
     "Could not load automations: ",
     {
@@ -5450,7 +5451,9 @@
   "4cb21672153c1f18": "No simulators or emulators were found on this environment.",
   "c82410197256eb53": "iOS Simulators",
   "31a71fec6b5f2bf3": "Android Devices",
+  "1bd21d5284dc2d8e": "iOS Devices",
   "ac18a5e35195a258": "Android Emulators",
+  "f28d1d2b5f30a8cd": "Physical",
   "94215375ea2558b8": "Running",
   "f8a65d4d662389b0": "Stopped",
   "381ceed77cb8b2b3": "Stop {name}",
@@ -8902,7 +8905,7 @@
   "a6a6dc235b108747": "Allow agents to use the shared browser. Projects can override it.",
   "ea5fed973bfc1aca": "Reset default browser access to default",
   "19e1f74805f4a1fb": "Agent browser access",
-  "b395b88284e3bca2": "Show the floating preview when an agent opens a browser or device unless the agent says otherwise.",
+  "d6ccca83a1676fcb": "Show the floating preview when an agent opens a browser or device unless the agent says otherwise, and when you close the right panel.",
   "6aadfd59cf60b4b5": "Reset auto-show floating preview to default",
   "e4a7ec61190bc1f9": "Auto-show floating preview",
   "3705c53cb3e76a28": "Could not clear {name}''s data",
@@ -13180,5 +13183,177 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "99d51127f573296b": "Another account",
+  "8ec2c57414669b79": "Connect a second {tracker} workspace or user.",
+  "99963c0142e17f00": "For the new {tracker} account.",
+  "6d8e4ebc889bace9": "Add account",
+  "8a883c4fbc127b68": "Enabling stack auto-merge...",
+  "5fb2a26ae31e8983": "Could not enable stack auto-merge",
+  "986d0dcbf4dd0098": "Stack auto-merge enabled",
+  "f3ed1f63c8a3eef2": "{host} merges the stack through #{number} once its requirements are met.",
+  "bd536a0a1754f6cb": "Could not cancel stack auto-merge",
+  "bb90ac3b2f3a72d5": "The host refused to cancel auto-merge. Refresh and try again.",
+  "9c28753c777c37b7": "{count, plural, one {Auto-merge {count} {term, select, mr {merge request} cr {change request} other {pull request}}?} other {Auto-merge {count} {term, select, mr {merge requests} cr {change requests} other {pull requests}}?}}",
+  "a86b49982e18784d": "Merge #{number} and its unmerged layers below into {base} using {method} once every one of them meets the requirements on {host}. This may happen immediately.",
+  "b1afda5c964deee4": [
+    "Auto-merge stack (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "Cancel stack auto-merge",
+  "012c67c7f1a99e33": "Auto-merge stack",
+  "4a18481bea4b4ad5": "New device signed in to {environmentLabel}",
+  "4144ab6aa487528a": "{device} connected through {product}. Not you? Review it.",
+  "a10cfdb27152c757": "{count, plural, one {{count} device} other {{count} devices}} connected through {product}. Not you? Review them.",
+  "e0856d6a402ad821": "{organization}'s policy does not allow project worktree layout commands.",
+  "206811f6f441bfc7": "This project sets up worktrees with its own command, which nobody has approved as it is written now. This connection cannot approve it: approve it from a client that can use the terminal.",
+  "b8087c9a70c26da9": "Could not approve the worktree layout command.",
+  "49eda70cfd56e621": "Runs when a worktree thread starts, and when its folder is restored",
+  "188ccaa1199f5611": "Runs when a thread's worktree is removed",
+  "7e8476e7306acabe": "Let this project run its worktree commands?",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " sets up worktree threads with its own commands from ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    ". They run on this environment's machine with your permissions, outside any agent sandbox. You are asked again whenever their text changes."
+  ],
+  "46807acd02a4ff72": "Approve and continue",
+  "a9cb97fca6a6576b": "Create command",
+  "90f45a354884ccdd": "Remove command",
+  "78e308ada516928b": "Could not approve the command",
+  "a0c772d32a233da6": "Could not revoke the approval",
+  "0cdc8cdbed3e5eae": "Worktree layout",
+  "c17b25519e2b194e": "Could not load the worktree layout commands",
+  "5ccd5614c65f8d1f": "Revoke approval of the {kind} command",
+  "80c3794a5fa12f3a": "Approve the {kind} command",
+  "f206891e124c77b0": [
+    "This project's ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " sets up worktree threads with its own commands. They run on this environment's machine with your permissions, and only as approved here: a command whose text changes needs approval again."
+  ],
+  "f6a91589456cca50": "Approved",
+  "c92657bb7f2293ff": "Needs approval",
+  "f1e5c1be1ac92361": "Approve",
+  "fcb5f3c4d4753326": "This connection cannot approve commands. Use a client that can use the terminal.",
+  "7150557773b3818b": "Queued",
+  "efbeb3993ee2c3f5": "Queued for {pool}",
+  "0398ca6c1d24b92d": "queued, next in line",
+  "0af6d5ffd5166214": "{count, plural, one {queued, {count} ahead} other {queued, {count} ahead}}",
+  "49be26a27dcb30e5": "queued",
+  "4e96712d839ccbff": "{who} said {choice}",
+  "19097cfb8f5a79cf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " said",
+    " ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    "."
+  ],
+  "e7bbf693910057bf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " said",
+    " ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    ": ",
+    {
+      "i": 4,
+      "k": "_gt_value_4",
+      "v": "v"
+    }
+  ],
+  "3759768c5d342c22": [
+    "answered",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "e114d37b32ab0dc7": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " needs a reason."
+  ],
+  "91aadfc843c600de": "Verify Google account",
+  "201490988858b511": "withdrawn by {by}",
+  "99451a5d2d40440f": "Withdrawn by {by}.",
+  "3ee30a50b70fffab": "Withdrawn by {by}: {reason}",
+  "92e129bf413a1220": "withdrawn",
+  "800966eb58181745": "Checking which languages the model supports…",
+  "410dded6e21c280d": "Stash is full",
+  "1af8d12ac21cb183": "The stash holds {max} prompts. Restore or delete one to make room; the composer was left as-is.",
+  "381ceed77cb8b2b3": "Stop {name}",
+  "5b9fda36b610d25c": "Stop",
+  "1d372f6d555dde3c": "Stop all devices",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " more"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " more in Linked items"
+  ],
+  "717c1c47a852a1a5": "Pause narration",
+  "0eceb5780908eb6c": "Read aloud",
+  "3ee98da81538c6de": "Could not play narration.",
+  "95435f0b59cb2193": "Audio preview",
+  "4a12506938295127": "Enter the {field} first.",
+  "5807c08e225c6b3d": "Download",
+  "0d50b5bfe7151ece": "Could not download file",
+  "eb1fd384ad5919dd": "Internal note",
+  "b45f0b467e9406d0": "Reply to customer"
 }
