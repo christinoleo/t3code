@@ -396,6 +396,11 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_search: tool(["Search", "Searching", "Searched", "thread content"], "thread-search"),
   t3_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),
   t3_thread_organize: tool(["Organize", "Organizing", "Organized", "a thread"], "thread-organize"),
+  t3_thread_move_to_folder: tool(
+    ["Move", "Moving", "Moved", "a thread to a folder"],
+    "thread-organize",
+  ),
+  t3_thread_rename_folder: tool(["Rename", "Renaming", "Renamed", "a folder"], "thread-organize"),
   t3_thread_update: tool(["Update", "Updating", "Updated", "T3 thread metadata"], "thread-update"),
   t3_worktree_list: tool(["List", "Listing", "Listed", "workspace branches"], "worktree-list"),
   t3_preview_list: tool(["List", "Listing", "Listed", "preview tabs"], "browser", "browser"),
@@ -513,6 +518,10 @@ const ACTION_TOOLS: Readonly<Record<string, (action: string) => string | undefin
   preview_act: (action) => `preview_${action}`,
   t3_queue: (action) => `t3_queue_${action}`,
   t3_pending_request: (action) => `t3_pending_request_${action}`,
+  t3_thread_organize: (action) =>
+    ({ move_to_folder: "t3_thread_move_to_folder", rename_folder: "t3_thread_rename_folder" })[
+      action
+    ],
   t3_thread_transfer: (action) =>
     ({ fork: "t3_thread_fork", merge_back: "t3_thread_merge_back", status: "t3_thread_transfers" })[
       action

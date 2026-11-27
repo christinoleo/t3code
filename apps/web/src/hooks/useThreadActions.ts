@@ -26,7 +26,7 @@ import { msg } from "gt-react";
 import { useRouter } from "@tanstack/react-router";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
-import { folderTagChanges, type ThreadFolderTagChange } from "../components/threadActionMenu.logic";
+import { folderTagChanges, type ThreadFolderTagChange } from "@t3tools/contracts";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
