@@ -430,14 +430,21 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
                 new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
             ),
           );
+        // No thread here held the folder, so its icon may belong to another environment's.
+        if (result.threadCount === 0) return result;
         const settings = yield* ServerSettings.ServerSettingsService;
-        const { folderIcons } = yield* settings.getSettings.pipe(Effect.mapError(unavailable));
-        const iconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
-        if (iconsPatch !== null) {
-          yield* settings
-            .updateSettings({ folderIcons: iconsPatch })
-            .pipe(Effect.mapError(unavailable));
-        }
+        // The rename already landed, so a failed icon move must not report it as failed.
+        yield* settings.getSettings.pipe(
+          Effect.flatMap(({ folderIcons }) => {
+            const folderIconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
+            return folderIconsPatch === null
+              ? Effect.void
+              : settings.updateSettings({ folderIcons: folderIconsPatch });
+          }),
+          Effect.catch((cause) =>
+            Effect.logWarning("folder icon did not follow the folder edit", { from, to, cause }),
+          ),
+        );
         return result;
       }),
     ),

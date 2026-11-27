@@ -11,6 +11,7 @@ import {
   NodeId,
   OrchestratorMcpThreadReadResult,
   type ProjectIconOverride,
+  ServerSettingsError,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -1792,9 +1793,11 @@ const folderToolkit = (options: {
   readonly dispatched: Array<OrchestrationV2ServerCommand>;
   readonly renamed: Array<unknown>;
   readonly folderIcons?: Record<string, ProjectIconOverride>;
+  readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
+  readonly threadCount?: number;
 }) =>
   threadToolkitWithSettings(
-    ServerSettings.layerTest({ folderIcons: options.folderIcons ?? {} }),
+    options.settings ?? ServerSettings.layerTest({ folderIcons: options.folderIcons ?? {} }),
   ).pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(NodeCrypto.layer),
@@ -1822,7 +1825,7 @@ const folderToolkit = (options: {
         },
         renameThreadTag: (input) => {
           options.renamed.push(input);
-          return Effect.succeed({ threadCount: 3 });
+          return Effect.succeed({ threadCount: options.threadCount ?? 3 });
         },
       }),
     ),
@@ -1889,6 +1892,40 @@ it.effect("rename_folder and delete_folder change the folder environment-wide in
     Effect.provide(
       folderToolkit({ tags: [], dispatched: [], renamed, folderIcons: { Inbox: rocket } }),
     ),
+  );
+});
+
+it.effect("a folder edit that found no threads here leaves the folder icons alone", () => {
+  const rocket = { kind: "emoji", emoji: "🚀" } as const;
+  return Effect.gen(function* () {
+    yield* organize({ action: "delete_folder", folder: "Inbox" });
+    const settings = yield* ServerSettings.ServerSettingsService;
+    expect((yield* settings.getSettings).folderIcons).toEqual({ Inbox: rocket });
+  }).pipe(
+    Effect.provide(
+      folderToolkit({
+        tags: [],
+        dispatched: [],
+        renamed: [],
+        folderIcons: { Inbox: rocket },
+        threadCount: 0,
+      }),
+    ),
+  );
+});
+
+it.effect("a folder rename still reports success when its icon cannot follow", () => {
+  const renamed: Array<unknown> = [];
+  const settingsDown = Layer.mock(ServerSettings.ServerSettingsService)({
+    getSettings: Effect.fail(
+      new ServerSettingsError({ settingsPath: "<memory>", operation: "read-file", cause: "down" }),
+    ),
+  });
+  return Effect.gen(function* () {
+    const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
+    expect(result.structuredContent).toEqual({ threadCount: 3 });
+  }).pipe(
+    Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed, settings: settingsDown })),
   );
 });
 
