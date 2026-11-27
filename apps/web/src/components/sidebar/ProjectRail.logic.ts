@@ -277,22 +277,10 @@ export function newThreadFolderTag(scopeKeys: readonly string[]): string | null 
   return scopeKeys.length === 1 ? folderTagOfScopeKey(scopeKeys[0]!) : null;
 }
 
-/** New threads read as in their folder until their own tag arrives from the server. */
-export function withNewThreadFolderTags<
-  TThread extends { readonly tags?: ReadonlyArray<string> | undefined },
->(
-  threads: readonly TThread[],
-  tagByThreadKey: Readonly<Record<string, string>>,
-  keyOf: (thread: TThread) => string,
-): readonly TThread[] {
-  if (Object.keys(tagByThreadKey).length === 0) return threads;
-  let changed = false;
-  const next = threads.map((thread) => {
-    const tag = tagByThreadKey[keyOf(thread)];
-    if (tag === undefined || (thread.tags ?? []).length > 0) return thread;
-    changed = true;
-    return { ...thread, tags: [tag] };
-  });
-  // The shell list keeps its identity so the sidebar's derived lists stay memoized.
-  return changed ? next : threads;
+/** The `tags` a thread-creating command carries, so the thread is born in the scope's folder. */
+export function newThreadCreateTags(scopeKeys: readonly string[]): {
+  readonly tags?: readonly [string];
+} {
+  const tag = newThreadFolderTag(scopeKeys);
+  return tag === null ? {} : { tags: [tag] };
 }
