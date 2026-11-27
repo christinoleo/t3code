@@ -130,27 +130,33 @@ export function sortOlderSettledScopes(
 
 /**
  * Changes whenever the older count can: any removal (by largest sequence, so a repeat counts), an
- * older row that arrives, changes project or tags, or an old row arriving unsettled. Threads made
- * after the cut never enter it. Archived-thread events arrive as removals, one count read each.
+ * older row that arrives, changes project, or an old row arriving unsettled. Threads made after the
+ * cut never enter it. Archived-thread events arrive as removals, one count read each. `tagged` also
+ * moves when such a row's tags change; only tag-scoped counts read on it.
  */
 export function olderSettledCountKey(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   beforeMs: number,
   removedAt: ReadonlyMap<ThreadId, number>,
-): string {
+): { readonly base: string; readonly tagged: string } {
   let lastRemoval = 0;
   for (const sequence of removedAt.values()) lastRemoval = Math.max(lastRemoval, sequence);
-  const rows: string[] = [];
+  const rows: Array<readonly [string, string]> = [];
   for (const thread of threads) {
     if (!isListedThreadLineage(thread.lineage)) continue;
     const older = isOlderSettledThreadShell(thread, beforeMs);
     if (older || DateTime.toEpochMillis(thread.createdAt) < beforeMs) {
-      rows.push(
-        `${thread.id}:${thread.projectId}:${older ? 1 : 0}:${JSON.stringify(thread.tags ?? [])}`,
-      );
+      rows.push([
+        `${thread.id}:${thread.projectId}:${older ? 1 : 0}`,
+        JSON.stringify(thread.tags ?? []),
+      ]);
     }
   }
-  return `${lastRemoval}|${rows.sort().join(",")}`;
+  rows.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return {
+    base: `${lastRemoval}|${rows.map(([row]) => row).join(",")}`,
+    tagged: `${lastRemoval}|${rows.map(([row, tags]) => `${row}:${tags}`).join(",")}`,
+  };
 }
 
 /** Whether a row sits at or above a page cursor in the server's order (settle time desc, id asc). */
@@ -292,8 +298,9 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
       readonly before: string;
       readonly key: string;
       readonly tagScope?: OlderSettledTagScope;
+      readonly immediate?: true;
     }) {
-      yield* Effect.sleep(COUNT_REREAD_DELAY);
+      if (input.immediate !== true) yield* Effect.sleep(COUNT_REREAD_DELAY);
       return yield* request(ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads, {
         before: { settledAt: input.before },
         ...(input.tagScope === undefined ? {} : { tagScope: input.tagScope }),
@@ -333,8 +340,8 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
       readonly removedAt: unknown;
       readonly before: string;
     } | null = null;
-    let key = "";
-    return Atom.make((get): string | null => {
+    let key = { base: "", tagged: "" };
+    return Atom.make((get): { readonly base: string; readonly tagged: string } | null => {
       const state = shellStateValue(get(shellStateAtom(environmentId)));
       const snapshot = state === null ? null : Option.getOrNull(state.snapshot);
       const cut = snapshot?.olderSettled;
@@ -346,11 +353,12 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
         keyInputs.before !== cut.before
       ) {
         keyInputs = { threads: snapshot.threads, removedAt: state.removedAt, before: cut.before };
-        key = olderSettledCountKey(
+        const next = olderSettledCountKey(
           snapshot.threads,
           DateTime.toEpochMillis(DateTime.makeUnsafe(cut.before)),
           state.removedAt,
         );
+        if (next.base !== key.base || next.tagged !== key.tagged) key = next;
       }
       return key;
     }).pipe(Atom.withLabel(`environment-older-settled-count-key:${environmentId}`));
@@ -375,7 +383,7 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
           counts: countsOf(cut),
         };
       }
-      const key = get(countKeyAtom(environmentId)) ?? "";
+      const key = get(countKeyAtom(environmentId))?.base ?? "";
       if (state.generation !== generation) {
         generation = state.generation;
         snapshotKey = snapshot.snapshotSequence === cut.asOfSequence ? key : null;
@@ -399,21 +407,41 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
     }).pipe(Atom.withLabel(`environment-older-settled:${environmentId}`));
   });
 
-  // Snapshot counts ignore tags, so a tag scope reads its own, again whenever the key moves.
-  const taggedOlderSettledAtom = Atom.family((key: string) => {
-    const [environmentId, tagScope] = JSON.parse(key) as [EnvironmentId, OlderSettledTagScope];
-    let generation = -1;
-    let lastReadPage: OrchestrationV2OlderSettledThreadsPage | null = null;
-    let lastRead: OlderSettled | null = null;
-    let pending: OlderSettled | null = null;
+  // A tag scope's last count read, kept past its atom so a folder shown again keeps its count.
+  const taggedReads = new Map<
+    string,
+    {
+      readonly generation: number;
+      readonly key: string;
+      readonly older: OlderSettled;
+    }
+  >();
+  // Only a scope's first read per generation and cut skips the delay, so a burst still collapses.
+  const firstReads = new Map<
+    string,
+    { readonly generation: number; readonly before: string; readonly key: string }
+  >();
+
+  // Snapshot counts ignore tags, so a tag scope reads its own, again whenever the tagged key moves.
+  // Until its first read lands it shows the environment's counts: an upper bound, never a zero.
+  const taggedOlderSettledAtom = Atom.family((scopeKey: string) => {
+    const [environmentId, tagScope] = JSON.parse(scopeKey) as [EnvironmentId, OlderSettledTagScope];
     return Atom.make((get): OlderSettled | null => {
       const base = get(olderSettledAtom(environmentId));
       const state = shellStateValue(get(shellStateAtom(environmentId)));
       if (base === null || state === null || state.generation === 0) return null;
-      if (state.generation !== generation || lastRead?.before !== base.before) {
-        generation = state.generation;
-        lastRead = null;
+      const kept = taggedReads.get(scopeKey);
+      // A reconnect re-reads, but the same cut's last count stays up until that read lands.
+      const shown = kept?.older.before === base.before ? kept.older : base;
+      const last = kept?.generation === state.generation && shown !== base ? kept : undefined;
+      const key = get(countKeyAtom(environmentId))?.tagged ?? "";
+      if (last?.key === key) return last.older;
+      let first = firstReads.get(scopeKey);
+      if (first?.generation !== state.generation || first.before !== base.before) {
+        first = { generation: state.generation, before: base.before, key };
+        firstReads.set(scopeKey, first);
       }
+      const immediate = last === undefined && first.key === key;
       const read = selectEnvironmentQueryData(
         get(
           countReadAtom({
@@ -421,20 +449,18 @@ export function createOlderSettledThreadAtoms<R, ER, E>(
             input: {
               generation: state.generation,
               before: base.before,
-              key: get(countKeyAtom(environmentId)) ?? "",
+              key,
               tagScope,
+              ...(immediate ? { immediate: true as const } : {}),
             },
           }),
         ),
       );
-      if (read !== null && read !== lastReadPage) {
-        lastReadPage = read;
-        lastRead = { ...base, counts: countsOf(read) };
-      }
-      if (lastRead !== null) return lastRead;
-      if (pending?.before !== base.before) pending = { ...base, counts: new Map() };
-      return pending;
-    }).pipe(Atom.withLabel(`environment-older-settled-tagged:${key}`));
+      if (read === null) return shown;
+      const older = { ...base, counts: countsOf(read) };
+      taggedReads.set(scopeKey, { generation: state.generation, key, older });
+      return older;
+    }).pipe(Atom.withLabel(`environment-older-settled-tagged:${scopeKey}`));
   });
 
   const scopeOlderSettledAtom = (scope: OlderSettledScope) => {
