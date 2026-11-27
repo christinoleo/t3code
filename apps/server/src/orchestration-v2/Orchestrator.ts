@@ -16944,8 +16944,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
 
   /**
-   * Cascades and subagent follow-ups lock a parent before its child; a dispatch holding many
-   * thread locks takes them shallowest lineage first so it never waits against that order.
+   * Cascades and subagent follow-ups lock a parent before its child, and cascades lock siblings
+   * by id; a dispatch holding many thread locks takes them shallowest lineage first, then by id,
+   * so it never waits against that order.
    */
   const ancestorsFirst = Effect.fn("Orchestrator.ancestorsFirst")(function* (
     threadIds: ReadonlyArray<ThreadId>,
@@ -17012,11 +17013,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const cascade = threadDispatch.withLock(
         command.threadId,
         liveSideChatIds(command.threadId).pipe(
+          // Siblings lock by id, the order ancestorsFirst gives a tag rename.
           Effect.flatMap((sideChatIds) =>
-            sideChatIds.reduce(
-              (locked, sideChatId) => threadDispatch.withLock(sideChatId, locked),
-              dispatchWithReceiptEffect(command, sideChatIds),
-            ),
+            sideChatIds
+              .toSorted((left, right) => left.localeCompare(right))
+              .reduceRight(
+                (locked, sideChatId) => threadDispatch.withLock(sideChatId, locked),
+                dispatchWithReceiptEffect(command, sideChatIds),
+              ),
           ),
         ),
       );
