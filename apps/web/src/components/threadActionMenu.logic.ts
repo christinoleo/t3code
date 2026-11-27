@@ -139,10 +139,13 @@ export interface ThreadActionMenuState {
 export interface ThreadFolderMenuState {
   /** Every folder the client knows, sorted by name. */
   readonly names: ReadonlyArray<string>;
-  /** The current tags of each thread the menu acts on. */
-  readonly threadTags: ReadonlyArray<ReadonlyArray<string>>;
-  /** Tags the threads' environment hides; moves keep them. The sidebar never lists hidden threads. */
-  readonly hiddenTags?: ReadonlyArray<string> | null;
+  readonly threads: ReadonlyArray<ThreadFolderMenuThread>;
+}
+
+export interface ThreadFolderMenuThread {
+  readonly tags: ReadonlyArray<string>;
+  /** Tags the thread's environment hides; moves keep them. */
+  readonly hiddenTags: ReadonlyArray<string> | null;
 }
 
 export function threadFolderNames(
@@ -177,9 +180,8 @@ export function buildFolderMenuItem(
   folders: ThreadFolderMenuState,
   resolve: MessageResolver = m,
 ): ContextMenuItem<ThreadActionMenuId> {
-  const everyThread = (predicate: (tags: ReadonlyArray<string>) => boolean) =>
-    folders.threadTags.every(predicate);
-  const hidden = folders.hiddenTags ?? null;
+  const everyThread = (predicate: (thread: ThreadFolderMenuThread) => boolean) =>
+    folders.threads.every(predicate);
   return {
     id: "folder",
     label: resolve(msg("Folder", { $context: "submenu to move threads into a folder" })),
@@ -188,8 +190,10 @@ export function buildFolderMenuItem(
       ...folders.names.map((name) => ({
         id: `folder:${name}` as const,
         label: name,
-        checked: everyThread((tags) => tags.includes(name)),
-        disabled: everyThread((tags) => folderTagChanges(tags, name, hidden).length === 0),
+        checked: everyThread(({ tags }) => tags.includes(name)),
+        disabled: everyThread(
+          ({ tags, hiddenTags }) => folderTagChanges(tags, name, hiddenTags).length === 0,
+        ),
       })),
       {
         id: "folder-new" as const,
@@ -200,7 +204,9 @@ export function buildFolderMenuItem(
       {
         id: "folder-none" as const,
         label: resolve(msg("Back to project")),
-        disabled: everyThread((tags) => folderTagChanges(tags, null, hidden).length === 0),
+        disabled: everyThread(
+          ({ tags, hiddenTags }) => folderTagChanges(tags, null, hiddenTags).length === 0,
+        ),
       },
     ],
   };

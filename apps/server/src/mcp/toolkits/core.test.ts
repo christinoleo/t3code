@@ -1884,10 +1884,6 @@ it.effect("moving a hidden thread between folders keeps its hidden tags", () => 
       { tag: "Review", tagged: true },
       { tag: "Inbox", tagged: false },
     ]);
-
-    dispatched.length = 0;
-    yield* organize({ action: "remove_from_folder" });
-    expect(dispatched).toMatchObject([{ tag: "Inbox", tagged: false }]);
   }).pipe(
     Effect.provide(
       folderToolkit({

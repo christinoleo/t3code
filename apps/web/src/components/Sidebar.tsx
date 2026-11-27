@@ -158,6 +158,7 @@ import {
   readThreadShell,
   readThreadShells,
   readVisibleThreadShells,
+  readEnvironmentHiddenThreadTags,
   useAllEnvironmentProjectSnapshotsReady,
   useDelegatedUnderParent,
   useProjects,
@@ -2753,7 +2754,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   {
                     ...buildFolderMenuItem({
                       names: threadFolderNames(readVisibleThreadShells()),
-                      threadTags: selectedThreads.map((thread) => thread.source.tags ?? []),
+                      threads: selectedThreads.map((thread) => ({
+                        tags: thread.source.tags ?? [],
+                        hiddenTags: readEnvironmentHiddenThreadTags(thread.environmentId),
+                      })),
                     }),
                     disabled: !canOperateThreads(selectedThreads),
                   },
@@ -3078,7 +3082,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               folders: configLoaded
                 ? {
                     names: threadFolderNames(readVisibleThreadShells()),
-                    threadTags: [thread.source.tags ?? []],
+                    threads: [
+                      {
+                        tags: thread.source.tags ?? [],
+                        hiddenTags: readEnvironmentHiddenThreadTags(threadRef.environmentId),
+                      },
+                    ],
                   }
                 : null,
               canRename: !fromSearch,

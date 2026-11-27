@@ -162,8 +162,12 @@ export function useThreadActionMenu(input: {
       folders: configLoaded
         ? {
             names: threadFolderNames(readVisibleThreadShells().map((t) => t.source)),
-            threadTags: [thread.source.tags ?? []],
-            hiddenTags: readEnvironmentHiddenThreadTags(threadRef.environmentId),
+            threads: [
+              {
+                tags: thread.source.tags ?? [],
+                hiddenTags: readEnvironmentHiddenThreadTags(threadRef.environmentId),
+              },
+            ],
           }
         : null,
     });

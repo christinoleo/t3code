@@ -43,7 +43,7 @@ describe("buildThreadActionMenuItems", () => {
         isPinned: reversed,
         isSettled: reversed,
         isSnoozed: reversed,
-        folders: { names: ["Work"], threadTags: [[]] },
+        folders: { names: ["Work"], threads: [{ tags: [], hiddenTags: null }] },
       });
       const expected = reversed
         ? [
@@ -133,7 +133,10 @@ describe("folder menu", () => {
   it("marks folders every selected thread shares and disables no-op moves", () => {
     const item = buildFolderMenuItem({
       names: ["a", "b"],
-      threadTags: [["a"], ["a", "b"]],
+      threads: [
+        { tags: ["a"], hiddenTags: null },
+        { tags: ["a", "b"], hiddenTags: null },
+      ],
     });
     expect(item.children?.map(({ id, checked, disabled }) => ({ id, checked, disabled }))).toEqual([
       { id: "folder:a", checked: true, disabled: false },
@@ -141,9 +144,15 @@ describe("folder menu", () => {
       { id: "folder-new", checked: undefined, disabled: undefined },
       { id: "folder-none", checked: undefined, disabled: false },
     ]);
-    const single = buildFolderMenuItem({ names: ["a"], threadTags: [["a"]] });
+    const single = buildFolderMenuItem({
+      names: ["a"],
+      threads: [{ tags: ["a"], hiddenTags: null }],
+    });
     expect(single.children?.find((child) => child.id === "folder:a")?.disabled).toBe(true);
-    const unfiled = buildFolderMenuItem({ names: [], threadTags: [[]] });
+    const unfiled = buildFolderMenuItem({
+      names: [],
+      threads: [{ tags: [], hiddenTags: null }],
+    });
     expect(unfiled.children?.map((child) => [child.id, child.disabled])).toEqual([
       ["folder-new", undefined],
       ["folder-none", true],

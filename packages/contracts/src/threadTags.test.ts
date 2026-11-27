@@ -53,7 +53,7 @@ describe("folderTagChanges", () => {
       expected: [{ tag: "a", tagged: false }],
     },
     {
-      name: "is a no-op when only hidden tags remain",
+      name: "is a no-op back in the project when only hidden tags remain",
       tags: ["private"],
       folder: null,
       hidden: ["private"],
