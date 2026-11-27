@@ -11,17 +11,12 @@ const THREAD_TAG_OBJECTS = [
   "orchestration_v2_projection_thread_tags_delete",
 ];
 
-const missingForkObjects = Effect.fn("forkSchema.missingObjects")(function* () {
+export const hasForkSchema = Effect.fn("forkSchema.isCurrent")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const present = yield* sql<{ readonly name: string }>`
     SELECT name FROM sqlite_schema WHERE name IN ${sql.in(THREAD_TAG_OBJECTS)}
   `;
-  const names = new Set(present.map((row) => row.name));
-  return THREAD_TAG_OBJECTS.filter((name) => !names.has(name));
-});
-
-export const hasForkSchema = Effect.fn("forkSchema.isCurrent")(function* () {
-  return (yield* missingForkObjects()).length === 0;
+  return present.length === THREAD_TAG_OBJECTS.length;
 });
 
 /**
@@ -30,7 +25,7 @@ export const hasForkSchema = Effect.fn("forkSchema.isCurrent")(function* () {
  */
 export const ensureForkSchema = Effect.fn("forkSchema.ensure")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  if ((yield* missingForkObjects()).length === 0) return;
+  if (yield* hasForkSchema()) return;
   yield* sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
