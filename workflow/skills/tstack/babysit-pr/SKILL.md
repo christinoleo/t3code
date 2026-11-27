@@ -89,7 +89,8 @@ wait for it and never hold a merge for it.
 If a review bot leaves feedback you believe is not worth addressing, reply with
 a written reason and resolve the comment.
 
-Screenshots and videos help as well, when you have a way to upload them.
+Screenshots and videos help as well. Upload them as `full-send`'s Proof section
+says, never as commits.
 
 Keep the PR at the size the user's goal needs. Review loops tend to grow a
 PR one cheap-looking fix at a time. Fix real bugs in the intended case.
