@@ -511,6 +511,51 @@ export const PlanningStatusFields = Schema.Struct({
 })
 export interface PlanningStatusFields extends Schema.Struct.Type<typeof PlanningStatusFields.fields> {}
 
+/**
+ * `fragment IssueRelationTarget on Issue`
+ *
+ * An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project.
+ */
+export const IssueRelationTarget = Schema.Struct({
+  /** Identifies the issue number. */
+  number: Shared.Int,
+  /** Identifies the issue title. */
+  title: Schema.String,
+  /** The HTTP URL for this issue */
+  url: Shared.URI,
+  /** Identifies the state of the issue. */
+  state: GraphQL.enumLiterals(Shared.IssueState.literals),
+  /** Identifies the reason for the issue state. */
+  stateReason: Schema.NullOr(GraphQL.enumLiterals(Shared.IssueStateReason.literals)),
+  /** The repository associated with this node. */
+  repository: NodesRepositoryRepository
+})
+export interface IssueRelationTarget extends Schema.Struct.Type<typeof IssueRelationTarget.fields> {}
+
+/** The connection type for Issue. */
+export const IssueConnection = Schema.Struct({
+  /** A list of nodes. */
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(IssueRelationTarget)))
+})
+export interface IssueConnection extends Schema.Struct.Type<typeof IssueConnection.fields> {}
+
+/**
+ * `fragment IssueRelationFields on Issue`
+ *
+ * An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project.
+ */
+export const IssueRelationFields = Schema.Struct({
+  /** The parent entity of the issue. */
+  parent: Schema.NullOr(IssueRelationTarget),
+  /** A list of sub-issues associated with the Issue. */
+  subIssues: IssueConnection,
+  /** A list of issues that are blocking this issue. */
+  blockedBy: IssueConnection,
+  /** A list of issues that this issue is blocking. */
+  blocking: IssueConnection
+})
+export interface IssueRelationFields extends Schema.Struct.Type<typeof IssueRelationFields.fields> {}
+
 /** A list of users. */
 export const NodesAssigneesUserConnection = Schema.Struct({
   /** A list of nodes. */
@@ -1199,6 +1244,7 @@ export interface PlanningStatusConnection extends Schema.Struct.Type<typeof Plan
 /** An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project. */
 export const IssueDetailWithStatusRepositoryIssueIssue = Schema.Struct({
   ...IssueDetailFields.fields,
+  ...IssueRelationFields.fields,
   /**
    * Whether the viewer can set this issue's status. Issue statuses are in preview
    * and only available to accounts enrolled in the preview.
@@ -1239,13 +1285,15 @@ export const IssueDetailWithStatus = GraphQL.query("IssueDetailWithStatus", {
     ],
     selections: [
       { name: "viewer", body: ["{login}"] },
-      { name: "repository", body: ["(owner:$", "owner", " name:$", "name", "){viewerPermission planningStatuses(first:50){nodes{...PlanningStatusFields}}issue(number:$", "number", "){...IssueDetailFields viewerCanSetStatus status{...PlanningStatusFields}}}"] }
+      { name: "repository", body: ["(owner:$", "owner", " name:$", "name", "){viewerPermission planningStatuses(first:50){nodes{...PlanningStatusFields}}issue(number:$", "number", "){...IssueDetailFields...IssueRelationFields viewerCanSetStatus status{...PlanningStatusFields}}}"] }
     ],
     fragments: [
       { name: "PlanningStatusFields", body: ["on PlanningStatus{id name category{key state stateReason}}"] },
       { name: "IssueDetailFields", body: ["on Issue{...IssueRow assignees(first:100){pageInfo{hasNextPage endCursor}nodes{login name avatarUrl}}labels(first:100){pageInfo{hasNextPage endCursor}nodes{name color}}body viewerCanUpdate viewerCanClose viewerCanReopen...Reactions comments(last:100){totalCount pageInfo{hasPreviousPage startCursor}nodes{id author{__typename login avatarUrl}body createdAt url...Reactions}}closedByPullRequestsReferences(first:20 includeClosedPrs:true){pageInfo{hasNextPage endCursor}nodes{number title url state isDraft repository{nameWithOwner}}}timelineItems(last:100 itemTypes:[CLOSED_EVENT REOPENED_EVENT LABELED_EVENT UNLABELED_EVENT ASSIGNED_EVENT UNASSIGNED_EVENT RENAMED_TITLE_EVENT CROSS_REFERENCED_EVENT]){nodes{__typename...on ClosedEvent{id createdAt actor{__typename login avatarUrl}}...on ReopenedEvent{id createdAt actor{__typename login avatarUrl}}...on LabeledEvent{id createdAt actor{__typename login avatarUrl}label{name}}...on UnlabeledEvent{id createdAt actor{__typename login avatarUrl}label{name}}...on AssignedEvent{id createdAt actor{__typename login avatarUrl}assignee{__typename...on User{login name}...on Bot{login}}}...on UnassignedEvent{id createdAt actor{__typename login avatarUrl}assignee{__typename...on User{login name}...on Bot{login}}}...on RenamedTitleEvent{id createdAt actor{__typename login avatarUrl}currentTitle}...on CrossReferencedEvent{id createdAt actor{__typename login avatarUrl}source{__typename...on PullRequest{number title url state isDraft repository{nameWithOwner}}...on Issue{number url repository{nameWithOwner}}}}}}}"] },
+      { name: "IssueRelationFields", body: ["on Issue{parent{...IssueRelationTarget}subIssues(first:100){nodes{...IssueRelationTarget}}blockedBy(first:100){nodes{...IssueRelationTarget}}blocking(first:100){nodes{...IssueRelationTarget}}}"] },
       { name: "IssueRow", body: ["on Issue{number title url state stateReason createdAt updatedAt closedAt author{__typename login avatarUrl...on User{name}}}"] },
-      { name: "Reactions", body: ["on Reactable{__typename reactionGroups{content viewerHasReacted reactors(first:10){totalCount nodes{__typename...on User{login}...on Bot{login}...on Organization{login}...on Mannequin{login}}}}}"] }
+      { name: "Reactions", body: ["on Reactable{__typename reactionGroups{content viewerHasReacted reactors(first:10){totalCount nodes{__typename...on User{login}...on Bot{login}...on Organization{login}...on Mannequin{login}}}}}"] },
+      { name: "IssueRelationTarget", body: ["on Issue{number title url state stateReason repository{nameWithOwner}}"] }
     ]
   },
   variables: {

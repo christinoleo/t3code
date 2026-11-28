@@ -9,6 +9,8 @@ import {
   type IssueInvolvement,
   type IssueLabel,
   type IssueListSort,
+  type IssueRelationRef,
+  type IssueRelationsInput,
 } from "@t3tools/contracts";
 import {
   IssueTrackerError,
@@ -21,6 +23,7 @@ import { readIssueTemplates } from "./gitHubIssueTemplates.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubGraphQlClient from "./gitHubGraphQlClient.ts";
 import { IssuesGraphQLGroup } from "./issues.graphql.ts";
+import { IssueRelationsGraphQLGroup } from "./issueRelations.graphql.ts";
 import { AddReaction, RemoveReaction } from "./pullRequestMutations.graphql.ts";
 import { gitHubReactionContent } from "./gitHubPullRequestJson.ts";
 import {
@@ -32,6 +35,7 @@ import {
   toIssueCandidates,
   toIssueComments,
   toIssueDetail,
+  toIssueRelations,
   toIssueSearch,
 } from "./gitHubIssueJson.ts";
 
@@ -48,12 +52,18 @@ const CAPABILITIES: IssueCapabilities = {
   linkedPullRequests: true,
   events: true,
   search: true,
+  relations: true,
 };
 
 /** Issue statuses are a github.com preview; Enterprise Server rejects a query that names them. */
 const asksStatuses = (host: string) => host.toLowerCase() === "github.com";
 
 const isResponseError = Schema.is(GitHubRequestPolicy.GitHubApiResponseError);
+
+const issueNotFound = (error: IssueTrackerError) =>
+  isResponseError(error.cause) &&
+  (error.cause.githubErrorTypes ?? []).length > 0 &&
+  (error.cause.githubErrorTypes ?? []).every((type) => type === "NOT_FOUND");
 
 /** GitHub refused the status fields themselves, as it may for an account the preview skips. */
 const statusesRefused = (error: IssueTrackerError) =>
@@ -136,6 +146,7 @@ const FAILURE_DETAIL: Record<IssueTrackerError["reason"], string> = {
 
 const group = GraphQLGroup.merge(
   IssuesGraphQLGroup,
+  IssueRelationsGraphQLGroup,
   GraphQLGroup.make(AddReaction, RemoveReaction),
 ).middleware(GitHubGraphQlClient.GitHubGraphQlAuth);
 
@@ -199,10 +210,12 @@ export const make = Effect.gen(function* () {
   ) {
     const target = yield* issue(input, operation);
     const { owner, name, number } = target;
-    // REST issue endpoints also accept pull requests; resolve an Issue before writing.
-    const result = yield* client
-      .IssueNodeId({ owner, name, number })
-      .pipe(graphql(input.host, operation));
+    // REST issue endpoints also accept pull requests; resolve an Issue before writing. GitHub
+    // answers a pull request's number with a NOT_FOUND error on `repository.issue`, not a null.
+    const result = yield* client.IssueNodeId({ owner, name, number }).pipe(
+      graphql(input.host, operation),
+      Effect.catchIf(issueNotFound, () => Effect.fail(notFound(operation))),
+    );
     const found = result.repository?.issue;
     if (found == null) return yield* notFound(operation);
     return { ...target, id: found.id, state: found.state, stateReason: found.stateReason };
@@ -222,6 +235,87 @@ export const make = Effect.gen(function* () {
       Effect.map((result) => result.repository),
       Effect.catchIf(statusesRefused, () => Effect.succeed(null)),
     );
+  });
+
+  const relatedIssueId = Effect.fn("GitHubIssueTracker.relatedIssueId")(function* (
+    input: { readonly host: string; readonly scope: string; readonly key?: string },
+    ref: IssueRelationRef,
+    operation: string,
+  ) {
+    const scope = ref.scope ?? input.scope;
+    if (scope.toLowerCase() === input.scope.toLowerCase() && ref.key === input.key) {
+      return yield* invalid(operation, "An issue cannot be linked to itself.");
+    }
+    return yield* verifiedIssue({ host: input.host, scope, key: ref.key }, operation).pipe(
+      Effect.map(({ id }) => id),
+      Effect.catchIf(
+        (error) => error.reason === "not-found",
+        () =>
+          Effect.fail(
+            invalid(operation, `GitHub has no issue ${scope}#${ref.key} to link.`, "not-found"),
+          ),
+      ),
+    );
+  });
+
+  // Callers resolve before their own create or patch, so a bad ref changes nothing.
+  const resolveRelations = Effect.fn("GitHubIssueTracker.resolveRelations")(function* (
+    input: { readonly host: string; readonly scope: string; readonly key?: string },
+    relations: IssueRelationsInput,
+    operation: string,
+  ) {
+    if (!asksStatuses(input.host)) {
+      return yield* invalid(
+        operation,
+        "Sub-issues and blocked-by links are only written on github.com.",
+      );
+    }
+    const parent =
+      relations.parent == null
+        ? relations.parent
+        : yield* relatedIssueId(input, relations.parent, operation);
+    const blockedBy =
+      relations.blockedBy === undefined
+        ? undefined
+        : new Set(
+            yield* Effect.forEach(relations.blockedBy, (ref) =>
+              relatedIssueId(input, ref, operation),
+            ),
+          );
+    return { parent, blockedBy };
+  });
+
+  const writeRelations = Effect.fn("GitHubIssueTracker.writeRelations")(function* (
+    input: { readonly host: string; readonly scope: string; readonly key: string },
+    { parent, blockedBy }: Effect.Success<ReturnType<typeof resolveRelations>>,
+    operation: string,
+  ) {
+    const { owner, name, number } = yield* issue(input, operation);
+    const current = (yield* client.IssueRelationState({ owner, name, number }).pipe(
+      graphql(input.host, operation),
+      Effect.catchIf(issueNotFound, () => Effect.fail(notFound(operation))),
+    )).repository?.issue;
+    if (current == null) return yield* notFound(operation);
+    const write = graphql(input.host, operation);
+    const hadParent = current.parent?.id ?? null;
+    if (parent === null && hadParent !== null) {
+      yield* client.RemoveSubIssue({ issueId: hadParent, subIssueId: current.id }).pipe(write);
+    } else if (typeof parent === "string" && parent !== hadParent) {
+      yield* client.AddSubIssue({ issueId: parent, subIssueId: current.id }).pipe(write);
+    }
+    if (blockedBy === undefined) return;
+    const had = new Set((current.blockedBy.nodes ?? []).flatMap((node) => node?.id ?? []));
+    // Removes first: GitHub caps an issue at 50 blockers, so swapping a full set adds into room.
+    for (const id of had) {
+      if (!blockedBy.has(id)) {
+        yield* client.RemoveBlockedBy({ issueId: current.id, blockingIssueId: id }).pipe(write);
+      }
+    }
+    for (const id of blockedBy) {
+      if (!had.has(id)) {
+        yield* client.AddBlockedBy({ issueId: current.id, blockingIssueId: id }).pipe(write);
+      }
+    }
   });
 
   // As sets: GitHub applies a name asked for twice once.
@@ -267,12 +361,16 @@ export const make = Effect.gen(function* () {
       const { owner, name, number } = yield* issue(input, "getIssue");
       const legacy = client.IssueDetail({ owner, name, number }).pipe(
         graphql(input.host, "getIssue"),
-        Effect.map((result) => ({ result, statusRead: null })),
+        Effect.map((result) => ({ result, statusRead: null, relationRead: null })),
       );
-      const { result, statusRead } = yield* asksStatuses(input.host)
+      const { result, statusRead, relationRead } = yield* asksStatuses(input.host)
         ? client.IssueDetailWithStatus({ owner, name, number }).pipe(
             graphql(input.host, "getIssue"),
-            Effect.map((result) => ({ result, statusRead: result.repository })),
+            Effect.map((result) => ({
+              result,
+              statusRead: result.repository,
+              relationRead: result.repository?.issue ?? null,
+            })),
             Effect.catchIf(statusesRefused, () => legacy),
           )
         : legacy;
@@ -384,6 +482,9 @@ export const make = Effect.gen(function* () {
         ...detail,
         labels: [...detail.labels, ...moreLabels],
         assignees: [...detail.assignees, ...moreAssignees],
+        ...(relationRead === null
+          ? {}
+          : { relations: toIssueRelations(input.scope, relationRead) }),
       };
     }),
 
@@ -411,43 +512,65 @@ export const make = Effect.gen(function* () {
         ),
       ),
 
-    create: (input) =>
-      repository(input.scope, "create").pipe(
-        Effect.flatMap(({ owner, name }) =>
-          api
-            .rest({
-              host: input.host,
-              operation: "create",
-              method: "POST",
-              path: `repos/${owner}/${name}/issues`,
-              body: {
-                title: input.title,
-                body: input.body,
-                labels: input.labels,
-                assignees: input.assignees,
-              },
-            })
-            .pipe(Effect.mapError(fail("create"))),
-        ),
-        Effect.flatMap((response) => {
-          const decoded = decodeCreatedIssueJson(response.body);
-          return Result.isSuccess(decoded)
-            ? Effect.succeed({
-                key: String(decoded.success.number),
-                displayKey: `#${decoded.success.number}`,
-                url: decoded.success.url,
-              })
-            : Effect.fail(
-                new IssueTrackerError({
-                  tracker: KIND,
-                  operation: "create",
-                  reason: "failed",
-                  detail: "GitHub returned an unreadable create response.",
-                  cause: decoded.failure,
-                }),
-              );
-        }),
-      ),
+    create: Effect.fn("GitHubIssueTracker.create")(function* (input) {
+      const { owner, name } = yield* repository(input.scope, "create");
+      const relations =
+        input.relations === undefined
+          ? undefined
+          : yield* resolveRelations(input, input.relations, "create");
+      const created = yield* api
+        .rest({
+          host: input.host,
+          operation: "create",
+          method: "POST",
+          path: `repos/${owner}/${name}/issues`,
+          body: {
+            title: input.title,
+            body: input.body,
+            labels: input.labels,
+            assignees: input.assignees,
+          },
+        })
+        .pipe(
+          Effect.mapError(fail("create")),
+          Effect.flatMap((response) => {
+            const decoded = decodeCreatedIssueJson(response.body);
+            return Result.isSuccess(decoded)
+              ? Effect.succeed({
+                  key: String(decoded.success.number),
+                  displayKey: `#${decoded.success.number}`,
+                  url: decoded.success.url,
+                })
+              : Effect.fail(
+                  new IssueTrackerError({
+                    tracker: KIND,
+                    operation: "create",
+                    reason: "failed",
+                    detail: "GitHub returned an unreadable create response.",
+                    cause: decoded.failure,
+                  }),
+                );
+          }),
+        );
+      if (relations !== undefined) {
+        // The issue exists now; say so, or a caller that retries files a duplicate. IssueService
+        // drops an unauthenticated error's detail, so that one goes out as `failed`.
+        yield* writeRelations({ ...input, key: created.key }, relations, "create").pipe(
+          Effect.mapError(
+            (error) =>
+              new IssueTrackerError({
+                tracker: error.tracker,
+                operation: error.operation,
+                reason: error.reason === "unauthenticated" ? "failed" : error.reason,
+                detail: `GitHub created ${created.displayKey} (${created.url}) but did not link it: ${error.detail}`,
+                ...(error.retryAt === undefined ? {} : { retryAt: error.retryAt }),
+                ...(error.cause === undefined ? {} : { cause: error.cause }),
+              }),
+          ),
+        );
+      }
+      return created;
+    }),
 
     comment: (input) =>
       verifiedIssue(input, "comment").pipe(
@@ -465,6 +588,19 @@ export const make = Effect.gen(function* () {
       ),
 
     update: Effect.fn("GitHubIssueTracker.update")(function* (input) {
+      const relations =
+        input.relations === undefined
+          ? undefined
+          : yield* resolveRelations(input, input.relations, "update");
+      if (
+        input.title === undefined &&
+        input.body === undefined &&
+        input.labels === undefined &&
+        input.assignees === undefined
+      ) {
+        if (relations !== undefined) yield* writeRelations(input, relations, "update");
+        return;
+      }
       const { path } = yield* verifiedIssue(input, "update");
       const response = yield* api
         .rest({
@@ -492,6 +628,7 @@ export const make = Effect.gen(function* () {
           "GitHub did not apply the labels or assignees. Changing them needs triage access to the repository.",
         );
       }
+      if (relations !== undefined) yield* writeRelations(input, relations, "update");
     }),
 
     setState: Effect.fn("GitHubIssueTracker.setState")(function* (input) {

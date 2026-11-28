@@ -7,6 +7,8 @@ import type {
   IssueEvent,
   IssueLabel,
   IssueLinkedPullRequest,
+  IssueRelationTarget,
+  IssueRelations,
   IssueState,
   IssueTemplate,
   IssueViewerPermissions,
@@ -115,6 +117,36 @@ function toIssueState(
   if (reason === "COMPLETED") return COMPLETED;
   if (reason === "NOT_PLANNED") return NOT_PLANNED;
   return reason === "DUPLICATE" ? DUPLICATE : { category: "closed", name: "Closed" };
+}
+
+function toRelationTarget(scope: string, raw: Issues.IssueRelationTarget): IssueRelationTarget {
+  const repository = raw.repository.nameWithOwner;
+  return {
+    scope: repository,
+    key: String(raw.number),
+    displayKey:
+      repository.toLowerCase() === scope.toLowerCase()
+        ? `#${raw.number}`
+        : `${repository}#${raw.number}`,
+    title: raw.title,
+    url: raw.url,
+    state: toIssueState(raw.state, raw.stateReason, null),
+  };
+}
+
+export function toIssueRelations(scope: string, raw: Issues.IssueRelationFields): IssueRelations {
+  const targets = (connection: {
+    readonly nodes: ReadonlyArray<Issues.IssueRelationTarget | null> | null;
+  }) =>
+    (connection.nodes ?? []).flatMap((node) =>
+      node === null ? [] : [toRelationTarget(scope, node)],
+    );
+  return {
+    parent: raw.parent === null ? null : toRelationTarget(scope, raw.parent),
+    children: targets(raw.subIssues),
+    blockedBy: targets(raw.blockedBy),
+    blocking: targets(raw.blocking),
+  };
 }
 
 type IssueStatusRead = NonNullable<Issues.IssueStatuses.Result["repository"]>;
