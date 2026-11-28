@@ -343,3 +343,56 @@ it.effect("a pull request from another branch is neither reviewed nor merged", (
     expect((yield* tasks.get(task.id)).state).toBe("needs-you");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
+
+it.effect("a timeline write that fails once is retried without repeating the attempt", () =>
+  Effect.gen(function* () {
+    const real = yield* FactoryTasks.FactoryTasks;
+    let failedOnce = false;
+    const tasks: FactoryTasks.FactoryTasks["Service"] = {
+      ...real,
+      record: (id, entry) => {
+        if (entry.type !== "decision" || failedOnce) return real.record(id, entry);
+        failedOnce = true;
+        return Effect.fail(new Error("SQLITE_BUSY") as never);
+      },
+    };
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const task = yield* real.create(
+      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+      PERSON,
+    );
+    const agents = WorkflowAgents.of({
+      start: (input) => Effect.succeed({ threadId: "thread-build", turnId: input.key }),
+      result: () =>
+        Effect.succeed({
+          ending: "completed" as const,
+          detail: "",
+          reply: "",
+          output: {
+            outcome: "gave-up",
+            why: "Stuck.",
+            tryNext: "Again.",
+            decisions: [decided("a")],
+          },
+        }),
+      interrupt: () => Effect.succeed("ended" as const),
+    });
+
+    yield* runFactory(
+      depsOver(tasks, settings),
+      Effect.gen(function* () {
+        const workflows = yield* Workflows.Workflows;
+        yield* startedBy(yield* tickAt(0));
+        const [run] = (yield* workflows.list()).filter(
+          (found) => found.workflow === "factory-task",
+        );
+        yield* workflows.waitFor(run!.runId, (found) => found.status === "completed");
+      }),
+      { agents },
+    );
+
+    const { entries } = yield* real.timeline(task.id);
+    expect(entries.filter((entry) => entry.type === "attempt")).toHaveLength(1);
+    expect(entries.filter((entry) => entry.type === "decision")).toHaveLength(1);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);

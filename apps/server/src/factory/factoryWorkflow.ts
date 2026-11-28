@@ -108,37 +108,40 @@ const taskWorkflow = (deps: FactoryDeps) =>
           ),
           (moved) => (moved ? Effect.void : superseded()),
         );
-      const record = (
+      // One step per entry, so a retried write does not repeat the ones before it.
+      const write = (name: string, entry: Parameters<FactoryTasks["Service"]["record"]>[1]) =>
+        step(
+          name,
+          { returns: Schema.Void },
+          Effect.gen(function* () {
+            if (ours(yield* deps.tasks.get(id))) yield* deps.tasks.record(id, entry);
+          }),
+        );
+      const record = Effect.fnUntraced(function* (
         phase: Phase,
         thread: AgentThread | undefined,
         outcome: "succeeded" | "failed" | "needs-you",
         detail: string,
         decisions: ReadonlyArray<Decision>,
-      ) =>
-        step(
-          `${phase}/record`,
-          { returns: Schema.Void },
-          Effect.gen(function* () {
-            if (!ours(yield* deps.tasks.get(id))) return;
-            yield* deps.tasks.record(id, {
-              type: "attempt",
-              by,
-              phase,
-              thread:
-                thread === undefined
-                  ? null
-                  : { threadId: thread.threadId, environmentId: thread.environment ?? null },
-              outcome,
-              failure: outcome === "failed" ? "agent" : null,
-              detail,
-            });
-            const decider =
-              thread === undefined ? by : { kind: "agent" as const, threadId: thread.threadId };
-            for (const decision of decisions) {
-              yield* deps.tasks.record(id, { type: "decision", by: decider, decision });
-            }
-          }),
-        );
+      ) {
+        yield* write(`${phase}/record`, {
+          type: "attempt",
+          by,
+          phase,
+          thread:
+            thread === undefined
+              ? null
+              : { threadId: thread.threadId, environmentId: thread.environment ?? null },
+          outcome,
+          failure: outcome === "failed" ? "agent" : null,
+          detail,
+        });
+        const decider =
+          thread === undefined ? by : { kind: "agent" as const, threadId: thread.threadId };
+        for (const [index, decision] of decisions.entries()) {
+          yield* write(`${phase}/decision/${index}`, { type: "decision", by: decider, decision });
+        }
+      });
       // #92 replaces this with retries, budgets, fix rounds and a question that resumes the task.
       const needsYou = (reason: string) => move("needs-you", reason);
 
