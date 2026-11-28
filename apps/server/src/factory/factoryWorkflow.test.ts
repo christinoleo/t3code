@@ -1254,7 +1254,9 @@ it.effect("an epic branch that can't be created asks Leo before any agent starts
     const started: Array<Started> = [];
 
     yield* runFactory(
-      depsOver(tasks, settings, [], undefined, undefined, () => Effect.fail(new Error("push rejected"))),
+      depsOver(tasks, settings, [], undefined, undefined, () =>
+        Effect.fail(new Error("push rejected") as never),
+      ),
       Effect.gen(function* () {
         yield* startedBy(yield* tickAt(0));
         yield* waitAsked((yield* taskRun).runId, 1);
@@ -1265,4 +1267,42 @@ it.effect("an epic branch that can't be created asks Leo before any agent starts
     expect(started).toEqual([]);
     expect((yield* tasks.get(child.id)).state).toBe("needs-you");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "a task under a nested epic builds on that epic's branch, cut from the outer epic's",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const alpha = ProjectId.make("alpha");
+      const epic = (title: string, parent?: FactoryTasks.TaskId) =>
+        tasks.create(
+          { scope: alpha, title, body: "", labels: [TASK_LABEL.integration], parent },
+          PERSON,
+        );
+      const outer = yield* epic("Outer");
+      const inner = yield* epic("Inner", outer.id);
+      yield* tasks.create({ scope: alpha, title: "Leaf", body: "", parent: inner.id }, PERSON);
+      const [outerBranch, innerBranch] = [outer, inner].map(
+        (found) => `epic/${FactoryTasks.displayKey(found)}`,
+      );
+      const branches: Array<string> = [];
+      const started: Array<Started> = [];
+
+      yield* runFactory(
+        depsOver(tasks, settings, [], undefined, undefined, ({ branch, from }) =>
+          Effect.sync(() => void branches.push(`${from}>${branch}`)),
+        ),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          yield* workflows.waitFor((yield* taskRun).runId, () => started.length === 1);
+        }),
+        { agents: scripted(() => "never", started) },
+      );
+
+      expect(branches).toEqual([`main>${outerBranch}`, `${outerBranch}>${innerBranch}`]);
+      expect(started[0]?.prompt).toContain(`Base branch: ${innerBranch}`);
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

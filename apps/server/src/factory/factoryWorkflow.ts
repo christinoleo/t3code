@@ -77,7 +77,8 @@ const Brief = Schema.Struct({
   body: Schema.String,
   url: Schema.String,
   integration: Schema.Boolean,
-  base: Schema.String,
+  /** The branches of the open integration epics above it, outermost first. */
+  epics: Schema.Array(Schema.String),
 });
 type Brief = typeof Brief.Type;
 
@@ -175,7 +176,13 @@ const taskWorkflow = (deps: FactoryDeps) =>
         { returns: Brief },
         Effect.gen(function* () {
           const found = yield* deps.tasks.get(id);
-          const parent = found.parent === null ? null : yield* deps.tasks.get(found.parent);
+          const epics: Array<string> = [];
+          for (let above = found.parent; above !== null;) {
+            const parent = yield* deps.tasks.get(above);
+            if (!isOpen(parent.state) || !parent.labels.includes(TASK_LABEL.integration)) break;
+            epics.unshift(epicBranch(displayKey(parent)));
+            above = parent.parent;
+          }
           return {
             key: displayKey(found),
             kind: found.kind,
@@ -184,12 +191,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
             body: found.body,
             url: found.url,
             integration: found.labels.includes(TASK_LABEL.integration),
-            base:
-              parent !== null &&
-              isOpen(parent.state) &&
-              parent.labels.includes(TASK_LABEL.integration)
-                ? epicBranch(displayKey(parent))
-                : MAIN,
+            epics,
           };
         }),
       );
@@ -372,26 +374,31 @@ const taskWorkflow = (deps: FactoryDeps) =>
       });
 
       const model = settings.builder === null ? {} : { model: settings.builder };
+      const base = task.epics.at(-1) ?? MAIN;
       // The worker pushes here from a worktree of its own: a launch refuses a branch that exists,
       // which a retried round's would. An earlier generation's branch outlives it.
       const branch = task.integration
         ? epicBranch(task.key)
         : `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
       const branchFacts = {
-        "Base branch": task.base,
+        "Base branch": base,
         Branch: branch,
         ...(task.integration ? { "Integration epic": branch } : {}),
       };
       let branchTries = 0;
-      const ensureBranch = Effect.fnUntraced(function* (branch: string, from: string) {
-        while (true) {
-          const made = yield* step.try(
-            `branch/${++branchTries}`,
-            { returns: Schema.Void },
-            deps.ensureBranch({ project: task.scope, branch, from }),
-          );
-          if (made.outcome === "done") return;
-          yield* needsYou(`${branch} could not be created from ${from}: ${made.reason}`);
+      const ensureBranches = Effect.fnUntraced(function* () {
+        const chain = [MAIN, ...task.epics, ...(task.integration ? [branch] : [])];
+        for (const [index, from] of chain.slice(0, -1).entries()) {
+          const made = chain[index + 1]!;
+          while (true) {
+            const tried = yield* step.try(
+              `branch/${++branchTries}`,
+              { returns: Schema.Void },
+              deps.ensureBranch({ project: task.scope, branch: made, from }),
+            );
+            if (tried.outcome === "done") break;
+            yield* needsYou(`${made} could not be created from ${from}: ${tried.reason}`);
+          }
         }
       });
       const issue = { project: task.scope, url: task.url };
@@ -414,7 +421,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
               project: task.scope,
               workspace: {
                 type: "worktree",
-                baseRef: task.integration ? branch : task.base,
+                baseRef: task.integration ? branch : base,
                 startFromOrigin: true,
               },
               issue,
@@ -427,8 +434,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
         );
 
       const build = Effect.fnUntraced(function* () {
-        if (task.base !== MAIN) yield* ensureBranch(task.base, MAIN);
-        if (task.integration) yield* ensureBranch(branch, task.base);
+        yield* ensureBranches();
         const reviewer = yield* step(
           "reviewer",
           { returns: Schema.NullOr(Schema.Int) },
@@ -590,16 +596,16 @@ const taskWorkflow = (deps: FactoryDeps) =>
           );
           if (touched.outcome === "failed") {
             facts = yield* needsYou(
-              `${task.base} could not be checked before merging: ${touched.reason}`,
+              `${base} could not be checked before merging: ${touched.reason}`,
               url,
             );
             continue;
           }
           if (touched.value) {
-            yield* spendRound(`${task.base} changed files that ${url} changes since its review.`);
+            yield* spendRound(`${base} changed files that ${url} changes since its review.`);
             facts = {
               ...facts,
-              "Main changed": `${task.base} moved past this pull request's base and changed files it changes. ${task.integration ? "Merge it in" : "Rebase onto it"} and review again.`,
+              "Main changed": `${base} moved past this pull request's base and changed files it changes. ${task.integration ? "Merge it in" : "Rebase onto it"} and review again.`,
             };
             continue;
           }
@@ -647,6 +653,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
         );
 
       const ticket = Effect.fnUntraced(function* () {
+        yield* ensureBranches();
         const done = yield* phase(
           task.kind === "research" ? "research" : "session",
           budgets.build,
@@ -655,14 +662,14 @@ const taskWorkflow = (deps: FactoryDeps) =>
           (facts) => ({
             brief: briefFor("wayfinder", task, settings, {
               Kind: task.kind,
-              "Base branch": task.base,
+              "Base branch": base,
               ...facts,
             }),
             title: `${task.kind === "research" ? "Research" : "Open"} ${task.key}: ${task.title}`,
             returns: TicketReport,
             ...model,
             project: task.scope,
-            workspace: { type: "worktree", baseRef: task.base, startFromOrigin: true },
+            workspace: { type: "worktree", baseRef: base, startFromOrigin: true },
             issue,
             timeout: Duration.minutes(budgets.buildTimeoutMinutes),
           }),
