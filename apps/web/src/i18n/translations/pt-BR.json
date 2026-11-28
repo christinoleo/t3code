@@ -13353,5 +13353,9 @@
   "5807c08e225c6b3d": "Baixar",
   "0d50b5bfe7151ece": "Não foi possível baixar o arquivo",
   "eb1fd384ad5919dd": "Nota interna",
-  "b45f0b467e9406d0": "Responder ao cliente"
+  "b45f0b467e9406d0": "Responder ao cliente",
+  "7374c391a196ec55": "Falha ao restaurar a pasta",
+  "3fa9e57edafff826": "{count, plural, one {{count} pasta excluída} other {{count} pastas excluídas}}",
+  "6a78eb543f2cb337": "Exclusão desfeita em {count, plural, one {{count} pasta} other {{count} pastas}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {Pasta excluída,} other {{count} pastas excluídas,}}"
 }

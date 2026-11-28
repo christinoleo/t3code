@@ -14,6 +14,9 @@ import {
   moveThreadContextDrag as moveThreadContextDragGhost,
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
+import { showThreadUndoNotice } from "../hooks/showThreadUndoNotice";
+import { AsyncResult } from "effect/reactivity";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { requestFolderRename, resolveFolderMenuAction } from "./FolderNameDialog";
 import { useAtomValue } from "@effect/atom-react";
@@ -258,6 +261,7 @@ import {
   folderEditPlan,
   folderEditTargets,
   railKeysAfterFolderEdit,
+  railKeysAfterFolderUndo,
   type ProjectRailTile,
   folderEditOutcome,
   railOrderAfterMove,
@@ -1466,13 +1470,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       })),
     );
     const planResults = await Promise.all(
-      plan.map(async ({ thread, changes }) => ({
-        environmentId: thread.environmentId,
-        result: await applyThreadTagChanges(
-          scopeThreadRef(thread.environmentId, thread.id),
-          changes,
-        ),
-      })),
+      plan.map(async ({ thread, changes }) => {
+        const target = scopeThreadRef(thread.environmentId, thread.id);
+        return {
+          environmentId: thread.environmentId,
+          target,
+          result: await applyThreadTagChanges(target, changes),
+        };
+      }),
     );
     const { changed, fromSurvives, failures } = folderEditOutcome(
       renames.map(({ environmentId, result }) => ({
@@ -1485,21 +1490,65 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       })),
     );
     if (changed) {
-      const iconsPatch = folderIconsPatchAfterEdit(
-        appAtomRegistry.get(primaryServerSettingsAtom).folderIcons,
-        from,
-        to,
-        fromSurvives,
-      );
+      const iconsBeforeEdit = appAtomRegistry.get(primaryServerSettingsAtom).folderIcons;
+      const iconsPatch = folderIconsPatchAfterEdit(iconsBeforeEdit, from, to, fromSurvives);
       if (iconsPatch !== null) updatePrimarySettings({ folderIcons: iconsPatch });
       const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
-      setRailOrder({
-        railOrder: railKeysAfterFolderEdit(railOrder, from, to, fromSurvives),
-        projectOrder,
-      });
+      const nextRailOrder = railKeysAfterFolderEdit(railOrder, from, to, fromSurvives);
+      setRailOrder({ railOrder: nextRailOrder, projectOrder });
       const scopeKeys = railKeysAfterFolderEdit(sidebarProjectScopeKeys, from, to, fromSurvives);
       if (scopeKeys.join("\n") !== sidebarProjectScopeKeys.join("\n")) {
         setProjectScopeKeys(scopeKeys);
+      }
+      const moved = [
+        ...renames.flatMap(({ environmentId, result }) =>
+          result._tag === "Success"
+            ? (result.value.threadIds ?? []).map((threadId) =>
+                scopeThreadRef(environmentId, threadId),
+              )
+            : [],
+        ),
+        ...planResults.flatMap(({ target, result }) => (result._tag === "Success" ? [target] : [])),
+      ];
+      if (to === null && moved.length > 0) {
+        const icon = iconsBeforeEdit?.[from];
+        showThreadUndoNotice({
+          action: "FolderDeleted",
+          claim: ThreadUndo.begin("folder-delete", from),
+          failureTitle: gt("Failed to restore the folder"),
+          undo: async () => {
+            // A thread filed elsewhere since the delete keeps that newer choice.
+            const unfiled = moved.filter((target) =>
+              (readThreadShell(target)?.source.tags ?? []).every((tag) => tag === from),
+            );
+            if (unfiled.length === 0) return AsyncResult.success(undefined);
+            const results = await Promise.all(
+              unfiled.map((target) => moveThreadToFolder(target, from)),
+            );
+            if (results.some((result) => result._tag === "Success")) {
+              const current = useUiStateStore.getState();
+              const restoredRail = railKeysAfterFolderUndo(
+                current.railOrder,
+                nextRailOrder,
+                railOrder,
+              );
+              if (restoredRail !== null) {
+                setRailOrder({ railOrder: restoredRail, projectOrder: current.projectOrder });
+              }
+              const restoredScope = railKeysAfterFolderUndo(
+                current.sidebarProjectScopeKeys,
+                scopeKeys,
+                sidebarProjectScopeKeys,
+              );
+              if (restoredScope !== null) setProjectScopeKeys(restoredScope);
+              const icons = appAtomRegistry.get(primaryServerSettingsAtom).folderIcons;
+              if (icon != null && icons?.[from] == null) {
+                updatePrimarySettings({ folderIcons: { [from]: icon } });
+              }
+            }
+            return results.find((result) => result._tag === "Failure") ?? results[0]!;
+          },
+        });
       }
     }
     const lines = failures.map(({ environmentId, failed, total }) => {

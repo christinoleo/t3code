@@ -13353,5 +13353,9 @@
   "5807c08e225c6b3d": "Herunterladen",
   "0d50b5bfe7151ece": "Datei konnte nicht heruntergeladen werden",
   "eb1fd384ad5919dd": "Interne Notiz",
-  "b45f0b467e9406d0": "Dem Kunden antworten"
+  "b45f0b467e9406d0": "Dem Kunden antworten",
+  "7374c391a196ec55": "Ordner konnte nicht wiederhergestellt werden",
+  "3fa9e57edafff826": "{count, plural, one {{count} Ordner} other {{count} Ordner}} gelöscht",
+  "6a78eb543f2cb337": "Löschen von {count, plural, one {{count} Ordner} other {{count} Ordnern}} rückgängig gemacht",
+  "fa31841f29a7cc70": "{count, plural, =1 {Ordner gelöscht,} other {{count} Ordner gelöscht,}}"
 }

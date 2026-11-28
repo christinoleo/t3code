@@ -13363,5 +13363,9 @@
   "5807c08e225c6b3d": "下载",
   "0d50b5bfe7151ece": "无法下载文件",
   "eb1fd384ad5919dd": "内部备注",
-  "b45f0b467e9406d0": "回复客户"
+  "b45f0b467e9406d0": "回复客户",
+  "7374c391a196ec55": "无法恢复文件夹",
+  "3fa9e57edafff826": "已删除 {count, plural, other {{count} 个文件夹}}",
+  "6a78eb543f2cb337": "已撤销删除 {count, plural, other {{count} 个文件夹}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {已删除文件夹，} other {已删除 {count} 个文件夹，}}"
 }

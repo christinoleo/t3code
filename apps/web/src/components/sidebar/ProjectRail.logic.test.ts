@@ -10,6 +10,7 @@ import {
   selectedProjectScopeItem,
   railOrderAfterMove,
   railKeysAfterFolderEdit,
+  railKeysAfterFolderUndo,
   folderEditOutcome,
   newThreadCreateTags,
   resolveProjectRailTileStates,
@@ -240,6 +241,15 @@ describe("folder rename and delete", () => {
     ]);
     expect(railKeysAfterFolderEdit(keys, "ops", "infra", true)).toEqual(keys);
     expect(railKeysAfterFolderEdit(keys, "ops", null, true)).toEqual(keys);
+  });
+
+  it("puts a deleted folder back in its rail place on undo unless the rail changed since", () => {
+    const before = ["tag:ops", "group:a", "tag:infra"];
+    const afterDelete = railKeysAfterFolderEdit(before, "ops", null);
+    expect(railKeysAfterFolderUndo([...afterDelete], afterDelete, before)).toEqual(before);
+    expect(railKeysAfterFolderUndo(["tag:infra", "group:a"], afterDelete, before)).toBeNull();
+    const unplaced = ["group:a"];
+    expect(railKeysAfterFolderUndo(unplaced, unplaced, unplaced)).toBeNull();
   });
 
   it("changes nothing when every rename and tag change fails", () => {

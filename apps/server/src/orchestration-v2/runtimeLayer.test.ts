@@ -4067,7 +4067,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         from: "folder",
         to: "renamed",
       } as const;
-      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), { threadCount: 5 });
+      const tagged = ["plain", "ordered", "merged", "archived", "settled"].map(threadId);
+      const renameResult = yield* threadManagement.renameThreadTag(rename);
+      assert.equal(renameResult.threadCount, 5);
+      assert.sameMembers([...(renameResult.threadIds ?? [])], tagged);
       const renamed = {
         plain: ["renamed"],
         ordered: ["renamed", "keep"],
@@ -4079,7 +4082,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.deepEqual(yield* tagsOf(), renamed);
 
       // A retried rename finds nothing left to move.
-      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), { threadCount: 0 });
+      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), {
+        threadCount: 0,
+        threadIds: [],
+      });
       const stale = yield* orchestrator.dispatch({
         type: "thread.tag.rename",
         commandId: CommandId.make("runtime-layer-tag-rename-stale"),
@@ -4090,14 +4096,13 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.deepEqual(stale.storedEvents, []);
       assert.deepEqual(yield* tagsOf(), renamed);
 
-      assert.deepEqual(
-        yield* threadManagement.renameThreadTag({
-          commandId: CommandId.make("runtime-layer-tag-remove"),
-          from: "renamed",
-          to: null,
-        }),
-        { threadCount: 5 },
-      );
+      const removed = yield* threadManagement.renameThreadTag({
+        commandId: CommandId.make("runtime-layer-tag-remove"),
+        from: "renamed",
+        to: null,
+      });
+      assert.equal(removed.threadCount, 5);
+      assert.sameMembers([...(removed.threadIds ?? [])], tagged);
       assert.deepEqual(yield* tagsOf(), {
         plain: [],
         ordered: ["keep"],

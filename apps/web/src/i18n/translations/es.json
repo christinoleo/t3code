@@ -13348,5 +13348,9 @@
   "5807c08e225c6b3d": "Descargar",
   "0d50b5bfe7151ece": "No se pudo descargar el archivo",
   "eb1fd384ad5919dd": "Nota interna",
-  "b45f0b467e9406d0": "Responder al cliente"
+  "b45f0b467e9406d0": "Responder al cliente",
+  "7374c391a196ec55": "No se pudo restaurar la carpeta",
+  "3fa9e57edafff826": "{count, plural, one {Se eliminó {count} carpeta} other {Se eliminaron {count} carpetas}}",
+  "6a78eb543f2cb337": "{count, plural, one {Se restauró {count} carpeta} other {Se restauraron {count} carpetas}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {Carpeta eliminada,} other {{count} carpetas eliminadas,}}"
 }
