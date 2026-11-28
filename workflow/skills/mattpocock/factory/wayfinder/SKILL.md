@@ -103,6 +103,31 @@ Out-of-scope work never graduates (the frontier stops at the destination), so it
 
 Ruling something out of scope is a scoping act, not a step on the route. When a ticket that already exists turns out to sit past the destination (mis-scoped in while charting, or exposed by a resolution), **close it** (a closed ticket is unambiguously off the frontier) and leave one line in the **Out of scope** section: the gist plus why it's out of scope, linking the closed ticket. It stays out of **Decisions so far**, which records the route actually walked; a scope boundary isn't a step on it.
 
+## On the T3 task store
+
+When the project's tracker is T3's own (`t3`, the factory's task store), its wayfinding operations are:
+
+- **Map:** a task labelled `kind/map`. The factory never runs it.
+- **Ticket type:** a `kind/<type>` label (`kind/research`, `kind/grilling`, `kind/prototype`, `kind/task`) in place of `wayfinder:<type>`.
+- **Child and blocking:** `relations.parent` (the map) and `relations.blockedBy` on `create_issue` and `update_issue`. Pass the blockers when you create a ticket, not in a second pass: a Ready ticket with no open blocker is taken within a minute.
+- **Claim:** the factory's, not yours. It moves a ticket from Ready to Building when it takes it, so do not assign anyone.
+- **Frontier:** the map's children (`read_issue` on the map) that are Ready and carry no `blocked` label (`list_issues` shows the labels).
+
+With the factory on for the project, it runs every frontier ticket itself: research alone, and each grilling, prototype or task ticket in a thread it primes for Leo, with a Needs-you question that links to it. So charting there skips step 5, and Leo works a hands-on ticket from its primed thread.
+
+## Run by the factory
+
+When your brief says the ticket is run by the factory, it names one ticket (`T3-<n>` and its link) and its `Kind`. Resolve that ticket as [Work through the map](#work-through-the-map) says from step 3, with these changes:
+
+- Read the ticket with `read_issue` on its link. Its parent is the map. It is already claimed, so skip step 2.
+- **Research:** resolve it alone with the `research` skill, and push the findings to a `research/<name>` branch as charting step 5 says. Then submit `resolved` with the `resolution`: the answer and a pointer to the branch.
+- **Grilling, prototype, or a task only Leo can do:** prime the session. Read the map, the ticket, the closed tickets it builds on and the code it concerns. Then post your opening as your last message: the first question, the prototype, or the checklist. Submit `session` with that `opening`, which asks Leo to join you in this thread. Then stay in the thread and work the ticket with him, as its type's skill says. When the session reaches its answer, post the answer on the ticket with `comment_on_issue`. That comment is the resolution, and the factory closes the ticket.
+- **A task you can do alone:** do it, and submit `resolved`.
+- **Step 4 and 5:** the factory posts a submitted resolution as the ticket's comment and closes it. You still add the map's Decisions-so-far line with `update_issue`, and file the tickets the answer surfaced as children of the map.
+- When you cannot resolve or prime it, submit `gave-up` with `why` and what to `tryNext`.
+
+Submit through `t3_submit_output`. Every report carries `decisions`: each reversible call you made, as `{ what, why, alternative }`. Do not settle your thread; the factory settles it once the ticket is done.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session**, with the exception of research tickets.

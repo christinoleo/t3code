@@ -13,10 +13,16 @@ export const isOpen = (state: TaskState) => TASK_STATES[state].category === "ope
 
 export const OPEN_STATES = TaskState.literals.filter(isOpen);
 
-/** The kinds the factory runs on its own; the others wait for a person (#85 Q3). */
-export const AUTO_DISPATCHED_KINDS = [
+/**
+ * The kinds the factory starts a run for. Grilling, prototype and task tickets get a thread primed
+ * for Leo rather than running alone (#85 Q3).
+ */
+export const DISPATCHED_KINDS = [
   "build",
   "research",
+  "grilling",
+  "prototype",
+  "task",
 ] as const satisfies ReadonlyArray<TaskKind>;
 
 type Moves = Partial<Record<TaskState, ReadonlyArray<TaskState>>>;
@@ -33,7 +39,7 @@ const MOVES: Record<Actor["kind"], Moves> = {
     // Research and triage finish without a review.
     building: ["reviewing", "done", "needs-you", "dropped"],
     reviewing: ["building", "done", "needs-you", "dropped"],
-    "needs-you": ["building", "reviewing", "ready", "dropped"],
+    "needs-you": ["building", "reviewing", "ready", "done", "dropped"],
     // A cancelled run drops its task wherever it stands.
     done: ["dropped"],
   },

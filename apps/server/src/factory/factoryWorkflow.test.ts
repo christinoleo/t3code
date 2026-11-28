@@ -93,22 +93,11 @@ const startedBy = (tickRun: { readonly runId: string }) =>
 it.effect("a tick starts task runs only in projects whose factory is on", () =>
   Effect.gen(function* () {
     const tasks = yield* FactoryTasks.FactoryTasks;
-    const file = (scope: string, title: string, kind: "build" | "grilling" = "build") =>
-      tasks.create({ scope, kind, title, body: "" }, PERSON);
+    const file = (scope: string, title: string) => tasks.create({ scope, title, body: "" }, PERSON);
     const settings = yield* Ref.make(
       settingsWith({ alpha: { enabled: true }, beta: { enabled: false } }),
     );
     const alphaBuild = yield* file(ProjectId.make("alpha"), "Build it");
-    const talk = yield* file(ProjectId.make("alpha"), "Talk it through", "grilling");
-    yield* tasks.create(
-      {
-        scope: ProjectId.make("alpha"),
-        title: "Waits on the talk",
-        body: "",
-        blockedBy: [talk.id],
-      },
-      PERSON,
-    );
     yield* file(ProjectId.make("beta"), "Off here");
 
     yield* runFactory(
@@ -696,4 +685,120 @@ it.effect("cancelling a task's run drops the task", () =>
     const { entries } = yield* tasks.timeline(task.id);
     expect(statesOf(entries)).toEqual(["ready>building", "building>dropped"]);
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a tick starts a run for each ticket on a map's frontier, and for no other", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const scope = ProjectId.make("alpha");
+    const map = yield* tasks.create(
+      { scope, kind: "map", title: "Pick a store", body: "" },
+      PERSON,
+    );
+    const ticket = (
+      title: string,
+      kind: "research" | "grilling",
+      blockedBy?: ReadonlyArray<FactoryTasks.TaskId>,
+    ) => tasks.create({ scope, kind, title, body: "", parent: map.id, blockedBy }, PERSON);
+    const read = yield* ticket("Read the docs", "research");
+    const talk = yield* ticket("Talk it through", "grilling");
+    yield* ticket("Talk after the reading", "grilling", [read.id]);
+    const claimed = yield* ticket("Already taken", "grilling");
+    const resolved = yield* ticket("Already answered", "research");
+    const elsewhere = { kind: "factory", runId: "an-earlier-run" } as const;
+    yield* tasks.transition(claimed.id, "building", elsewhere);
+    yield* tasks.transition(resolved.id, "building", elsewhere);
+    yield* tasks.transition(resolved.id, "done", elsewhere);
+
+    yield* runFactory(
+      depsOver(tasks, settings),
+      Effect.gen(function* () {
+        expect(yield* startedBy(yield* tickAt(0))).toEqual([
+          `start/${read.id}/0`,
+          `start/${talk.id}/0`,
+        ]);
+      }),
+      { agents: scripted(() => "never") },
+    );
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a research ticket runs unattended and ends Done with its resolution", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const task = yield* tasks.create(
+      { scope: ProjectId.make("alpha"), kind: "research", title: "Which store?", body: "" },
+      PERSON,
+    );
+    const started: Array<Started> = [];
+    const settled: Array<AgentThread> = [];
+    const agents = scripted(
+      () => ({ outcome: "resolved", resolution: "SQLite fits.", decisions: [decided("Read v3")] }),
+      started,
+    );
+
+    yield* runFactory(
+      depsOver(tasks, settings, settled),
+      Effect.gen(function* () {
+        const workflows = yield* Workflows.Workflows;
+        yield* startedBy(yield* tickAt(0));
+        const run = yield* taskRun;
+        yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
+      }),
+      { agents },
+    );
+
+    expect(started.map((input) => input.origin.step)).toEqual(["research/1"]);
+    expect(promptOf(started, "research/1")).toContain("Use the `wayfinder` skill");
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(statesOf(entries)).toEqual(["ready>building", "building>done"]);
+    expect(
+      entries.flatMap((entry) => (entry.type === "comment" ? [[entry.body, entry.by]] : [])),
+    ).toEqual([["SQLite fits.", { kind: "agent", threadId: "thread-research/1" }]]);
+    expect(settled.map((thread) => thread.threadId)).toEqual(["thread-research/1"]);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "a grilling ticket primes a thread, asks Leo there, and closes when the thread records its resolution",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const task = yield* tasks.create(
+        { scope: ProjectId.make("alpha"), kind: "grilling", title: "Which store?", body: "" },
+        PERSON,
+      );
+      const settled: Array<AgentThread> = [];
+      const agents = scripted(() => ({
+        outcome: "session",
+        opening: "What must the store survive?",
+        decisions: [],
+      }));
+
+      yield* runFactory(
+        depsOver(tasks, settings, settled),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const run = yield* taskRun;
+          yield* waitAsked(run.runId, 1);
+          const [question] = yield* workflows.questions;
+          expect(question?.thread?.threadId).toBe("thread-session/1");
+          expect(question?.request).toMatchObject({ choices: ["resolved", "drop"] });
+
+          yield* tasks.comment(task.id, "SQLite, since it must survive restarts.", PERSON);
+          yield* startedBy(yield* tickAt(1));
+          yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
+        }),
+        { agents },
+      );
+
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(statesOf(entries)).toEqual(["ready>building", "building>needs-you", "needs-you>done"]);
+      expect(entries.filter((entry) => entry.type === "comment")).toHaveLength(1);
+      expect(settled.map((thread) => thread.threadId)).toEqual(["thread-session/1"]);
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

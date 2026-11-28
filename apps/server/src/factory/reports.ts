@@ -24,3 +24,15 @@ export const ReviewReport = Schema.Union([
   Schema.Struct({ outcome: Schema.Literal("gave-up"), why: Schema.String, decisions }),
 ]);
 export type ReviewReport = typeof ReviewReport.Type;
+
+export const TicketReport = Schema.Union([
+  Schema.Struct({ outcome: Schema.Literal("resolved"), resolution: Schema.String, decisions }),
+  Schema.Struct({ outcome: Schema.Literal("session"), opening: Schema.String, decisions }),
+  Schema.Struct({
+    outcome: Schema.Literal("gave-up"),
+    why: Schema.String,
+    tryNext: Schema.String,
+    decisions,
+  }),
+]);
+export type TicketReport = typeof TicketReport.Type;
