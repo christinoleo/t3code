@@ -20,6 +20,7 @@ You run `full-send` on someone else's PR. The builder did `full-send`'s step 1, 
 6. **`full-send` step 3, feedback.** Run `sol-loop` on the PR, with its reviewer on your own provider and model, not GPT Sol.
 7. **Attack it.** When the diff touches auth or permissions, persistence or migrations, concurrency or event sourcing, wire contracts, or a public API, also run `interrogate` on it; step 5's `review-change` already ran `blast-radius` on the same diffs. Only findings proven by a run count.
 8. Fix what steps 4 to 7 find, inside the issue's scope. Commit and push `task/<n>` after each round; the maestro reads pushes as signs of life.
+   **Checks run once per state of the code.** When the PR body says `Checks passed on <sha>` and that sha is still the head, skip `review-change`'s first Checks step; the builder's run counts. After your own fixes, start `vp run check:changed <base>` as a background command and wait for it to finish. Never run it in the foreground: a run that passes the harness's command time limit gets killed, and the rerun starts from scratch. It covers everything the commit hook runs, so once it passes, commit those files with `VP_GIT_HOOKS=0`. Run it again only after the code changes.
 9. **`full-send` step 5, babysitting,** with one change: wait with `~/.agents/skills/babysit-pr/scripts/pr-wait`, as `babysit-pr` describes, and never call `watch_pull_request`. Fix real findings, then go back to step 5 for what the fix touched.
 
 ## Verify
