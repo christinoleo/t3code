@@ -299,7 +299,7 @@ describe("JiraIssueTracker", () => {
             ],
           };
         },
-        "POST /rest/api/3/search/jql": () => ({ issues: [] }),
+        // No answer for the children search: the detail still loads, without children.
         "GET /rest/api/3/mypermissions": ({ query }) => {
           expect(query.get("issueKey")).toBe("ENG-7");
           return {
@@ -350,6 +350,7 @@ describe("JiraIssueTracker", () => {
         ["assigned", "Theo"],
         ["renamed", "Issue ENG-7"],
       ]);
+      expect(detail.relations?.children).toEqual([]);
     }),
   );
 
@@ -511,7 +512,10 @@ describe("JiraIssueTracker", () => {
         }),
         "GET /rest/api/3/user/assignable/search": () => [JULIUS, THEO],
         "POST /rest/api/3/issue": () => ({ id: "1", key: "ENG-9" }),
-        "POST /rest/api/3/issueLink": () => new Response(null, { status: 201 }),
+        "POST /rest/api/3/issueLink": ({ body }) =>
+          (body as { inwardIssue: { key: string } }).inwardIssue.key === "ENG-404"
+            ? Response.json({ errorMessages: ["Issue does not exist."] }, { status: 404 })
+            : new Response(null, { status: 201 }),
       });
       const api = yield* tracker;
       const created = yield* api.create({
@@ -547,6 +551,18 @@ describe("JiraIssueTracker", () => {
           parent: { key: "ENG-1" },
         },
       });
+
+      const unlinked = yield* api
+        .create({
+          ...target,
+          title: "New",
+          body: "",
+          labels: [],
+          assignees: [],
+          relations: { blockedBy: [{ key: "404" }] },
+        })
+        .pipe(Effect.flip);
+      expect(unlinked.detail).toMatch(/^Filed ENG-9, but linking its blockers failed: /u);
     }),
   );
 

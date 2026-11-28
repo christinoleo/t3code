@@ -627,7 +627,15 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
           ...(assignee === null ? {} : { assigneeId: assignee }),
           ...(parent == null ? {} : { parentId: yield* parentId("create", input.scope, parent) }),
         });
-        yield* writeBlockers(created.identifier, [], blockers);
+        // The issue exists now, so a failed link must still name it, or a retry files it twice.
+        yield* writeBlockers(created.identifier, [], blockers).pipe(
+          Effect.mapError((error) =>
+            failed(
+              "create",
+              `Filed ${created.identifier}, but linking its blockers failed: ${error.detail}`,
+            ),
+          ),
+        );
         return { key: created.identifier, displayKey: created.identifier, url: created.url };
       }),
 

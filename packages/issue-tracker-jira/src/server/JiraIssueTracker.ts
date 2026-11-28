@@ -573,7 +573,16 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
           ...(assignee === null ? {} : { assignee: { accountId: assignee } }),
           ...parentFields,
         });
-        yield* writeBlockers(created.key, [], blockers);
+        // The issue exists now, so a failed link must still name it, or a retry files it twice.
+        yield* writeBlockers(created.key, [], blockers).pipe(
+          Effect.mapError((error) =>
+            JiraApi.fail(
+              "create",
+              error.reason,
+              `Filed ${created.key}, but linking its blockers failed: ${error.detail}`,
+            ),
+          ),
+        );
         return {
           key: created.key,
           displayKey: created.key,
