@@ -25,8 +25,17 @@ import { enabledProjects } from "./FactorySettings.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
 
 const decodeSettings = Schema.decodeSync(ServerSettings);
+// The engine's clock runs as fast as the test lets it, so a busy machine passes hours between
+// two steps. Only a test about a timeout gets a short one.
+const PATIENT = { buildTimeoutMinutes: 525_600, reviewTimeoutMinutes: 525_600 };
 const settingsWith = (projects: Record<string, { readonly enabled: boolean }>) =>
-  decodeSettings({ factory: { projects } });
+  decodeSettings({
+    factory: {
+      projects: Object.fromEntries(
+        Object.entries(projects).map(([id, project]) => [id, { ...project, budgets: PATIENT }]),
+      ),
+    },
+  });
 
 const store = FactoryTasks.layer.pipe(
   Layer.provideMerge(
@@ -127,7 +136,14 @@ it.effect("a ready task is built, reviewed and merged by one run, then ends Done
     const settings = yield* Ref.make(
       decodeSettings({
         factory: {
-          projects: { alpha: { enabled: true, mergeMethod: "rebase", reviewers: [reviewModel] } },
+          projects: {
+            alpha: {
+              enabled: true,
+              mergeMethod: "rebase",
+              reviewers: [reviewModel],
+              budgets: PATIENT,
+            },
+          },
         },
       }),
     );
@@ -446,7 +462,9 @@ it.effect(
       const tasks = yield* FactoryTasks.FactoryTasks;
       const settings = yield* Ref.make(
         decodeSettings({
-          factory: { projects: { alpha: { enabled: true, budgets: { buildTimeoutMinutes: 1 } } } },
+          factory: {
+            projects: { alpha: { enabled: true, budgets: { ...PATIENT, buildTimeoutMinutes: 1 } } },
+          },
         }),
       );
       const task = yield* tasks.create(
