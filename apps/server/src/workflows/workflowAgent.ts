@@ -93,6 +93,7 @@ const AGENT_OPTIONS = [
   "workspace",
   "runtimeMode",
   "interactionMode",
+  "readOnly",
 ];
 
 // What only shapes a new thread: a continued one keeps its project, machine, model and modes.
@@ -104,6 +105,7 @@ const NEW_THREAD_OPTIONS = [
   "workspace",
   "runtimeMode",
   "interactionMode",
+  "readOnly",
 ] as const;
 
 /** What the engine needs to see one turn of an agent step through to its end. */
@@ -242,12 +244,14 @@ const attempt = Effect.fn("workflow.agent")(function* <A, I>(
   const launch: AgentLaunch | undefined =
     options.workspace === undefined &&
     options.runtimeMode === undefined &&
-    options.interactionMode === undefined
+    options.interactionMode === undefined &&
+    options.readOnly === undefined
       ? undefined
       : {
           workspace: options.workspace,
           runtimeMode: options.runtimeMode,
           interactionMode: options.interactionMode,
+          readOnly: options.readOnly,
         };
   // What the agent's thread touches, its issue and the pull requests it links, is this step's.
   const touches = stepReferences(run.store, run.runId, name);

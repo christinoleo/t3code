@@ -1,9 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   type ManagedPolicySummary,
   type ModelSelection,
   type OrchestrationV2AppThread,
+  type OrchestrationV2WorkflowOrigin,
+  type ProviderInteractionMode,
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
@@ -19,6 +22,7 @@ import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as CodexAdapterV2 from "./Adapters/CodexAdapterV2.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
@@ -36,6 +40,8 @@ function makeThread(input: {
   readonly now: DateTime.Utc;
   readonly worktreePath: string | null;
   readonly runtimeMode?: RuntimeMode;
+  readonly interactionMode?: ProviderInteractionMode;
+  readonly workflowRun?: OrchestrationV2WorkflowOrigin;
 }): OrchestrationV2AppThread {
   const threadId = ThreadId.make("thread:runtime-policy");
   return {
@@ -47,7 +53,7 @@ function makeThread(input: {
     providerInstanceId,
     modelSelection,
     runtimeMode: input.runtimeMode ?? "full-access",
-    interactionMode: "default",
+    interactionMode: input.interactionMode ?? "default",
     branch: null,
     worktreePath: input.worktreePath,
     activeProviderThreadId: null,
@@ -64,6 +70,7 @@ function makeThread(input: {
     settledAt: null,
     lastVisitedAt: null,
     deletedAt: null,
+    ...(input.workflowRun === undefined ? {} : { workflowRun: input.workflowRun }),
   };
 }
 
@@ -205,6 +212,47 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
     }),
+  );
+
+  it.effect(
+    "runs a read-only workflow step in Codex's read-only sandbox, not a person's plan thread",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const step = {
+          environmentId: EnvironmentId.make("environment"),
+          runId: "run-1",
+          workflow: "factory-task",
+          step: "triage",
+        };
+        const sandboxFor = (workflowRun?: OrchestrationV2WorkflowOrigin) =>
+          policy
+            .resolve({
+              thread: makeThread({
+                now,
+                worktreePath: "/work",
+                interactionMode: "plan",
+                ...(workflowRun === undefined ? {} : { workflowRun }),
+              }),
+              modelSelection,
+            })
+            .pipe(
+              Effect.flatMap((runtimePolicy) =>
+                CodexAdapterV2.buildCodexTurnStartParams({
+                  nativeThreadId: "native-triage",
+                  codexInput: [{ type: "text", text: "Triage this report." }],
+                  runtimePolicy,
+                  modelSelection,
+                }),
+              ),
+              Effect.map((params) => params.sandboxPolicy?.type),
+            );
+
+        assert.equal(yield* sandboxFor({ ...step, readOnly: true }), "readOnly");
+        assert.equal(yield* sandboxFor(step), "dangerFullAccess");
+        assert.equal(yield* sandboxFor(), "dangerFullAccess");
+      }),
   );
 
   it.effect("carries tracked folders only for a thread in the project's own checkout", () =>

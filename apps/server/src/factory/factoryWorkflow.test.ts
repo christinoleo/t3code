@@ -1686,9 +1686,10 @@ it.effect(
         .map((input) => [
           input.prompt.includes("Use the `triage-issues` skill"),
           input.launch?.interactionMode,
+          input.launch?.readOnly,
         ]);
       expect(launched).toHaveLength(2);
-      expect(launched).toContainEqual([true, "plan"]);
-      expect(launched).toContainEqual([true, undefined]);
+      expect(launched).toContainEqual([true, "plan", true]);
+      expect(launched).toContainEqual([true, undefined, undefined]);
     }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

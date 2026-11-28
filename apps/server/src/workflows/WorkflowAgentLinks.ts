@@ -231,7 +231,11 @@ export const make = Effect.gen(function* () {
         ...outputSchema,
         clientRequestId: requestId,
         // The thread there says which run it is a step of, and where that run lives.
-        workflowRun: { environmentId: here, ...input.origin },
+        workflowRun: {
+          environmentId: here,
+          ...input.origin,
+          ...(input.launch?.readOnly ? { readOnly: true } : {}),
+        },
       },
     );
     if (launched.runId === null) {

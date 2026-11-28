@@ -306,7 +306,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       }),
     ),
   ),
-  t3_submit_output: McpToolAccess.actsAsCaller((input) =>
+  t3_submit_output: McpToolAccess.answersAsCaller((input) =>
     Effect.gen(function* () {
       const { scope, threads } = yield* readCaller();
       if (scope.thread === undefined) return yield* unavailable();

@@ -67,7 +67,7 @@ const handlers = {
       };
     }),
   ),
-  html_render: McpToolAccess.actsAsCaller((input) =>
+  html_render: McpToolAccess.answersAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const { thread } = yield* McpInvocationContext.requireThreadScope(scope, "html_render");

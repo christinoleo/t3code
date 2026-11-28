@@ -220,7 +220,11 @@ const make = Effect.gen(function* () {
           initialMessage: { messageId, text: input.prompt, attachments: [], ...outputSchema },
           createdBy: "system",
           creationSource: "server",
-          workflowRun: { environmentId: here, ...input.origin },
+          workflowRun: {
+            environmentId: here,
+            ...input.origin,
+            ...(input.launch?.readOnly ? { readOnly: true } : {}),
+          },
         })
         .pipe(Effect.mapError(failed("Could not start the thread")));
       const run = launched.projection.runs.find(

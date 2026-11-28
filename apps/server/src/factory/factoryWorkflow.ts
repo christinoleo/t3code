@@ -802,7 +802,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
             ...model,
             ...where(at),
             workspace: { type: "worktree", baseRef: base, startFromOrigin: true },
-            ...(untrusted ? { interactionMode: "plan" as const } : {}),
+            ...(untrusted ? { interactionMode: "plan" as const, readOnly: true as const } : {}),
             timeout: Duration.minutes(budgets.buildTimeoutMinutes),
           }),
           {},
