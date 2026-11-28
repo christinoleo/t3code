@@ -45,6 +45,7 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  createThread,
   interruptThreadTurn,
   promoteQueuedRun,
   revertThreadCheckpoint,
@@ -79,6 +80,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly projection?: OrchestrationV2ThreadProjection;
   readonly projectionRequests?: ThreadId[];
   readonly advertiseThreadStop?: boolean;
+  readonly advertiseThreadTagRename?: boolean;
 }) {
   const client = {
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
@@ -127,6 +129,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
         capabilities: {
           repositoryIdentity: true,
           ...(input.advertiseThreadStop === true ? { threadStop: true } : {}),
+          ...(input.advertiseThreadTagRename === true ? { threadTagRename: true } : {}),
         },
       },
     } as never),
@@ -306,6 +309,56 @@ describe("V2 environment commands", () => {
           branch: "feature",
         },
       });
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("tags a new thread after creation only on servers without create-time tags", () =>
+    Effect.gen(function* () {
+      const created = {
+        projectId: ProjectId.make("project-1"),
+        title: "Thread",
+        modelSelection: v2Projection.thread.modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        tags: ["ops"],
+      } as const;
+      const launch = startThreadTurn({
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-folder"),
+          role: "user",
+          text: "Hello",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: { createThread: { ...created, createdAt: "2026-06-20T00:00:00.000Z" } },
+      });
+      const create = createThread({ ...created, threadId: v2ThreadId });
+      const tagCommands = Effect.fn("tagCommands")(function* (
+        entry: typeof launch | typeof create,
+        advertiseThreadTagRename: boolean,
+      ) {
+        const commands: OrchestrationV2Command[] = [];
+        const supervisor = yield* makeSupervisor({
+          commands,
+          projects: [],
+          advertiseThreadTagRename,
+        });
+        yield* entry.pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        );
+        return commands.filter((command) => command.type === "thread.tag.set");
+      });
+
+      for (const entry of [launch, create]) {
+        expect(yield* tagCommands(entry, false)).toMatchObject([
+          { type: "thread.tag.set", threadId: v2ThreadId, tag: "ops", tagged: true },
+        ]);
+        expect(yield* tagCommands(entry, true)).toEqual([]);
+      }
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
