@@ -49,6 +49,7 @@ export function ProjectRail(props: {
   threads: readonly EnvironmentThreadShell[];
   selectedKeys: readonly string[];
   onSelectAll: () => void;
+  onUnscope: (keys: string[]) => void;
   onSelect: (key: string, additive: boolean) => void;
   onMove: (activeKey: string, overKey: string) => void;
   folderIcons: Readonly<Record<string, ProjectIconOverride>>;
@@ -134,7 +135,12 @@ export function ProjectRail(props: {
               variant="ghost-muted"
               aria-label={hideLabel}
               aria-pressed={hideIdle}
-              onClick={() => setHideIdle(!hideIdle)}
+              onClick={() => {
+                // Turning hide on drops idle tiles from the filter, so it can't keep an idle tile shown.
+                const idleKeys = selectedKeys.filter((key) => states.get(key)?.idle);
+                if (!hideIdle && idleKeys.length > 0) props.onUnscope(idleKeys);
+                setHideIdle(!hideIdle);
+              }}
             />
           }
         >

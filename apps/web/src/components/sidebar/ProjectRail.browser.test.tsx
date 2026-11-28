@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 import { act, fakeTimers, render } from "../../../test/render";
@@ -35,6 +37,7 @@ function renderRail(onTileMenu = vi.fn(), onSelect = vi.fn()) {
       threads={[]}
       selectedKeys={[]}
       onSelectAll={vi.fn()}
+      onUnscope={vi.fn()}
       onSelect={onSelect}
       onMove={vi.fn()}
       folderIcons={{}}
@@ -42,6 +45,50 @@ function renderRail(onTileMenu = vi.fn(), onSelect = vi.fn()) {
     />,
   );
 }
+
+const liveOpsThread = {
+  id: "live",
+  environmentId: "env",
+  projectId: "p",
+  tags: ["ops"],
+  pinnedAt: null,
+  settledOverride: null,
+  snoozedUntil: null,
+  pendingGuestMessageCount: 0,
+  latestRun: null,
+  runtime: null,
+} as unknown as Parameters<typeof ProjectRail>[0]["threads"][number];
+
+function ScopedRail(props: { initialKeys: string[] }) {
+  const [selectedKeys, setSelectedKeys] = useState(props.initialKeys);
+  return (
+    <ProjectRail
+      tiles={[
+        { kind: "folder", key: "tag:ops", tag: "ops" },
+        { kind: "folder", key: "tag:docs", tag: "docs" },
+      ]}
+      threads={[liveOpsThread]}
+      selectedKeys={selectedKeys}
+      onSelectAll={vi.fn()}
+      onUnscope={(keys) => setSelectedKeys(selectedKeys.filter((key) => !keys.includes(key)))}
+      onSelect={vi.fn()}
+      onMove={vi.fn()}
+      folderIcons={{}}
+      onTileMenu={vi.fn()}
+    />
+  );
+}
+
+describe("ProjectRail hide idle", () => {
+  it("takes idle tiles out of the filter, so a shown idle tile leaves the rail", async () => {
+    // The toggle persists, and a hidden idle tile would be missing from the tests after this one.
+    using _storage = { [Symbol.dispose]: () => localStorage.clear() };
+    await using screen = await render(<ScopedRail initialKeys={["tag:ops", "tag:docs"]} />);
+    await userEvent.click(screen.getByRole("button", { name: "Hide idle projects" }));
+    expect(screen.container.querySelector("button[aria-label=docs]")).toBeNull();
+    expect(screen.container.querySelector("button[aria-label=ops]")).not.toBeNull();
+  });
+});
 
 describe("ProjectRail touch", () => {
   it("lets a tap through after a lifted tile's drag is cancelled", async () => {
