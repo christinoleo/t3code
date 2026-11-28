@@ -111,6 +111,7 @@ const DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
   ["Update environment preferences", msg("Update environment preferences")],
   ["Read themes", msg("Read themes")],
   ["Set the theme", msg("Set the theme")],
+  ["Configure the factory", msg("Configure the factory")],
   ["Launch a project thread", msg("Launch a project thread")],
   ["List projects", msg("List projects")],
   ["Read a project", msg("Read a project")],

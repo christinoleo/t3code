@@ -13,6 +13,7 @@ import {
   TASK_LABEL,
   TaskKind,
   TaskState,
+  TASK_TRACKER_KIND,
   Decision,
   IssueRef,
   type EnvironmentId,
@@ -20,7 +21,14 @@ import {
 import type { RunEnd } from "../workflows/workflow.ts";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { Actor, isOpen, OPEN_STATES, refusal, revives } from "./taskModel.ts";
+import {
+  Actor,
+  AUTO_DISPATCHED_KINDS,
+  isOpen,
+  OPEN_STATES,
+  refusal,
+  revives,
+} from "./taskModel.ts";
 
 export const TaskId = Schema.Int.pipe(Schema.brand("TaskId"));
 export type TaskId = typeof TaskId.Type;
@@ -262,7 +270,6 @@ const isKindLabel = (label: string) => label.startsWith(KIND_PREFIX);
 
 const isTaskKind = Schema.is(TaskKind);
 
-export const TASK_TRACKER_KIND = "t3";
 export const TASK_TRACKER_HOST = "t3";
 export const TASK_URL_HOST = "app.t3.codes";
 
@@ -666,6 +673,17 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const dispatchable: FactoryTasks["Service"]["dispatchable"] = (scope) =>
+    sql`
+      SELECT * FROM (${selectTasks}) t
+      WHERE t.scope = ${scope} AND t.state = 'ready' AND NOT t.blocked
+        AND t.kind IN ${sql.in(AUTO_DISPATCHED_KINDS)}
+      ORDER BY t.id
+    `.pipe(
+      failed("dispatchable"),
+      Effect.map((rows) => rows.map(toTask)),
+    );
+
   return FactoryTasks.of({
     create,
     get: find,
@@ -677,7 +695,7 @@ const make = Effect.gen(function* () {
     comment,
     transition,
     record,
-    dispatchable: notImplemented("dispatchable"),
+    dispatchable,
     runEnded: notImplemented("runEnded"),
     unmirrored: notImplemented("unmirrored"),
     markMirrored: notImplemented("markMirrored"),

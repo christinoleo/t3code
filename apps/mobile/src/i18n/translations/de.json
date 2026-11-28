@@ -5740,5 +5740,8 @@
   "fd52d36f2d28072d": "{count, plural, one {Versucht, {count} Issue zu aktualisieren} other {Versucht, {count} Issues zu aktualisieren}}",
   "fdb6381df1e2ac2f": "Feedback an T3 senden",
   "f6889f5ceab6fbdd": "{count, plural, one {{count}-mal Feedback gesendet} other {{count}-mal Feedback gesendet}}",
-  "f578484f8452eab8": "{count, plural, one {{count}-mal versucht, Feedback zu senden} other {{count}-mal versucht, Feedback zu senden}}"
+  "f578484f8452eab8": "{count, plural, one {{count}-mal versucht, Feedback zu senden} other {{count}-mal versucht, Feedback zu senden}}",
+  "ad3c1f3c847b1070": "{count, plural, one {Factory {count}-mal konfiguriert} other {Factory {count}-mal konfiguriert}}",
+  "1db18367d4cd4f02": "{count, plural, one {Versucht, die Factory {count}-mal zu konfigurieren} other {Versucht, die Factory {count}-mal zu konfigurieren}}",
+  "0aa6dc7e03221e0d": "Factory konfigurieren"
 }

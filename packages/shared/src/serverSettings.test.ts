@@ -77,6 +77,7 @@ describe("fallbackTextGenerationModelSelection", () => {
       applyServerSettingsPatch(settings, { fallbackModelSelection: null }).fallbackModelSelection,
     ).toBeNull();
   });
+
   it("falls back to a configured non-default instance", () => {
     const configured = ProviderInstanceId.make("codex_work");
     const providerInstances = {
@@ -91,6 +92,32 @@ describe("fallbackTextGenerationModelSelection", () => {
 });
 
 describe("serverSettings helpers", () => {
+  it("replaces a factory builder without the old model's options, and keeps the first enabledAt", () => {
+    const project = ProjectId.make("alpha");
+    const builder = { instanceId: ProviderInstanceId.make("claudeAgent"), model: "haiku" };
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      factory: {
+        projects: {
+          [project]: {
+            enabledAt: "2026-11-28T10:00:00.000Z",
+            builder: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt",
+              options: [{ id: "effort", value: "high" }],
+            },
+          },
+        },
+      },
+    });
+    const next = applyServerSettingsPatch(settings, {
+      factory: { projects: { [project]: { builder, enabledAt: "2026-11-28T10:30:00.000Z" } } },
+    });
+    expect(next.factory.projects[project]).toMatchObject({
+      enabledAt: "2026-11-28T10:00:00.000Z",
+    });
+    expect(next.factory.projects[project]?.builder).toEqual(builder);
+  });
+
   it("translates a shipped client's idle compaction switch into a mode", () => {
     const off = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, { idleCompaction: "off" });
     expect([off.idleCompaction, off.compactIdleThreads]).toEqual(["off", false]);

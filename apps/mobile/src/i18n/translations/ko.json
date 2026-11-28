@@ -5718,5 +5718,8 @@
   "fd52d36f2d28072d": "{count, plural, other {이슈 {count}개 업데이트를 시도함}}",
   "fdb6381df1e2ac2f": "T3에 피드백 보내기",
   "f6889f5ceab6fbdd": "{count, plural, other {피드백을 {count}번 보냄}}",
-  "f578484f8452eab8": "{count, plural, other {피드백 보내기를 {count}번 시도함}}"
+  "f578484f8452eab8": "{count, plural, other {피드백 보내기를 {count}번 시도함}}",
+  "ad3c1f3c847b1070": "{count, plural, other {팩토리 {count}회 구성함}}",
+  "1db18367d4cd4f02": "{count, plural, other {팩토리 구성 {count}회 시도함}}",
+  "0aa6dc7e03221e0d": "팩토리 구성"
 }

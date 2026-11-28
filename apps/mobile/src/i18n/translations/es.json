@@ -5734,5 +5734,8 @@
   "fd52d36f2d28072d": "{count, plural, one {Se intentó actualizar {count} incidencia} other {Se intentó actualizar {count} incidencias}}",
   "fdb6381df1e2ac2f": "Enviar comentarios a T3",
   "f6889f5ceab6fbdd": "{count, plural, one {Se enviaron comentarios {count} vez} other {Se enviaron comentarios {count} veces}}",
-  "f578484f8452eab8": "{count, plural, one {Se intentó enviar comentarios {count} vez} other {Se intentó enviar comentarios {count} veces}}"
+  "f578484f8452eab8": "{count, plural, one {Se intentó enviar comentarios {count} vez} other {Se intentó enviar comentarios {count} veces}}",
+  "ad3c1f3c847b1070": "{count, plural, one {Configuró la factory {count} vez} other {Configuró la factory {count} veces}}",
+  "1db18367d4cd4f02": "{count, plural, one {Intentó configurar la factory {count} vez} other {Intentó configurar la factory {count} veces}}",
+  "0aa6dc7e03221e0d": "Configurar la factory"
 }

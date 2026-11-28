@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { TASK_STATES, TaskState } from "@t3tools/contracts";
+import { TASK_STATES, type TaskKind, TaskState } from "@t3tools/contracts";
 
 export const Actor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("factory"), runId: Schema.String }),
@@ -12,6 +12,12 @@ export type Actor = typeof Actor.Type;
 export const isOpen = (state: TaskState) => TASK_STATES[state].category === "open";
 
 export const OPEN_STATES = TaskState.literals.filter(isOpen);
+
+/** The kinds the factory runs on its own; the others wait for a person (#85 Q3). */
+export const AUTO_DISPATCHED_KINDS = [
+  "build",
+  "research",
+] as const satisfies ReadonlyArray<TaskKind>;
 
 type Moves = Partial<Record<TaskState, ReadonlyArray<TaskState>>>;
 
