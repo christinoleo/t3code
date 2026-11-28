@@ -467,9 +467,16 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
               folder,
             })
             .pipe(
-              Effect.mapError((error) =>
-                isOrchestratorV2Error(error.cause) ? dispatchFailure(error.cause) : unavailable(),
-              ),
+              Effect.mapError((error) => {
+                const moveFailure = () =>
+                  new OrchestratorMcpFailure({
+                    code: "orchestration_error",
+                    message: error.message,
+                  });
+                return isOrchestratorV2Error(error.cause)
+                  ? dispatchFailure(error.cause, moveFailure)
+                  : moveFailure();
+              }),
             );
         }
         const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
