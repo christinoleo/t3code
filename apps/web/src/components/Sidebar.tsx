@@ -1449,8 +1449,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (to === null && (plan.length > 0 || environmentIds.length > 0)) {
       const api = readLocalApi();
       if (!api) return;
-      // Counts loaded threads, the ones the folder shows; a server rename also untags archived ones.
-      const members = readThreadShells().filter((thread) => thread.tags?.includes(from));
+      // Counts the threads the folder tile shows; archived ones lose the tag too but aren't counted.
+      const members = railThreads.filter((thread) => thread.tags?.includes(from));
       const count = members.length;
       const toProjects = members.filter((thread) => thread.tags?.length === 1).length;
       const confirmed = await settlePromise(() =>
