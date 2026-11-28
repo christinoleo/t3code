@@ -1795,9 +1795,16 @@ const folderToolkit = (options: {
   readonly folderIcons?: Record<string, ProjectIconOverride>;
   readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
   readonly threadCount?: number;
+  readonly hiddenTags?: ReadonlyArray<string>;
 }) =>
   threadToolkitWithSettings(
-    options.settings ?? ServerSettings.layerTest({ folderIcons: options.folderIcons ?? {} }),
+    options.settings ??
+      ServerSettings.layerTest({
+        folderIcons: options.folderIcons ?? {},
+        ...(options.hiddenTags === undefined
+          ? {}
+          : { hideTaggedThreads: true, hiddenThreadTags: [...options.hiddenTags] }),
+      }),
   ).pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(NodeCrypto.layer),
@@ -1867,6 +1874,26 @@ it.effect("move_to_folder adds the new folder before dropping the old, as the si
       message: "This action needs `folder`.",
     });
   }).pipe(Effect.provide(folderToolkit({ tags: ["Inbox"], dispatched, renamed: [] })));
+});
+
+it.effect("moving a hidden thread between folders keeps its hidden tags", () => {
+  const dispatched: Array<OrchestrationV2ServerCommand> = [];
+  return Effect.gen(function* () {
+    yield* organize({ action: "move_to_folder", folder: "Review" });
+    expect(dispatched).toMatchObject([
+      { tag: "Review", tagged: true },
+      { tag: "Inbox", tagged: false },
+    ]);
+  }).pipe(
+    Effect.provide(
+      folderToolkit({
+        tags: ["Inbox", "private"],
+        hiddenTags: ["private"],
+        dispatched,
+        renamed: [],
+      }),
+    ),
+  );
 });
 
 it.effect("rename_folder and delete_folder change the folder environment-wide in one call", () => {

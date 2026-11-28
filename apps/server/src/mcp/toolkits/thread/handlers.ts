@@ -7,6 +7,7 @@ import {
   OrchestratorMcpFailure,
   type OrchestrationV2Command,
   folderIconsPatchAfterEdit,
+  activeHiddenThreadTags,
   folderTagChanges,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -454,7 +455,15 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         if (input.action === "move_to_folder" || input.action === "remove_from_folder") {
           const folder =
             input.action === "remove_from_folder" ? null : yield* required(input.folder, "folder");
-          const changes = folderTagChanges(projection.thread.tags ?? [], folder);
+          const settings = yield* ServerSettings.ServerSettingsService.pipe(
+            Effect.flatMap((service) => service.getSettings),
+            Effect.mapError(unavailable),
+          );
+          const changes = folderTagChanges(
+            projection.thread.tags ?? [],
+            folder,
+            activeHiddenThreadTags(settings),
+          );
           for (const change of changes) {
             yield* threads
               .dispatch({

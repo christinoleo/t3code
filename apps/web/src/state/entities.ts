@@ -34,7 +34,7 @@ import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
-import { environmentServerConfigsAtom } from "./server";
+import { environmentServerConfigsAtom, serverEnvironment } from "./server";
 import {
   allEnvironmentProjectSnapshotsReadyAtom,
   allEnvironmentShellsBootstrappedAtom,
@@ -396,6 +396,12 @@ export function readEnvironmentSupportsServerBrowser(environmentId: EnvironmentI
 
 export function readEnvironmentServerConfigLoaded(environmentId: EnvironmentId): boolean {
   return appAtomRegistry.get(environmentServerConfigsAtom).has(environmentId);
+}
+
+export function readEnvironmentHiddenThreadTags(
+  environmentId: EnvironmentId,
+): ReadonlyArray<string> | null {
+  return appAtomRegistry.get(serverEnvironment.hiddenThreadTagsAtom(environmentId));
 }
 
 export function readEnvironmentSupportsAutoSettleOptOut(environmentId: EnvironmentId): boolean {

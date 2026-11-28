@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { folderIconsPatchAfterEdit, folderTagChanges } from "./threadTags.ts";
+import {
+  activeHiddenThreadTags,
+  folderIconsPatchAfterEdit,
+  folderTagChanges,
+} from "./threadTags.ts";
 
 describe("folderTagChanges", () => {
   it.each([
@@ -31,8 +35,47 @@ describe("folderTagChanges", () => {
       ],
     },
     { name: "is a no-op back in the project", tags: [], folder: null, expected: [] },
-  ])("$name", ({ tags, folder, expected }) => {
-    expect(folderTagChanges(tags, folder)).toEqual(expected);
+    {
+      name: "keeps hidden tags when moving into a folder",
+      tags: ["a", "private"],
+      folder: "c",
+      hidden: ["private"],
+      expected: [
+        { tag: "c", tagged: true },
+        { tag: "a", tagged: false },
+      ],
+    },
+    {
+      name: "keeps hidden tags when moving back to the project",
+      tags: ["private", "a"],
+      folder: null,
+      hidden: ["private"],
+      expected: [{ tag: "a", tagged: false }],
+    },
+    {
+      name: "is a no-op back in the project when only hidden tags remain",
+      tags: ["private"],
+      folder: null,
+      hidden: ["private"],
+      expected: [],
+    },
+  ])("$name", ({ tags, folder, hidden, expected }) => {
+    expect(folderTagChanges(tags, folder, hidden ?? null)).toEqual(expected);
+  });
+});
+
+describe("activeHiddenThreadTags", () => {
+  it("trims the listed tags while hiding is on", () => {
+    expect(
+      activeHiddenThreadTags({ hideTaggedThreads: true, hiddenThreadTags: [" private", "", "x"] }),
+    ).toEqual(["private", "x"]);
+  });
+
+  it("hides nothing while hiding is off or the list is empty", () => {
+    expect(
+      activeHiddenThreadTags({ hideTaggedThreads: false, hiddenThreadTags: ["private"] }),
+    ).toBeNull();
+    expect(activeHiddenThreadTags({ hideTaggedThreads: true, hiddenThreadTags: [" "] })).toBeNull();
   });
 });
 

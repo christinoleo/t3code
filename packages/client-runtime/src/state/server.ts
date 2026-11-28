@@ -25,6 +25,7 @@ import {
   type UsageSummary,
   type WorkflowRunsSnapshot,
   WS_METHODS,
+  activeHiddenThreadTags,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -1387,10 +1388,7 @@ export function createServerEnvironmentAtoms<R, E>(
   const hiddenThreadTagsAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => {
       const settings = get(settingsValueAtom(environmentId));
-      if (settings?.hideTaggedThreads !== true) return null;
-      // Tags are trimmed on write; trim hand-edited entries so " private" still matches.
-      const tags = settings.hiddenThreadTags.map((tag) => tag.trim()).filter((tag) => tag !== "");
-      return tags.length > 0 ? tags : null;
+      return settings === null ? null : activeHiddenThreadTags(settings);
     }).pipe(
       // Trimming makes a new array on every settings push; keep equal lists stable.
       Atom.withEquality(

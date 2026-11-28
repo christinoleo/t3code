@@ -38,6 +38,7 @@ import { threadEnvironment } from "../state/threads";
 import { threadTriagePermitted, useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
 import {
+  readEnvironmentHiddenThreadTags,
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
   readThreadShell,
@@ -161,7 +162,12 @@ export function useThreadActionMenu(input: {
       folders: configLoaded
         ? {
             names: threadFolderNames(readVisibleThreadShells().map((t) => t.source)),
-            threadTags: [thread.source.tags ?? []],
+            threads: [
+              {
+                tags: thread.source.tags ?? [],
+                hiddenTags: readEnvironmentHiddenThreadTags(threadRef.environmentId),
+              },
+            ],
           }
         : null,
     });
