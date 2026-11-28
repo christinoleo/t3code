@@ -128,6 +128,16 @@ export function SidebarSectionHeader(props: {
         : props.marker === "workers-header"
           ? "workers"
           : "settled";
+  // An empty shelf keeps its sortable slot, which drag projection reads; its placeholder takes drops.
+  if (props.count === 0) {
+    return (
+      <SortableSidebarMarker
+        marker={props.marker}
+        data-testid={`sidebar-${props.marker}`}
+        className={cn("relative mx-0.5 -mb-px h-0", props.className)}
+      />
+    );
+  }
   return (
     <SortableSidebarMarker
       marker={props.marker}
