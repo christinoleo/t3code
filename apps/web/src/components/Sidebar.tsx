@@ -1446,18 +1446,28 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           : [],
       ),
     );
-    const threadCount = `${plan.length} thread${plan.length === 1 ? "" : "s"}`;
     if (to === null && (plan.length > 0 || environmentIds.length > 0)) {
       const api = readLocalApi();
       if (!api) return;
+      // Counts the threads the folder tile shows; archived ones lose the tag too but aren't counted.
+      const members = railThreads.filter((thread) => thread.tags?.includes(from));
+      const count = members.length;
+      const toProjects = members.filter((thread) => thread.tags?.length === 1).length;
       const confirmed = await settlePromise(() =>
         api.dialogs.confirm(
           [
-            `Delete folder "${from}"?`,
-            // Server renames also reach threads this client has not loaded, so no count is known.
-            environmentIds.length > 0
-              ? "All threads in this folder leave it."
-              : `Its ${threadCount} leave this folder.`,
+            gt('Delete folder "{name}"?', { name: from }),
+            count === 0
+              ? gt("All threads in this folder leave it.")
+              : toProjects === count
+                ? gt(
+                    "{count, plural, one {Its {count} thread goes back to its project.} other {Its {count} threads go back to their projects.}}",
+                    { count },
+                  )
+                : gt(
+                    "{count, plural, one {Its {count} thread leaves it and stays in its other folders.} other {Its {count} threads leave it. Those in no other folder go back to their projects.}}",
+                    { count },
+                  ),
           ].join("\n"),
           { variant: "destructive" },
         ),
