@@ -41,6 +41,20 @@ describe("resolveT3McpToolPresentation", () => {
   });
 });
 
+describe("T3_MCP_TOOL_NAMES", () => {
+  it("leaves out names that only label a folder action of t3_thread_organize", () => {
+    for (const name of [
+      "t3_thread_move_to_folder",
+      "t3_thread_remove_from_folder",
+      "t3_thread_rename_folder",
+      "t3_thread_delete_folder",
+    ]) {
+      expect(T3_MCP_TOOL_NAMES.has(name), name).toBe(false);
+      expect(resolveT3McpToolPresentation(name), name).toBeNull();
+    }
+  });
+});
+
 describe("resolveT3McpToolDefinition", () => {
   it("labels an action tool call as the action it ran", () => {
     expect(

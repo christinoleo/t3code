@@ -396,16 +396,6 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_search: tool(["Search", "Searching", "Searched", "thread content"], "thread-search"),
   t3_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),
   t3_thread_organize: tool(["Organize", "Organizing", "Organized", "a thread"], "thread-organize"),
-  t3_thread_move_to_folder: tool(
-    ["Move", "Moving", "Moved", "a thread to a folder"],
-    "thread-organize",
-  ),
-  t3_thread_remove_from_folder: tool(
-    ["Remove", "Removing", "Removed", "a thread from its folder"],
-    "thread-organize",
-  ),
-  t3_thread_rename_folder: tool(["Rename", "Renaming", "Renamed", "a folder"], "thread-organize"),
-  t3_thread_delete_folder: tool(["Delete", "Deleting", "Deleted", "a folder"], "thread-organize"),
   t3_thread_update: tool(["Update", "Updating", "Updated", "T3 thread metadata"], "thread-update"),
   t3_worktree_list: tool(["List", "Listing", "Listed", "workspace branches"], "worktree-list"),
   t3_preview_list: tool(["List", "Listing", "Listed", "preview tabs"], "browser", "browser"),
@@ -454,6 +444,18 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
 };
 
 export const T3_MCP_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(T3_MCP_TOOLS));
+
+// Labels for t3_thread_organize's folder actions. No T3 tool has these names, so they stay out
+// of T3_MCP_TOOLS, which providers use to recognise T3's own tools.
+const THREAD_ORGANIZE_ACTION_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
+  move_to_folder: tool(["Move", "Moving", "Moved", "a thread to a folder"], "thread-organize"),
+  remove_from_folder: tool(
+    ["Remove", "Removing", "Removed", "a thread from its folder"],
+    "thread-organize",
+  ),
+  rename_folder: tool(["Rename", "Renaming", "Renamed", "a folder"], "thread-organize"),
+  delete_folder: tool(["Delete", "Deleting", "Deleted", "a folder"], "thread-organize"),
+};
 
 function normalizeT3McpToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
@@ -523,13 +525,6 @@ const ACTION_TOOLS: Readonly<Record<string, (action: string) => string | undefin
   preview_act: (action) => `preview_${action}`,
   t3_queue: (action) => `t3_queue_${action}`,
   t3_pending_request: (action) => `t3_pending_request_${action}`,
-  t3_thread_organize: (action) =>
-    ({
-      move_to_folder: "t3_thread_move_to_folder",
-      remove_from_folder: "t3_thread_remove_from_folder",
-      rename_folder: "t3_thread_rename_folder",
-      delete_folder: "t3_thread_delete_folder",
-    })[action],
   t3_thread_transfer: (action) =>
     ({ fork: "t3_thread_fork", merge_back: "t3_thread_merge_back", status: "t3_thread_transfers" })[
       action
@@ -544,7 +539,11 @@ export function resolveT3McpToolDefinition(
   const name = toolName == null ? null : resolveT3McpToolName(toolName);
   if (name === null || !Object.hasOwn(T3_MCP_TOOLS, name)) return null;
   const action = asSummaryInput(input)?.action;
-  const actionTool = typeof action === "string" ? ACTION_TOOLS[name]?.(action) : undefined;
+  if (typeof action !== "string") return T3_MCP_TOOLS[name]!;
+  if (name === "t3_thread_organize" && Object.hasOwn(THREAD_ORGANIZE_ACTION_TOOLS, action)) {
+    return THREAD_ORGANIZE_ACTION_TOOLS[action]!;
+  }
+  const actionTool = ACTION_TOOLS[name]?.(action);
   return actionTool !== undefined && Object.hasOwn(T3_MCP_TOOLS, actionTool)
     ? T3_MCP_TOOLS[actionTool]!
     : T3_MCP_TOOLS[name]!;

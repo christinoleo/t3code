@@ -11,6 +11,7 @@ import {
   folderTagChanges,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 
@@ -25,6 +26,7 @@ import {
 } from "../../threadAccess.ts";
 import { providerOptionDescriptors, refuseAgentModePick } from "../../delegatedTaskModes.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
+import { OrchestratorV2Error } from "../../../orchestration-v2/Orchestrator.ts";
 import type * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -33,6 +35,8 @@ import * as ServerSettings from "../../../serverSettings.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { rejectionText } from "../../../orchestration-v2/runOutput.ts";
 import { ThreadToolkit } from "./tools.ts";
+
+const isOrchestratorV2Error = Schema.is(OrchestratorV2Error);
 
 function queueEntry(
   projection: Pick<OrchestrationV2ThreadProjection, "runs" | "messages">,
@@ -426,9 +430,13 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         const result = yield* threads
           .renameThreadTag({ commandId: yield* newCommandId(), from, to })
           .pipe(
-            Effect.mapError(
-              (error) =>
-                new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+            Effect.mapError((error) =>
+              isOrchestratorV2Error(error.cause)
+                ? dispatchFailure(error.cause)
+                : new OrchestratorMcpFailure({
+                    code: "orchestration_error",
+                    message: error.message,
+                  }),
             ),
           );
         // No thread here held the folder, so its icon may belong to another environment's.

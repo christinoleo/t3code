@@ -55,10 +55,7 @@ const assertTags = (expected: ReadonlyArray<readonly [string, string]>) =>
   Effect.gen(function* () {
     const actual = yield* indexedTags;
     assert.deepEqual(actual, yield* recountedTags);
-    assert.deepEqual(
-      actual,
-      expected.map(([threadId, tag]) => [threadId, tag]),
-    );
+    assert.deepEqual(actual, expected);
   });
 
 it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("fork schema", (it) => {

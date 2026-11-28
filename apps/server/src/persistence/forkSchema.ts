@@ -11,7 +11,7 @@ const THREAD_TAG_OBJECTS = [
   "orchestration_v2_projection_thread_tags_delete",
 ];
 
-export const hasForkSchema = Effect.fn("forkSchema.isCurrent")(function* () {
+export const hasForkSchema = Effect.fn("forkSchema.hasForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const present = yield* sql<{ readonly name: string }>`
     SELECT name FROM sqlite_schema WHERE name IN ${sql.in(THREAD_TAG_OBJECTS)}
@@ -23,9 +23,10 @@ export const hasForkSchema = Effect.fn("forkSchema.isCurrent")(function* () {
  * One row per tag a thread carries, so folder reads find a tag's threads by index instead of
  * scanning every payload's JSON. Triggers keep it exact on every write to the thread rows.
  */
-export const ensureForkSchema = Effect.fn("forkSchema.ensure")(function* () {
+export const ensureForkSchema = Effect.fn("forkSchema.ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   if (yield* hasForkSchema()) return;
+  yield* Effect.log("Rebuilding the thread tag index");
   yield* sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
