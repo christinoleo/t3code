@@ -1505,8 +1505,17 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
               maxConcurrentSessions: 2,
             },
           ],
+          factory: {
+            posthog: {
+              [ProjectId.make("alpha")]: {
+                projectUrl: "https://us.posthog.com/project/1",
+                apiKey: "posthog-secret",
+              },
+            },
+          },
         });
         const values = [
+          "posthog-secret",
           "config-secret",
           "env-secret",
           "github-secret",
@@ -1582,6 +1591,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           }),
           sourceControlHostSecretName({ kind: "gitcafe", field: "token", serverHost: null }),
           "usage-limit-source-aHVi",
+          "factory-posthog-alpha",
         ];
         for (const name of secretNames) {
           assert.isTrue(Option.isSome(yield* store.get(name)), name);
@@ -1614,6 +1624,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
             gitcafe: { token: "" },
           },
           usageLimitSources: { [UsageLimitSourceId.make("hub")]: null },
+          factory: { posthog: { [ProjectId.make("alpha")]: { apiKey: "" } } },
         });
         for (const name of secretNames) {
           assert.isTrue(Option.isNone(yield* store.get(name)));

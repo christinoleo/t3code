@@ -3,7 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
-import { IsoDateTime, PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  PositiveInt,
+  ProjectId,
+  TrimmedNonEmptyString,
+  TrimmedString,
+} from "./baseSchemas.ts";
 import type { IssueState } from "./issue.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
@@ -129,8 +135,22 @@ const DEFAULT_FACTORY_PROJECT_SETTINGS: FactoryProjectSettings = Schema.decodeSy
   FactoryProjectSettings,
 )({});
 
+const posthogFields = {
+  /** The PostHog project page, such as `https://us.posthog.com/project/12345`. */
+  projectUrl: TrimmedString,
+  /** A personal API key; only error tracking is read with it. */
+  apiKey: TrimmedString.annotateKey({ settingsSecret: true }),
+};
+
+export const FactoryPosthog = Schema.Struct({
+  projectUrl: defaulted(posthogFields.projectUrl, ""),
+  apiKey: defaulted(posthogFields.apiKey, ""),
+});
+export type FactoryPosthog = typeof FactoryPosthog.Type;
+
 export const FactorySettings = Schema.Struct({
   projects: defaulted(Schema.Record(ProjectId, FactoryProjectSettings), {}),
+  posthog: defaulted(Schema.Record(ProjectId, FactoryPosthog), {}),
 });
 export type FactorySettings = typeof FactorySettings.Type;
 
@@ -140,6 +160,14 @@ export const FactoryProjectSettingsPatch = Schema.Struct({
   intake: Schema.optionalKey(Schema.Struct(Struct.map(intakeFields, Schema.optionalKey))),
 });
 export type FactoryProjectSettingsPatch = typeof FactoryProjectSettingsPatch.Type;
+
+export const FactorySettingsPatch = Schema.Struct({
+  projects: Schema.optionalKey(Schema.Record(ProjectId, FactoryProjectSettingsPatch)),
+  posthog: Schema.optionalKey(
+    Schema.Record(ProjectId, Schema.Struct(Struct.map(posthogFields, Schema.optionalKey))),
+  ),
+});
+export type FactorySettingsPatch = typeof FactorySettingsPatch.Type;
 
 export const factoryProjectSettingsOf = (
   settings: { readonly factory: FactorySettings },
@@ -154,12 +182,24 @@ export const factoryProjectSettingsOf = (
  */
 export const applyFactorySettingsPatch = (
   current: FactorySettings,
-  patch: { readonly projects: Readonly<Record<ProjectId, FactoryProjectSettingsPatch>> },
+  patch: FactorySettingsPatch,
 ): FactorySettings => ({
+  posthog: {
+    ...current.posthog,
+    ...Object.fromEntries(
+      Object.entries(patch.posthog ?? {}).map(([projectId, fields]) => [
+        projectId,
+        {
+          ...(current.posthog[ProjectId.make(projectId)] ?? { projectUrl: "", apiKey: "" }),
+          ...fields,
+        },
+      ]),
+    ),
+  },
   projects: {
     ...current.projects,
     ...Object.fromEntries(
-      Object.entries(patch.projects).map(([projectId, fields]) => {
+      Object.entries(patch.projects ?? {}).map(([projectId, fields]) => {
         const saved = factoryProjectSettingsOf({ factory: current }, ProjectId.make(projectId));
         return [
           projectId,

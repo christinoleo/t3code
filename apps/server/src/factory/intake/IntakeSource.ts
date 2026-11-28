@@ -27,7 +27,7 @@ export class IntakeError extends Schema.TaggedError<IntakeError>()("IntakeError"
 }
 
 export interface IntakeSource {
-  readonly id: "t3-feedback" | "external-issues";
+  readonly id: "t3-feedback" | "external-issues" | "posthog-errors";
   readonly trusted: boolean;
   readonly enabled: (intake: FactoryIntake) => boolean;
   /**

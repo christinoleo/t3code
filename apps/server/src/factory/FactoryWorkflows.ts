@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { HttpClient } from "effect/http";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { readFeedbackReports } from "../feedback/FeedbackList.ts";
@@ -23,6 +24,7 @@ import { machines, settleLinked, stopOrphan } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import { makeFactoryWorkflows } from "./factoryWorkflow.ts";
 import { externalIssues } from "./intake/externalIssues.ts";
+import { posthogErrors } from "./intake/posthogErrors.ts";
 import { t3Feedback } from "./intake/t3Feedback.ts";
 
 export const layer = Layer.effect(
@@ -35,6 +37,7 @@ export const layer = Layer.effect(
     const vcs = yield* GitVcsDriver.GitVcsDriver;
     const issues = yield* IssueService.IssueService;
     const sql = yield* SqlClient.SqlClient;
+    const http = yield* HttpClient.HttpClient;
     const gitFor = (operation: string) => (cwd: string, args: ReadonlyArray<string>) =>
       Effect.map(vcs.execute({ operation, cwd, args, timeoutMs: 120_000 }), (result) =>
         result.stdout.trim(),
@@ -70,6 +73,12 @@ export const layer = Layer.effect(
             );
             return bindings.length > 1 ? bindings[0] : undefined;
           }),
+        ),
+        posthogErrors(http, (project) =>
+          settings.getSettings.pipe(
+            Effect.map((all) => all.factory.posthog[project]),
+            Effect.orElseSucceed(() => undefined),
+          ),
         ),
       ],
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),

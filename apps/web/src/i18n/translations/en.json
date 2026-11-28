@@ -13431,5 +13431,10 @@
   "391fc9c4112e2c14": "An issue on the project's tracker that gets this label becomes a task. Only labels added after the factory first turned on count. Empty turns it off.",
   "ad3c1f3c847b1070": "{count, plural, one {Configured the factory {count} time} other {Configured the factory {count} times}}",
   "1db18367d4cd4f02": "{count, plural, one {Tried to configure the factory {count} time} other {Tried to configure the factory {count} times}}",
-  "0aa6dc7e03221e0d": "Configure the factory"
+  "0aa6dc7e03221e0d": "Configure the factory",
+  "efa7de0002a4aaa9": "PostHog project",
+  "9af3cd9b74d3d3f0": "The project's page in PostHog, as its address bar shows it.",
+  "9ecb571ec7eff943": "PostHog API key",
+  "5e75fefe7577669d": "A personal API key with read access to error tracking. It stays on this server.",
+  "32997eb004b3ed33": "Clear PostHog API key"
 }

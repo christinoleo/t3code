@@ -13418,5 +13418,10 @@
   "391fc9c4112e2c14": "Un issue del tracker del proyecto que recibe esta etiqueta se convierte en una tarea. Solo cuentan las etiquetas añadidas después de que la factory se activó por primera vez. Vacío lo desactiva.",
   "ad3c1f3c847b1070": "{count, plural, one {Configuró la factory {count} vez} other {Configuró la factory {count} veces}}",
   "1db18367d4cd4f02": "{count, plural, one {Intentó configurar la factory {count} vez} other {Intentó configurar la factory {count} veces}}",
-  "0aa6dc7e03221e0d": "Configurar la factory"
+  "0aa6dc7e03221e0d": "Configurar la factory",
+  "efa7de0002a4aaa9": "Proyecto de PostHog",
+  "9af3cd9b74d3d3f0": "La página del proyecto en PostHog, tal como aparece en la barra de direcciones.",
+  "9ecb571ec7eff943": "Clave de API de PostHog",
+  "5e75fefe7577669d": "Una clave de API personal con acceso de lectura al seguimiento de errores. Se queda en este servidor.",
+  "32997eb004b3ed33": "Borrar la clave de API de PostHog"
 }
