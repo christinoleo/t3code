@@ -49,12 +49,23 @@ export function folderTagChanges(
   folder: string | null,
   hiddenTags: ReadonlyArray<string> | null,
 ): ReadonlyArray<ThreadFolderTagChange> {
+  const next = tagsAfterFolderMove(currentTags, folder, hiddenTags ?? []);
   const removals = currentTags
-    .filter((tag) => tag !== folder && hiddenTags?.includes(tag) !== true)
+    .filter((tag) => !next.includes(tag))
     .map((tag) => ({ tag, tagged: false }));
   return folder === null || currentTags.includes(folder)
     ? removals
     : [{ tag: folder, tagged: true }, ...removals];
+}
+
+/** A thread's tags once filed in `folder` (none when null), keeping the `keep` tags it has. */
+export function tagsAfterFolderMove(
+  currentTags: ReadonlyArray<string>,
+  folder: string | null,
+  keep: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const kept = currentTags.filter((tag) => tag === folder || keep.includes(tag));
+  return folder === null || kept.includes(folder) ? kept : [...kept, folder];
 }
 
 /**

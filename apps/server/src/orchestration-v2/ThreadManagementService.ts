@@ -12,6 +12,7 @@ import type {
 import {
   type ChatAttachment,
   CommandId,
+  activeHiddenThreadTags,
   isDelegatedAppThread,
   isListedThreadLineage,
   isOrchestrationV2WorkActive,
@@ -24,6 +25,9 @@ import {
   OrchestrationV2RenameThreadTagError,
   type OrchestrationV2RenameThreadTagInput,
   type OrchestrationV2RenameThreadTagResult,
+  OrchestrationV2MoveThreadToFolderError,
+  type OrchestrationV2MoveThreadToFolderInput,
+  type OrchestrationV2MoveThreadToFolderResult,
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
@@ -128,8 +132,9 @@ function existingThreadIdsForCommand(
     // while a thread is open, so keeping them off the import path matters.
     case "thread.visit":
     case "thread.mark-unread":
-    // Tag renames never touch messages either.
+    // Tag renames and moves never touch messages either.
     case "thread.tag.rename":
+    case "thread.tag.move":
       return [];
     case "thread.fork":
       return [command.sourceThreadId];
@@ -550,6 +555,13 @@ export interface ThreadManagementServiceShape {
   readonly renameThreadTag: (
     input: OrchestrationV2RenameThreadTagInput,
   ) => Effect.Effect<OrchestrationV2RenameThreadTagResult, OrchestrationV2RenameThreadTagError>;
+  /** Computes the thread's new tags under its dispatch lock, so a concurrent rename cannot leave it in two folders. */
+  readonly moveThreadToFolder: (
+    input: OrchestrationV2MoveThreadToFolderInput,
+  ) => Effect.Effect<
+    OrchestrationV2MoveThreadToFolderResult,
+    OrchestrationV2MoveThreadToFolderError
+  >;
   readonly awaitBackgroundTasks: (input: {
     readonly threadId: ThreadId;
     readonly taskIds: ReadonlyArray<string>;
@@ -1662,6 +1674,29 @@ const make = Effect.gen(function* () {
       ),
   );
 
+  const moveThreadToFolder: ThreadManagementServiceShape["moveThreadToFolder"] = Effect.fn(
+    "ThreadManagementService.moveThreadToFolder",
+  )(
+    function* ({ commandId, threadId, folder }) {
+      const keep = activeHiddenThreadTags(yield* serverSettings.getSettings) ?? [];
+      const { storedEvents } = yield* orchestrator.dispatch({
+        type: "thread.tag.move",
+        commandId,
+        threadId,
+        folder,
+        keep,
+      });
+      return { threadCount: storedEvents.length > 0 ? 1 : 0 };
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationV2MoveThreadToFolderError({ threadId: input.threadId, cause }),
+        ),
+      ),
+  );
+
   const stopWorkflow: ThreadManagementServiceShape["stopWorkflow"] = Effect.fn(
     "ThreadManagementService.stopWorkflow",
   )(
@@ -2058,6 +2093,7 @@ const make = Effect.gen(function* () {
     stopWorkflow,
     forceStopThread,
     renameThreadTag,
+    moveThreadToFolder,
     awaitBackgroundTasks,
     getThreadEventSequence: orchestrator.getThreadEventSequence,
     recoverDelegatedTask: orchestrator.recoverDelegatedTask,

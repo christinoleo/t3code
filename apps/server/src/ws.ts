@@ -2121,6 +2121,8 @@ export const layerWsRpc = (
           threadManagement.forceStopThread(input),
         [ORCHESTRATION_V2_WS_METHODS.renameThreadTag]: (input) =>
           threadManagement.renameThreadTag(input),
+        [ORCHESTRATION_V2_WS_METHODS.moveThreadToFolder]: (input) =>
+          threadManagement.moveThreadToFolder(input),
         [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: (input) =>
           readWorkflowScript({ scriptPath: input.scriptPath }),
         [ORCHESTRATION_V2_WS_METHODS.getNativeChildWork]: (input) =>

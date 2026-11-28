@@ -324,6 +324,12 @@ export function createThreadEnvironmentAtoms<R, E>(
       label: "environment-data:commands:thread:rename-tag",
       tag: ORCHESTRATION_V2_WS_METHODS.renameThreadTag,
     }),
+    moveToFolder: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:commands:thread:move-to-folder",
+      tag: ORCHESTRATION_V2_WS_METHODS.moveThreadToFolder,
+      scheduler,
+      concurrency,
+    }),
     reorderPin: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-pin",
       execute: reorderPinnedThread,

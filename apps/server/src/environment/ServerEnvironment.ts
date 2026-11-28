@@ -257,6 +257,7 @@ export const make = Effect.gen(function* () {
       threadSnooze: true,
       threadForceStop: true,
       threadTagRename: true,
+      threadFolderMove: true,
       environmentThemes: true,
       usageLimitSources: true,
       providerWorkspaceSnapshotsOnDemand: true,

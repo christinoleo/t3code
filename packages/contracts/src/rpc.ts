@@ -286,6 +286,7 @@ import {
   OrchestrationV2StopWorkflowError,
   OrchestrationV2ForceStopThreadError,
   OrchestrationV2RenameThreadTagError,
+  OrchestrationV2MoveThreadToFolderError,
   OrchestrationV2DispatchCommandError,
   OrchestrationV2GetShellSnapshotError,
   OrchestrationV2CommandOutputError,
@@ -2276,6 +2277,15 @@ const WsOrchestrationV2RenameThreadTagRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS
   error: Schema.Union([OrchestrationV2RenameThreadTagError, EnvironmentAuthorizationError]),
 });
 
+const WsOrchestrationV2MoveThreadToFolderRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.moveThreadToFolder,
+  {
+    payload: OrchestrationV2RpcSchemas.moveThreadToFolder.input,
+    success: OrchestrationV2RpcSchemas.moveThreadToFolder.output,
+    error: Schema.Union([OrchestrationV2MoveThreadToFolderError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsOrchestrationV2GetWorkflowScriptRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getWorkflowScript,
   {
@@ -2778,6 +2788,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2StopWorkflowRpc,
   WsOrchestrationV2ForceStopThreadRpc,
   WsOrchestrationV2RenameThreadTagRpc,
+  WsOrchestrationV2MoveThreadToFolderRpc,
   WsOrchestrationV2GetTurnItemRpc,
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,

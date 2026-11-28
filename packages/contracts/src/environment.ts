@@ -129,6 +129,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadForceStop: Schema.optionalKey(Schema.Boolean),
   /** Serves `orchestration.renameThreadTag` and honors the older settled `tagScope`. */
   threadTagRename: Schema.optionalKey(Schema.Boolean),
+  /** Serves `orchestration.moveThreadToFolder`; older servers get one `thread.tag.set` per tag. */
+  threadFolderMove: Schema.optionalKey(Schema.Boolean),
   /** Every protocol-2 server sends this; older mobile builds still read it. */
   environmentThemes: Schema.optionalKey(Schema.Boolean),
   usageLimitSources: Schema.optionalKey(Schema.Boolean),

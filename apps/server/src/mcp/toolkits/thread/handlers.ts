@@ -7,8 +7,6 @@ import {
   OrchestratorMcpFailure,
   type OrchestrationV2Command,
   folderIconsPatchAfterEdit,
-  activeHiddenThreadTags,
-  folderTagChanges,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -462,26 +460,24 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         if (input.action === "move_to_folder" || input.action === "remove_from_folder") {
           const folder =
             input.action === "remove_from_folder" ? null : yield* required(input.folder, "folder");
-          const settings = yield* ServerSettings.ServerSettingsService.pipe(
-            Effect.flatMap((service) => service.getSettings),
-            Effect.mapError(unavailable),
-          );
-          const changes = folderTagChanges(
-            projection.thread.tags ?? [],
-            folder,
-            activeHiddenThreadTags(settings),
-          );
-          for (const change of changes) {
-            yield* threads
-              .dispatch({
-                commandId: yield* newCommandId(),
-                threadId: projection.thread.id,
-                type: "thread.tag.set",
-                ...change,
-              })
-              .pipe(Effect.mapError(dispatchFailure));
-          }
-          return { threadCount: changes.length > 0 ? 1 : 0 };
+          return yield* threads
+            .moveThreadToFolder({
+              commandId: yield* newCommandId(),
+              threadId: projection.thread.id,
+              folder,
+            })
+            .pipe(
+              Effect.mapError((error) => {
+                const moveFailure = () =>
+                  new OrchestratorMcpFailure({
+                    code: "orchestration_error",
+                    message: error.message,
+                  });
+                return isOrchestratorV2Error(error.cause)
+                  ? dispatchFailure(error.cause, moveFailure)
+                  : moveFailure();
+              }),
+            );
         }
         const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
         if (input.action === "settle") {

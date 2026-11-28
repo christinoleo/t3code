@@ -51,6 +51,7 @@ import {
   readEnvironmentThreadRefs,
   readProject,
   readEnvironmentHiddenThreadTags,
+  readEnvironmentSupportsFolderMove,
   readThreadShell,
   readThreadShells,
 } from "../state/entities";
@@ -347,6 +348,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const renameThreadTagMutation = useOrchestrationCommand(threadEnvironment.renameTag, {
+    reportFailure: false,
+  });
+  const moveThreadToFolderMutation = useOrchestrationCommand(threadEnvironment.moveToFolder, {
     reportFailure: false,
   });
   const setThreadAutoSettleMutation = useOrchestrationCommand(threadEnvironment.setAutoSettle, {
@@ -834,15 +838,25 @@ export function useThreadActions() {
     return AsyncResult.success(undefined);
   };
 
-  const moveThreadToFolder = (target: ScopedThreadRef, folder: string | null) =>
-    applyThreadTagChanges(
-      target,
-      folderTagChanges(
-        readThreadShell(target)?.source.tags ?? [],
-        folder,
-        readEnvironmentHiddenThreadTags(target.environmentId),
-      ),
-    );
+  const moveThreadToFolder = async (target: ScopedThreadRef, folder: string | null) => {
+    if (!readEnvironmentSupportsFolderMove(target.environmentId)) {
+      return applyThreadTagChanges(
+        target,
+        folderTagChanges(
+          readThreadShell(target)?.source.tags ?? [],
+          folder,
+          readEnvironmentHiddenThreadTags(target.environmentId),
+        ),
+      );
+    }
+    const permissionFailure = threadOperationFailure(target);
+    if (permissionFailure) return permissionFailure;
+    const result = await moveThreadToFolderMutation({
+      environmentId: target.environmentId,
+      input: { commandId: CommandId.make(randomUUID()), threadId: target.threadId, folder },
+    });
+    return result._tag === "Failure" ? result : AsyncResult.success(undefined);
+  };
 
   /** Renames or removes (`to` null) a tag on every thread of one environment, loaded or not. */
   const renameThreadTag = (environmentId: EnvironmentId, from: string, to: string | null) => {

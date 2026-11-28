@@ -22,6 +22,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
+  OrchestrationV2MoveThreadToFolderError,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ThreadShell,
@@ -1796,17 +1797,11 @@ const folderToolkit = (options: {
   readonly folderIcons?: Record<string, ProjectIconOverride>;
   readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
   readonly threadCount?: number;
-  readonly hiddenTags?: ReadonlyArray<string>;
   readonly renameFailure?: ThreadManagement.ThreadManagementService["Service"]["renameThreadTag"];
+  readonly moved?: Array<unknown>;
 }) =>
   threadToolkitWithSettings(
-    options.settings ??
-      ServerSettings.layerTest({
-        folderIcons: options.folderIcons ?? {},
-        ...(options.hiddenTags === undefined
-          ? {}
-          : { hideTaggedThreads: true, hiddenThreadTags: [...options.hiddenTags] }),
-      }),
+    options.settings ?? ServerSettings.layerTest({ folderIcons: options.folderIcons ?? {} }),
   ).pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(NodeCrypto.layer),
@@ -1838,6 +1833,21 @@ const folderToolkit = (options: {
           const threadCount = options.threadCount ?? 1;
           return Effect.succeed({ threadCount, threadIds: threadCount === 0 ? [] : [threadId] });
         },
+        moveThreadToFolder: (input) => {
+          options.moved?.push(input);
+          return input.folder === "Gone"
+            ? Effect.fail(
+                new OrchestrationV2MoveThreadToFolderError({
+                  threadId: input.threadId,
+                  cause: new OrchestratorCommandRejectedError({
+                    commandId: input.commandId,
+                    commandType: "thread.tag.move",
+                    cause: `Thread ${input.threadId} is deleted.`,
+                  }),
+                }),
+              )
+            : Effect.succeed({ threadCount: 1 });
+        },
       }),
     ),
   );
@@ -1852,53 +1862,35 @@ const organize = (args: Record<string, unknown>) =>
       ),
   );
 
-it.effect("move_to_folder adds the new folder before dropping the old, as the sidebar does", () => {
-  const dispatched: Array<OrchestrationV2ServerCommand> = [];
-  return Effect.gen(function* () {
-    const moved = yield* organize({ action: "move_to_folder", folder: "Review" });
-    expect(moved.structuredContent).toEqual({ threadCount: 1 });
-    expect(dispatched).toMatchObject([
-      { type: "thread.tag.set", threadId, tag: "Review", tagged: true },
-      { type: "thread.tag.set", threadId, tag: "Inbox", tagged: false },
-    ]);
+it.effect(
+  "move_to_folder and remove_from_folder hand the folder, or null for the project, to the service",
+  () => {
+    const dispatched: Array<OrchestrationV2ServerCommand> = [];
+    const moved: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const result = yield* organize({ action: "move_to_folder", folder: "Review" });
+      expect(result.structuredContent).toEqual({ threadCount: 1 });
+      const home = yield* organize({ action: "remove_from_folder" });
+      expect(home.structuredContent).toEqual({ threadCount: 1 });
+      expect(moved).toMatchObject([
+        { threadId, folder: "Review" },
+        { threadId, folder: null },
+      ]);
 
-    dispatched.length = 0;
-    const home = yield* organize({ action: "remove_from_folder" });
-    expect(home.structuredContent).toEqual({ threadCount: 1 });
-    expect(dispatched).toMatchObject([{ tag: "Inbox", tagged: false }]);
+      const rejected = yield* organize({ action: "move_to_folder", folder: "Gone" });
+      expect(declaredFailure(rejected)).toMatchObject({
+        code: "orchestration_error",
+        message: `Thread ${threadId} is deleted.`,
+      });
 
-    dispatched.length = 0;
-    const same = yield* organize({ action: "move_to_folder", folder: "Inbox" });
-    expect(same.structuredContent).toEqual({ threadCount: 0 });
-    expect(dispatched).toEqual([]);
-
-    const missing = yield* organize({ action: "move_to_folder" });
-    expect(declaredFailure(missing)).toMatchObject({
-      code: "invalid_request",
-      message: "This action needs `folder`.",
-    });
-  }).pipe(Effect.provide(folderToolkit({ tags: ["Inbox"], dispatched, renamed: [] })));
-});
-
-it.effect("moving a hidden thread between folders keeps its hidden tags", () => {
-  const dispatched: Array<OrchestrationV2ServerCommand> = [];
-  return Effect.gen(function* () {
-    yield* organize({ action: "move_to_folder", folder: "Review" });
-    expect(dispatched).toMatchObject([
-      { tag: "Review", tagged: true },
-      { tag: "Inbox", tagged: false },
-    ]);
-  }).pipe(
-    Effect.provide(
-      folderToolkit({
-        tags: ["Inbox", "private"],
-        hiddenTags: ["private"],
-        dispatched,
-        renamed: [],
-      }),
-    ),
-  );
-});
+      const missing = yield* organize({ action: "move_to_folder" });
+      expect(declaredFailure(missing)).toMatchObject({
+        code: "invalid_request",
+        message: "This action needs `folder`.",
+      });
+    }).pipe(Effect.provide(folderToolkit({ tags: ["Inbox"], dispatched, renamed: [], moved })));
+  },
+);
 
 it.effect("rename_folder and delete_folder change the folder environment-wide in one call", () => {
   const renamed: Array<unknown> = [];

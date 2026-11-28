@@ -368,7 +368,7 @@ const layerTest = Layer.mergeAll(
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
-  Layer.provide(ServerSettings.layerTest()),
+  Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),
@@ -4121,6 +4121,86 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         untagged: [],
       });
     }),
+  );
+
+  it.effect("moves a thread between folders from its tags at dispatch, keeping hidden tags", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.updateSettings({ hideTaggedThreads: true, hiddenThreadTags: ["private"] });
+      const projectId = ProjectId.make("runtime-layer-folder-move-project");
+      yield* seedProject({
+        projectId,
+        title: "Folder move project",
+        workspaceRoot: "/workspace/folder-move",
+        defaultModelSelection: null,
+        createdAt: "2026-09-07T00:00:00.000Z",
+      });
+      const threadId = ThreadId.make("runtime-layer-folder-move-thread");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-folder-move-create"),
+        threadId,
+        projectId,
+        title: "Filed",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      for (const tag of ["Inbox", "private"]) {
+        yield* orchestrator.dispatch({
+          type: "thread.tag.set",
+          commandId: CommandId.make(`runtime-layer-folder-move-tag-${tag}`),
+          threadId,
+          tag,
+          tagged: true,
+        });
+      }
+      const tags = orchestrator
+        .getThreadProjection(threadId)
+        .pipe(Effect.map((projection) => projection.thread.tags ?? []));
+      const move = (name: string, folder: string | null) =>
+        threadManagement.moveThreadToFolder({
+          commandId: CommandId.make(`runtime-layer-folder-move-${name}`),
+          threadId,
+          folder,
+        });
+
+      // The move works from the tags at dispatch, not from a caller's earlier read.
+      yield* threadManagement.renameThreadTag({
+        commandId: CommandId.make("runtime-layer-folder-move-rename"),
+        from: "Inbox",
+        to: "Later",
+      });
+      assert.deepEqual(yield* move("review", "Review"), { threadCount: 1 });
+      assert.deepEqual(yield* tags, ["private", "Review"]);
+
+      assert.deepEqual(yield* move("again", "Review"), { threadCount: 0 });
+      assert.deepEqual(yield* move("home", null), { threadCount: 1 });
+      assert.deepEqual(yield* tags, ["private"]);
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("runtime-layer-folder-move-delete"),
+        threadId,
+      });
+      const deleted = yield* move("deleted", null).pipe(Effect.flip);
+      assert.strictEqual(deleted._tag, "OrchestrationV2MoveThreadToFolderError");
+    }).pipe(
+      Effect.ensuring(
+        ServerSettings.ServerSettingsService.pipe(
+          Effect.flatMap((settings) =>
+            settings.updateSettings({ hideTaggedThreads: false, hiddenThreadTags: [] }),
+          ),
+          Effect.orDie,
+        ),
+      ),
+    ),
   );
 
   it.effect(

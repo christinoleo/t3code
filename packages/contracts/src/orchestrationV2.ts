@@ -3861,6 +3861,14 @@ const OrchestrationV2InternalCommand = Schema.Union([
     from: ThreadTag,
     to: Schema.NullOr(ThreadTag),
   }),
+  // `orchestration.moveThreadToFolder`; the new tags come from the thread's tags at dispatch time.
+  Schema.Struct({
+    type: Schema.Literal("thread.tag.move"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    folder: Schema.NullOr(ThreadTag),
+    keep: Schema.Array(Schema.String),
+  }),
   // The server issues this after checking the value against the run's declared schema.
   Schema.Struct({
     type: Schema.Literal("run.output.submit"),
@@ -4136,6 +4144,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   stopWorkflow: "orchestration.stopWorkflow",
   forceStopThread: "orchestration.forceStopThread",
   renameThreadTag: "orchestration.renameThreadTag",
+  moveThreadToFolder: "orchestration.moveThreadToFolder",
   getTurnItem: "orchestration.getTurnItem",
   launchThread: "orchestration.launchThread",
   subscribeShell: "orchestration.subscribeShell",
@@ -4602,6 +4611,34 @@ export class OrchestrationV2RenameThreadTagError extends Schema.TaggedError<Orch
   }
 }
 
+/** Files a thread in one folder, or none when `folder` is null. Tags in the server's active hidden-tag list stay. */
+export const OrchestrationV2MoveThreadToFolderInput = Schema.Struct({
+  commandId: CommandId,
+  threadId: ThreadId,
+  folder: Schema.NullOr(ThreadTag),
+});
+export type OrchestrationV2MoveThreadToFolderInput =
+  typeof OrchestrationV2MoveThreadToFolderInput.Type;
+
+export const OrchestrationV2MoveThreadToFolderResult = Schema.Struct({
+  /** 1 when the thread's tags changed, 0 when it was already there. */
+  threadCount: NonNegativeInt,
+});
+export type OrchestrationV2MoveThreadToFolderResult =
+  typeof OrchestrationV2MoveThreadToFolderResult.Type;
+
+export class OrchestrationV2MoveThreadToFolderError extends Schema.TaggedError<OrchestrationV2MoveThreadToFolderError>()(
+  "OrchestrationV2MoveThreadToFolderError",
+  {
+    threadId: ThreadId,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return "Failed to move the thread.";
+  }
+}
+
 export const OrchestrationV2ForceStopThreadInput = Schema.Struct({
   threadId: ThreadId,
   /** The run the user saw ignore Stop; Force stop refuses once a newer run has started. */
@@ -4886,6 +4923,10 @@ export const OrchestrationV2RpcSchemas = {
   renameThreadTag: {
     input: OrchestrationV2RenameThreadTagInput,
     output: OrchestrationV2RenameThreadTagResult,
+  },
+  moveThreadToFolder: {
+    input: OrchestrationV2MoveThreadToFolderInput,
+    output: OrchestrationV2MoveThreadToFolderResult,
   },
   getWorkflowScript: {
     input: OrchestrationV2GetWorkflowScriptInput,
