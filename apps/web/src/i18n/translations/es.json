@@ -13365,5 +13365,7 @@
   "7374c391a196ec55": "No se pudo restaurar la carpeta",
   "3fa9e57edafff826": "{count, plural, one {Se eliminó {count} carpeta} other {Se eliminaron {count} carpetas}}",
   "6a78eb543f2cb337": "{count, plural, one {Se restauró {count} carpeta} other {Se restauraron {count} carpetas}}",
-  "fa31841f29a7cc70": "{count, plural, =1 {Carpeta eliminada,} other {{count} carpetas eliminadas,}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {Carpeta eliminada,} other {{count} carpetas eliminadas,}}",
+  "cfecdd8ffc11d832": "Carpeta no aplicada",
+  "592b4c8f71f70441": "El nombre de carpeta {folder} no es válido, así que el nuevo hilo empieza fuera de ella."
 }

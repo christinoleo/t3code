@@ -70,8 +70,7 @@ import { newMessageId, newThreadId } from "~/lib/utils";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readPendingWorkspaceDefault } from "../../lib/draftWorkspaceDefaults";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { useUiStateStore } from "../../uiStateStore";
-import { newThreadCreateTags } from "../sidebar/ProjectRail.logic";
+import { readNewThreadFolderTags } from "./newThreadFolderTags";
 import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
@@ -1552,7 +1551,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
-                      ...newThreadCreateTags(useUiStateStore.getState().sidebarProjectScopeKeys),
+                      ...readNewThreadFolderTags(),
                     },
                   }
                 : {}),

@@ -13380,5 +13380,7 @@
   "7374c391a196ec55": "无法恢复文件夹",
   "3fa9e57edafff826": "已删除 {count, plural, other {{count} 个文件夹}}",
   "6a78eb543f2cb337": "已撤销删除 {count, plural, other {{count} 个文件夹}}",
-  "fa31841f29a7cc70": "{count, plural, =1 {已删除文件夹，} other {已删除 {count} 个文件夹，}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {已删除文件夹，} other {已删除 {count} 个文件夹，}}",
+  "cfecdd8ffc11d832": "未应用文件夹",
+  "592b4c8f71f70441": "文件夹名称 {folder} 无效，因此新线程将在文件夹之外开始。"
 }

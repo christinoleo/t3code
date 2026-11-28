@@ -13377,5 +13377,7 @@
   "7374c391a196ec55": "Det gick inte att återställa mappen",
   "3fa9e57edafff826": "Tog bort {count, plural, one {{count} mapp} other {{count} mappar}}",
   "6a78eb543f2cb337": "Återställde {count, plural, one {{count} mapp} other {{count} mappar}}",
-  "fa31841f29a7cc70": "{count, plural, =1 {Mapp borttagen,} other {Tog bort {count} mappar,}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {Mapp borttagen,} other {Tog bort {count} mappar,}}",
+  "cfecdd8ffc11d832": "Mappen tillämpades inte",
+  "592b4c8f71f70441": "Mappnamnet {folder} är ogiltigt, så den nya tråden startar utanför den."
 }
