@@ -64,9 +64,20 @@ export interface AgentOptions<A, I> extends AgentLaunch {
   readonly quiet?: Duration.Input;
 }
 
+/**
+ * Why an agent step failed. `unstarted`, `died` and `stopped` happened to the agent; `timeout`
+ * and `no-result` are its own doing: it ran out of time, or never gave a result that fit.
+ */
+export type AgentFailure = "unstarted" | "died" | "stopped" | "timeout" | "no-result";
+
 type Attempt<A> =
   | { readonly outcome: "done"; readonly value: A; readonly thread: AgentThread }
-  | { readonly outcome: "failed"; readonly reason: string; readonly thread?: AgentThread };
+  | {
+      readonly outcome: "failed";
+      readonly reason: string;
+      readonly cause: AgentFailure;
+      readonly thread?: AgentThread;
+    };
 
 const AGENT_OPTIONS = [
   "brief",
@@ -111,7 +122,7 @@ export type TurnWatch = typeof TurnWatch.Type;
 
 /** How a watched turn ended: its result, or why it could not be read, which pauses the run. */
 export const TurnEnd = Schema.Union([
-  Schema.Struct({ result: AgentResult }),
+  Schema.Struct({ result: AgentResult, timedOut: Schema.optional(Schema.Boolean) }),
   Schema.Struct({ lost: Schema.String }),
 ]);
 export type TurnEnd = typeof TurnEnd.Type;
@@ -135,14 +146,14 @@ export const settleTurn = Effect.fn("workflow.agent.settle")(function* ({
       );
   const settled = Effect.gen(function* () {
     if (watch.timeoutMs === undefined || startedAt === undefined) {
-      return yield* resultOf(watch.quietMs);
+      return { result: yield* resultOf(watch.quietMs) };
     }
     const limit = Duration.millis(watch.timeoutMs);
     const left = startedAt + watch.timeoutMs - (yield* Clock.currentTimeMillis);
     const result = yield* resultOf(watch.quietMs).pipe(
       Effect.timeoutOption(Duration.millis(Math.max(0, left))),
     );
-    if (Option.isSome(result)) return result.value;
+    if (Option.isSome(result)) return { result: result.value };
     // A stop that still fails pauses the run, so resuming tries the stop again. A step that
     // returns its failure says the turn may still be running.
     const stopping = agents
@@ -157,23 +168,28 @@ export const settleTurn = Effect.fn("workflow.agent.settle")(function* ({
       // finds it. What it left is the answer when it is one.
       const ended = yield* resultOf(undefined);
       if (ended.ending !== "completed" || !watch.owesOutput || ended.output !== undefined) {
-        return ended;
+        return { result: ended };
       }
       // Stopping the later turn it may answer from could stop someone else's.
       return {
-        ending: "stopped" as const,
-        detail: `${late}: its turn ended without its result, and the agent may still be at work on its thread`,
-        reply: "",
+        result: {
+          ending: "stopped" as const,
+          detail: `${late}: its turn ended without its result, and the agent may still be at work on its thread`,
+          reply: "",
+        },
+        timedOut: true,
       };
     }
     return {
-      ending: "stopped" as const,
-      detail: `${late}${stop === "stopped" ? "" : ", and its turn could not be stopped"}`,
-      reply: "",
+      result: {
+        ending: "stopped" as const,
+        detail: `${late}${stop === "stopped" ? "" : ", and its turn could not be stopped"}`,
+        reply: "",
+      },
+      timedOut: true,
     };
   });
   return yield* settled.pipe(
-    Effect.map((result): TurnEnd => ({ result })),
     Effect.catch((error) => Effect.succeed<TurnEnd>({ lost: text(error) })),
   );
 });
@@ -326,7 +342,7 @@ const attempt = Effect.fn("workflow.agent")(function* <A, I>(
       const woke = yield* DurableDeferred.await(wake);
       const end = yield* Effect.orDie(decodeTurnEnd(woke.value));
       yield* Activity.make({ name: `${at}/close`, execute: run.store.waitClosed(run.runId, at) });
-      if ("result" in end) return end.result;
+      if ("result" in end) return { ...end.result, timedOut: end.timedOut === true };
       // Fails the first time it is reached, which pauses the run here. Resuming the run reaches
       // it again, and the turn is watched once more.
       yield* journaled(
@@ -370,13 +386,14 @@ const attempt = Effect.fn("workflow.agent")(function* <A, I>(
     // Counted from the step's first turn, so corrections do not buy more time.
     const startedAt = turn.startedAt;
     let problem = turn.failed === undefined ? "" : `the agent could not be started: ${turn.failed}`;
-    let stopped = false;
+    let cause: AgentFailure = turn.failed === undefined ? "no-result" : "unstarted";
     let died = false;
     for (let correction = 0; turn.failed === undefined; correction++) {
       const result = yield* ended(turn, startedAt, round, correction);
       if (result.ending !== "completed") {
-        stopped = result.ending === "stopped";
-        died = result.ending === "failed";
+        const stopped = result.ending === "stopped";
+        died = !stopped;
+        cause = !stopped ? "died" : "timedOut" in result && result.timedOut ? "timeout" : "stopped";
         problem = `the agent's turn was ${stopped ? "stopped" : "cut short"}: ${result.detail}`;
         break;
       }
@@ -415,6 +432,7 @@ const attempt = Effect.fn("workflow.agent")(function* <A, I>(
       );
       if (corrected.failed !== undefined) {
         problem = `${problem}, and it could not be asked again: ${corrected.failed}`;
+        cause = "died";
         break;
       }
       turn = corrected;
@@ -458,6 +476,7 @@ const attempt = Effect.fn("workflow.agent")(function* <A, I>(
       return {
         outcome: "failed",
         reason: problem,
+        cause,
         ...(turn.failed === undefined ? { thread: threadOf(turn) } : {}),
       };
     }
@@ -498,7 +517,7 @@ export const agent = Object.assign(orPause, {
   /**
    * For a workflow that decides for itself what a failed agent means: another model, another
    * machine, or stop. An agent that could not be started, died twice, ran out of time or never
-   * gave its result comes back as `failed` with the reason, and the run goes on.
+   * gave its result comes back as `failed` with the reason and its `cause`, and the run goes on.
    */
   try: <A = string, I = string>(
     name: string,

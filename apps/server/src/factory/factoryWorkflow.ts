@@ -7,17 +7,32 @@ import {
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 
 import { pullRequests } from "../workflows/forgeApi.ts";
-import { start } from "../workflows/stepServices.ts";
+import { signal, start } from "../workflows/stepServices.ts";
 import { every, Tick } from "../workflows/triggers.ts";
-import { skip, step, workflow } from "../workflows/workflow.ts";
-import { agent, type AgentThread } from "../workflows/workflowAgent.ts";
+import { skip, step, stop, workflow } from "../workflows/workflow.ts";
+import {
+  agent,
+  type AgentFailure,
+  type AgentOptions,
+  type AgentThread,
+  ask,
+} from "../workflows/workflowAgent.ts";
 import type { FactoryProject } from "./FactorySettings.ts";
-import { displayKey, type FactoryTasks, type Phase, type Task, TaskId } from "./FactoryTasks.ts";
+import {
+  displayKey,
+  type FactoryTasks,
+  type Phase,
+  type Task,
+  type TaskEntry,
+  TaskId,
+} from "./FactoryTasks.ts";
 import { ReviewReport, WorkerReport } from "./reports.ts";
+import { isOpen } from "./taskModel.ts";
 
 /** One task's lifecycle; a revived task's next generation is a new run. */
 const TaskRun = Schema.Struct({ task: TaskId, generation: Schema.Int });
@@ -31,6 +46,12 @@ export interface FactoryDeps {
   ) => Effect.Effect<FactoryProjectSettings, ServerSettingsError>;
   /** Never fails: a thread left open is no reason to hold back a task that is done. */
   readonly settle: (thread: AgentThread) => Effect.Effect<void>;
+  /** Whether `base` moved past the pull request's base and changed files the pull request changes. */
+  readonly mainTouched: (pullRequest: {
+    readonly checkout: string;
+    readonly base: string;
+    readonly head: string;
+  }) => Effect.Effect<boolean, unknown>;
 }
 
 const Projects = Schema.Array(Schema.Struct({ id: Schema.String, scope: Schema.String }));
@@ -45,16 +66,13 @@ const Brief = Schema.Struct({
 });
 type Brief = typeof Brief.Type;
 
+type Facts = Readonly<Record<string, string>>;
+
 // Until integration epics (#95) give a task its own base.
 const BASE = "main";
 
 /** Instructions live in the skill's markdown; a brief carries only the task's facts. */
-const briefFor = (
-  skill: string,
-  task: Brief,
-  settings: FactoryProjectSettings,
-  facts: Readonly<Record<string, string>>,
-) =>
+const briefFor = (skill: string, task: Brief, settings: FactoryProjectSettings, facts: Facts) =>
   [
     `Use the \`${skill}\` skill for ${task.key} (${task.url}), run by the factory.`,
     Object.entries(facts)
@@ -66,10 +84,53 @@ const briefFor = (
     .filter((part) => part.trim() !== "")
     .join("\n\n");
 
+// What happened to the agent, not what it did: tried again for free, up to `infraRetries` in a row.
+const INFRA: ReadonlySet<AgentFailure> = new Set(["unstarted", "died", "stopped"]);
+
+/** How a report reads: the job is done, the agent gave up, or it asks Leo. */
+type Judged = { readonly _tag: "done" | "gave-up" | "needs-you"; readonly detail: string };
+
+const judgeWork = (report: WorkerReport): Judged =>
+  report.outcome === "pull-request"
+    ? { _tag: "done", detail: report.url }
+    : report.outcome === "needs-you"
+      ? { _tag: "needs-you", detail: report.question }
+      : { _tag: "gave-up", detail: `${report.why} Try next: ${report.tryNext}` };
+
+const judgeReview = (report: ReviewReport): Judged =>
+  report.outcome === "approve"
+    ? { _tag: "done", detail: "approved" }
+    : report.outcome === "changes"
+      ? { _tag: "done", detail: report.requests }
+      : report.outcome === "needs-you"
+        ? { _tag: "needs-you", detail: report.question }
+        : { _tag: "gave-up", detail: report.why };
+
+/** The question a run asks when it raises Needs you for the `nth` time. */
+const needsYouWait = (nth: number) => `needs-you/${nth}`;
+
 const taskWorkflow = (deps: FactoryDeps) =>
   workflow(
     "factory-task",
-    { version: 1, payload: TaskRun },
+    {
+      version: 1,
+      payload: TaskRun,
+      asks: { "needs-you": "Needs you" },
+      // A run cancelled on the Workflows page drops its task, unless the task has moved on.
+      onEnd: (payload, end) =>
+        end.outcome !== "cancelled"
+          ? Effect.void
+          : Effect.flatMap(deps.tasks.get(payload.task), (found) =>
+              found.generation === payload.generation && isOpen(found.state)
+                ? deps.tasks.transition(
+                    payload.task,
+                    "dropped",
+                    { kind: "factory", runId: end.id },
+                    end.reason ?? "Its run was cancelled.",
+                  )
+                : Effect.void,
+            ),
+    },
     Effect.fn("factory.task")(function* (payload, run) {
       const by = { kind: "factory", runId: run.id } as const;
       const id = payload.task;
@@ -89,12 +150,14 @@ const taskWorkflow = (deps: FactoryDeps) =>
         { returns: FactoryProjectSettings },
         deps.projectSettings(ProjectId.make(task.scope)),
       );
+      const budgets = settings.budgets;
 
       // A task dropped or revived since this run started is no longer this run's to move or merge.
       const ours = (found: Task) =>
         found.generation === payload.generation && found.state !== "dropped";
       const superseded = () => skip(`${task.key} was dropped or revived since this run started.`);
       let moves = 0;
+      let state: TaskState = "ready";
       const move = (to: TaskState, reason?: string) =>
         Effect.flatMap(
           step(
@@ -106,8 +169,9 @@ const taskWorkflow = (deps: FactoryDeps) =>
                 : Effect.succeed(false),
             ),
           ),
-          (moved) => (moved ? Effect.void : superseded()),
+          (moved) => (moved ? Effect.sync(() => void (state = to)) : superseded()),
         );
+      const enter = (to: TaskState) => (state === to ? Effect.void : move(to));
       // One step per entry, so a retried write does not repeat the ones before it.
       const write = (name: string, entry: Parameters<FactoryTasks["Service"]["record"]>[1]) =>
         step(
@@ -118,13 +182,15 @@ const taskWorkflow = (deps: FactoryDeps) =>
           }),
         );
       const record = Effect.fnUntraced(function* (
+        name: string,
         phase: Phase,
         thread: AgentThread | undefined,
         outcome: "succeeded" | "failed" | "needs-you",
+        failure: "infra" | "agent" | null,
         detail: string,
         decisions: ReadonlyArray<Decision>,
       ) {
-        yield* write(`${phase}/record`, {
+        yield* write(`${name}/record`, {
           type: "attempt",
           by,
           phase,
@@ -133,74 +199,160 @@ const taskWorkflow = (deps: FactoryDeps) =>
               ? null
               : { threadId: thread.threadId, environmentId: thread.environment ?? null },
           outcome,
-          failure: outcome === "failed" ? "agent" : null,
+          failure,
           detail,
         });
         const decider =
           thread === undefined ? by : { kind: "agent" as const, threadId: thread.threadId };
         for (const [index, decision] of decisions.entries()) {
-          yield* write(`${phase}/decision/${index}`, { type: "decision", by: decider, decision });
+          yield* write(`${name}/decision/${index}`, { type: "decision", by: decider, decision });
         }
       });
-      // #92 replaces this with retries, budgets, fix rounds and a question that resumes the task.
-      const needsYou = (reason: string) => move("needs-you", reason);
 
+      let asked = 0;
+      /**
+       * Moves the task to Needs you and waits for Leo as long as it takes. A person's comment on
+       * the task answers too: the tick passes it on. Returns what to tell the next agent.
+       */
+      const needsYou = Effect.fnUntraced(function* (reason: string, pullRequest?: string) {
+        yield* move("needs-you", reason);
+        const answer = yield* ask(needsYouWait(++asked), {
+          title: `${task.key} needs you: ${reason}`,
+          kind: "needs-you",
+          choices: [
+            { value: "retry", description: "Go on; your reason goes to the next agent." },
+            { value: "drop", description: "Drop the task." },
+          ],
+          links: [
+            { label: task.key, url: task.url },
+            ...(pullRequest === undefined || pullRequest === ""
+              ? []
+              : [{ label: "Pull request", url: pullRequest }]),
+          ],
+        });
+        const given = Option.getOrUndefined(answer);
+        if (given?.choice === "drop") {
+          yield* move("dropped", given.reason ?? "Dropped from its Needs-you question.");
+          return yield* stop(`${task.key} was dropped.`);
+        }
+        const said = given?.reason?.trim() ?? "";
+        return said === "" ? {} : { "Leo's answer": said };
+      });
+
+      const attempts: Partial<Record<Phase, number>> = {};
+      const threads: Array<AgentThread> = [];
+      /**
+       * One agent's job, tried until it is done. Infra failures are free up to `infraRetries` in a
+       * row; agent failures (a give-up, a timeout, no result) spend `budget`. Either cap asks Leo,
+       * whose answer starts both counts again.
+       */
+      const phase = <A>(
+        kind: "build" | "fix" | "review",
+        budget: number,
+        judge: (report: A) => Judged,
+        decisionsOf: (report: A) => ReadonlyArray<Decision>,
+        launch: (facts: Facts) => AgentOptions<A, unknown>,
+        given: Facts,
+        pullRequest?: string,
+      ) =>
+        Effect.gen(function* () {
+          let spent = 0;
+          let streak = 0;
+          let facts = given;
+          while (true) {
+            yield* enter(kind === "review" ? "reviewing" : "building");
+            const nth = (attempts[kind] ?? 0) + 1;
+            attempts[kind] = nth;
+            const name = `${kind}/${nth}`;
+            const tried = yield* agent.try(name, launch(facts));
+            if (tried.thread !== undefined) threads.push(tried.thread);
+            let detail: string;
+            let infra = false;
+            if (tried.outcome === "failed") {
+              infra = INFRA.has(tried.cause);
+              detail = tried.reason;
+              yield* record(
+                name,
+                kind,
+                tried.thread,
+                "failed",
+                infra ? "infra" : "agent",
+                detail,
+                [],
+              );
+            } else {
+              const judged = judge(tried.value);
+              detail = judged.detail;
+              yield* record(
+                name,
+                kind,
+                tried.thread,
+                judged._tag === "done"
+                  ? "succeeded"
+                  : judged._tag === "needs-you"
+                    ? "needs-you"
+                    : "failed",
+                judged._tag === "gave-up" ? "agent" : null,
+                detail,
+                decisionsOf(tried.value),
+              );
+              if (judged._tag === "done") return tried.value;
+              if (judged._tag === "needs-you") {
+                facts = yield* needsYou(detail, pullRequest);
+                spent = 0;
+                streak = 0;
+                continue;
+              }
+            }
+            if (infra) streak++;
+            else {
+              streak = 0;
+              spent++;
+            }
+            if (infra ? streak <= budgets.infraRetries : spent < budget) {
+              facts = { ...given, "Last attempt": detail };
+              continue;
+            }
+            facts = yield* needsYou(
+              infra
+                ? `The ${kind} could not run ${streak} times in a row: ${detail}`
+                : `The ${kind} failed ${spent} times: ${detail}`,
+              pullRequest,
+            );
+            spent = 0;
+            streak = 0;
+          }
+        });
+
+      const model = settings.builder === null ? {} : { model: settings.builder };
       // The worker pushes here from a worktree of its own: a launch refuses a branch that exists,
       // which a retried round's would. An earlier generation's branch outlives it.
       const branch = `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
       const issue = { project: task.scope, url: task.url };
-      yield* move("building");
-      const built = yield* agent.try("build", {
-        brief: briefFor("maestro-worker", task, settings, { "Base branch": BASE, Branch: branch }),
-        title: `Build ${task.key}: ${task.title}`,
-        returns: WorkerReport,
-        ...(settings.builder === null ? {} : { model: settings.builder }),
-        project: task.scope,
-        workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
-        issue,
-        timeout: Duration.minutes(settings.budgets.buildTimeoutMinutes),
-      });
-      if (built.outcome === "failed") {
-        yield* record("build", built.thread, "failed", built.reason, []);
-        return yield* needsYou(`The build failed: ${built.reason}`);
-      }
-      const report = built.value;
-      if (report.outcome !== "pull-request") {
-        const said =
-          report.outcome === "needs-you"
-            ? report.question
-            : `${report.why} Try next: ${report.tryNext}`;
-        yield* record(
-          "build",
-          built.thread,
-          report.outcome === "needs-you" ? "needs-you" : "failed",
-          said,
-          report.decisions,
+      const work = (kind: "build" | "fix", given: Facts, pullRequest?: string) =>
+        phase(
+          kind,
+          budgets.build,
+          judgeWork,
+          (report: WorkerReport) => report.decisions,
+          (facts) => ({
+            brief: briefFor("maestro-worker", task, settings, {
+              "Base branch": BASE,
+              Branch: branch,
+              ...(pullRequest === undefined ? {} : { "Pull request": pullRequest }),
+              ...facts,
+            }),
+            title: `${kind === "build" ? "Build" : "Fix"} ${task.key}: ${task.title}`,
+            returns: WorkerReport,
+            ...model,
+            project: task.scope,
+            workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
+            issue,
+            timeout: Duration.minutes(budgets.buildTimeoutMinutes),
+          }),
+          given,
+          pullRequest,
         );
-        return yield* needsYou(said);
-      }
-      yield* record("build", built.thread, "succeeded", report.url, report.decisions);
-      const pullRequest = { project: task.scope, url: report.url };
-      const head = yield* step.try(
-        "head",
-        { returns: Schema.String },
-        Effect.map(pullRequests.read(pullRequest), (found) => found.headBranch),
-      );
-      if (head.outcome === "failed" || head.value !== branch) {
-        return yield* needsYou(`${report.url} is not a pull request from ${branch}.`);
-      }
-      yield* move("reviewing");
-
-      // Checks that are missing count as passing: not every repository runs CI.
-      const checksFail = (name: string) =>
-        Effect.map(pullRequests.wait(name, pullRequest, { until: "checks" }), (standing) => {
-          if (standing._tag === "None") return "it was not seen settling";
-          const at = standing.value;
-          if (at.state !== "open") return `${report.url} is ${at.state}`;
-          return at.checks === "failing" ? `the checks on ${report.url} fail` : null;
-        });
-      const ci = yield* checksFail("checks");
-      if (ci !== null) return yield* needsYou(`Before review, ${ci}.`);
 
       const reviewer = yield* step(
         "reviewer",
@@ -210,70 +362,251 @@ const taskWorkflow = (deps: FactoryDeps) =>
           : Random.nextIntBetween(0, settings.reviewers.length, { halfOpen: true }),
       );
       const reviewModel = reviewer === null ? undefined : settings.reviewers[reviewer];
-      const reviewed = yield* agent.try("review", {
-        brief: briefFor("maestro-reviewer", task, settings, {
-          "Base branch": BASE,
-          Branch: branch,
-          "Pull request": report.url,
-        }),
-        title: `Review ${task.key}: ${task.title}`,
-        returns: ReviewReport,
-        ...(reviewModel === undefined ? {} : { model: reviewModel }),
-        project: task.scope,
-        workspace: { type: "worktree", baseRef: branch, startFromOrigin: true },
-        issue,
-        timeout: Duration.minutes(settings.budgets.reviewTimeoutMinutes),
-      });
-      if (reviewed.outcome === "failed") {
-        yield* record("review", reviewed.thread, "failed", reviewed.reason, []);
-        return yield* needsYou(`The review failed: ${reviewed.reason}`);
-      }
-      const verdict = reviewed.value;
-      if (verdict.outcome !== "approve") {
-        const said =
-          verdict.outcome === "changes"
-            ? verdict.requests
-            : verdict.outcome === "needs-you"
-              ? verdict.question
-              : verdict.why;
-        yield* record(
+      const review = (pullRequest: string, given: Facts) =>
+        phase(
           "review",
-          reviewed.thread,
-          verdict.outcome === "needs-you" ? "needs-you" : "failed",
-          said,
-          verdict.decisions,
+          budgets.review,
+          judgeReview,
+          (report: ReviewReport) => report.decisions,
+          (facts) => ({
+            brief: briefFor("maestro-reviewer", task, settings, {
+              "Base branch": BASE,
+              Branch: branch,
+              "Pull request": pullRequest,
+              ...facts,
+            }),
+            title: `Review ${task.key}: ${task.title}`,
+            returns: ReviewReport,
+            ...(reviewModel === undefined ? {} : { model: reviewModel }),
+            project: task.scope,
+            workspace: { type: "worktree", baseRef: branch, startFromOrigin: true },
+            issue,
+            timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
+          }),
+          given,
+          pullRequest,
         );
-        return yield* needsYou(said);
-      }
-      yield* record("review", reviewed.thread, "succeeded", "approved", verdict.decisions);
 
-      // The reviewer may have pushed fixes, so its head's checks are waited for too.
-      const approvedCi = yield* checksFail("checks/approved");
-      if (approvedCi !== null) return yield* needsYou(`After review, ${approvedCi}.`);
-      const merged = yield* step.try(
-        "merge",
-        { returns: Schema.Boolean },
-        Effect.flatMap(deps.tasks.get(id), (found) =>
-          ours(found)
-            ? Effect.as(
-                pullRequests.act(pullRequest, "merge", { mergeMethod: settings.mergeMethod }),
-                true,
-              )
-            : Effect.succeed(false),
-        ),
-      );
-      if (merged.outcome === "failed") {
-        return yield* needsYou(`${report.url} could not be merged: ${merged.reason}`);
+      let waits = 0;
+      // Checks that are missing count as passing: not every repository runs CI.
+      const checks = (pullRequest: { readonly project: string; readonly url: string }) =>
+        Effect.map(
+          pullRequests.wait(`checks/${++waits}`, pullRequest, {
+            until: "checks",
+            timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
+          }),
+          (standing) =>
+            Option.isNone(standing)
+              ? "stuck"
+              : standing.value.state !== "open"
+                ? standing.value.state
+                : standing.value.checks === "failing"
+                  ? "failing"
+                  : "passing",
+        );
+
+      // What the next agent is told: Leo's answer, or why the job came back.
+      let facts: Facts = {};
+      let pullRequest: { readonly project: string; readonly url: string } | undefined;
+      let rounds = 0;
+      let heads = 0;
+      let mains = 0;
+      let merges = 0;
+      /** A fix, a red CI and a re-review after main moved each spend a round. */
+      const spendRound = Effect.fnUntraced(function* (why: string) {
+        if (++rounds <= budgets.fixRounds) return;
+        const answer = yield* needsYou(
+          `${why} That is past ${budgets.fixRounds} fix rounds.`,
+          pullRequest?.url,
+        );
+        facts = { ...facts, ...answer };
+        rounds = 0;
+      });
+      const fix = Effect.fnUntraced(function* (url: string, requests: string) {
+        yield* spendRound(requests);
+        yield* work("fix", { ...facts, Fix: requests }, url);
+        facts = {};
+      });
+      /** The pull request stopped being one to review; Leo says what now. */
+      const lost = Effect.fnUntraced(function* (url: string, standing: "closed" | "stuck") {
+        facts = yield* needsYou(
+          standing === "closed" ? `${url} was closed.` : `The checks on ${url} did not settle.`,
+          url,
+        );
+        // A closed one is built again.
+        if (standing === "closed") pullRequest = undefined;
+      });
+
+      while (true) {
+        if (pullRequest === undefined) {
+          const built = yield* work("build", facts);
+          facts = {};
+          const url = built.outcome === "pull-request" ? built.url : "";
+          const head = yield* step.try(
+            `head/${++heads}`,
+            { returns: Schema.String },
+            Effect.map(
+              pullRequests.read({ project: task.scope, url }),
+              (found) => found.headBranch,
+            ),
+          );
+          if (head.outcome === "failed" || head.value !== branch) {
+            facts = yield* needsYou(`${url} is not a pull request from ${branch}.`, url);
+            continue;
+          }
+          pullRequest = { project: task.scope, url };
+        }
+        const url = pullRequest.url;
+        yield* enter("reviewing");
+
+        const before = yield* checks(pullRequest);
+        if (before === "merged") break;
+        if (before === "closed" || before === "stuck") {
+          yield* lost(url, before);
+          continue;
+        }
+        if (before === "failing") {
+          yield* fix(url, `The checks on ${url} fail.`);
+          continue;
+        }
+
+        const verdict = yield* review(url, facts);
+        facts = {};
+        if (verdict.outcome === "changes") {
+          yield* fix(url, verdict.requests);
+          continue;
+        }
+
+        // The reviewer may have pushed fixes, so its head's checks are waited for too.
+        const after = yield* checks(pullRequest);
+        if (after === "merged") break;
+        if (after === "closed" || after === "stuck") {
+          yield* lost(url, after);
+          continue;
+        }
+        if (after === "failing") {
+          yield* fix(url, `After review, the checks on ${url} fail.`);
+          continue;
+        }
+
+        const touched = yield* step.try(
+          `main/${++mains}`,
+          { returns: Schema.Boolean },
+          Effect.flatMap(pullRequests.read(pullRequest), (found) =>
+            deps.mainTouched({
+              checkout: found.workspaceRoot,
+              base: found.baseBranch,
+              head: found.headBranch,
+            }),
+          ),
+        );
+        if (touched.outcome === "failed") {
+          facts = yield* needsYou(
+            `${BASE} could not be checked before merging: ${touched.reason}`,
+            url,
+          );
+          continue;
+        }
+        if (touched.value) {
+          yield* spendRound(`${BASE} changed files that ${url} changes since its review.`);
+          facts = {
+            ...facts,
+            "Main changed": `${BASE} moved past this pull request's base and changed files it changes. Rebase onto it and review again.`,
+          };
+          continue;
+        }
+
+        const merge = ++merges;
+        const merged = yield* step.try(
+          `merge/${merge}`,
+          { returns: Schema.Boolean },
+          Effect.flatMap(deps.tasks.get(id), (found) =>
+            ours(found)
+              ? Effect.as(
+                  pullRequests.act(pullRequest!, "merge", { mergeMethod: settings.mergeMethod }),
+                  true,
+                )
+              : Effect.succeed(false),
+          ),
+        );
+        if (merged.outcome === "done") {
+          if (!merged.value) return yield* superseded();
+          break;
+        }
+        // The host may have taken a merge whose reply was lost.
+        const landed = yield* step.try(
+          `merged/${merge}`,
+          { returns: Schema.Boolean },
+          Effect.map(pullRequests.read(pullRequest), (found) => found.state === "merged"),
+        );
+        if (landed.outcome === "done" && landed.value) break;
+        facts = yield* needsYou(`${url} could not be merged: ${merged.reason}`, url);
       }
-      if (!merged.value) return yield* superseded();
       yield* move("done");
       yield* step(
         "settle",
         { returns: Schema.Void },
-        Effect.forEach([built.thread, reviewed.thread], deps.settle, { discard: true }),
+        Effect.forEach(threads, deps.settle, { discard: true }),
       );
     }),
   );
+
+const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"], id: TaskId) {
+  const entries: Array<TaskEntry> = [];
+  let cursor: string | undefined;
+  do {
+    const page = yield* tasks.timeline(id, cursor);
+    entries.unshift(...page.entries);
+    cursor = page.next ?? undefined;
+  } while (cursor !== undefined);
+  return entries;
+});
+
+/**
+ * A person's comment on a task that waits for them answers its open question as `retry`, with
+ * the comment passed on. One signal per comment, so a later tick sends nothing new.
+ */
+const answerByComment = Effect.fnUntraced(function* (
+  tasks: FactoryTasks["Service"],
+  scope: string,
+) {
+  const { items } = yield* tasks.list({ scope, state: "open", limit: 1000 });
+  for (const waiting of items.filter((found) => found.state === "needs-you")) {
+    const entries = yield* wholeTimeline(tasks, waiting.id);
+    const raisedAt = entries.findLastIndex(
+      (entry) => entry.type === "state" && entry.to === "needs-you" && entry.by.kind === "factory",
+    );
+    const raised = entries[raisedAt];
+    if (raised?.by.kind !== "factory") continue;
+    const runId = raised.by.runId;
+    const comment = entries
+      .slice(raisedAt + 1)
+      .find(
+        (entry) =>
+          entry.type === "comment" && (entry.by.kind === "person" || entry.by.kind === "tracker"),
+      );
+    if (comment?.type !== "comment") continue;
+    const nth = entries.filter(
+      (entry) =>
+        entry.type === "state" &&
+        entry.to === "needs-you" &&
+        entry.by.kind === "factory" &&
+        entry.by.runId === runId,
+    ).length;
+    yield* signal(
+      { runId, wait: needsYouWait(nth) },
+      { choice: "retry", reason: comment.body },
+      { id: `comment/${comment.id}` },
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("factory could not answer a question with a comment", {
+          task: waiting.id,
+          error,
+        }),
+      ),
+    );
+  }
+});
 
 /** Two definitions, since a trigger's payload is its only one. */
 export const makeFactoryWorkflows = (deps: FactoryDeps) => {
@@ -307,6 +640,11 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
             ),
           );
         }
+        yield* step(
+          `answers/${project.id}`,
+          { returns: Schema.Void },
+          answerByComment(deps.tasks, project.scope),
+        );
       }
       return yield* skip("tick");
     }),

@@ -468,7 +468,7 @@ const control = [
         });
         if (second.outcome === "failed") return yield* stop(second.reason);
         const where = payload.thread === true ? ` in ${first.thread?.threadId ?? "no thread"}` : "";
-        return `${second.value.head} after: ${first.reason}${where}`;
+        return `${second.value.head} after ${first.cause}: ${first.reason}${where}`;
       }),
   ),
 ];
@@ -3422,7 +3422,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         const done = yield* workflows.waitFor(died.runId, status("completed", "paused"));
         assert.deepStrictEqual(
           [done.status, done.pauses, done.result],
-          ["completed", 0, "abc after: the agent's turn was cut short: failed"],
+          ["completed", 0, "abc after died: the agent's turn was cut short: failed"],
         );
         const { steps } = yield* workflows.get(died.runId);
         assert.deepStrictEqual(
@@ -3444,7 +3444,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         const found = yield* workflows.waitFor(lost.runId, status("completed", "paused"));
         assert.equal(
           found.result,
-          "def after: the agent could not be started: No project is registered there.",
+          "def after unstarted: the agent could not be started: No project is registered there.",
         );
 
         // A result that cannot be read leaves the turn maybe running: a stop that fails gives up
@@ -3461,7 +3461,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         assert.equal(agents.interrupted.length, stopsBefore);
         yield* agents.end(unread.runId, "second/0", { output: { head: "jkl" } });
         const gaveUp = yield* workflows.waitFor(unread.runId, status("completed", "paused"));
-        assert.include(gaveUp.result as string, "its turn could not be stopped");
+        assert.match(gaveUp.result as string, /^jkl after died: .*its turn could not be stopped$/);
 
         // One past its time whose turn cannot be stopped says so, for the workflow to weigh.
         agents.refuseStops(3);
@@ -3473,7 +3473,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         yield* agents.started(stuck.runId, "second/0");
         yield* agents.end(stuck.runId, "second/0", { output: { head: "ghi" } });
         const weighed = yield* workflows.waitFor(stuck.runId, status("completed", "paused"));
-        assert.include(weighed.result as string, "its turn could not be stopped");
+        assert.match(weighed.result as string, /^ghi after timeout: .*its turn could not be stopped$/);
 
         // A stop turned down once gets through on its retry, and the step says it was stopped.
         const before = agents.interrupted.length;
@@ -3516,7 +3516,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         yield* agents.started(owing.runId, "second/0");
         yield* agents.end(owing.runId, "second/0", { output: { head: "stu" } });
         const owed = yield* workflows.waitFor(owing.runId, status("completed", "paused"));
-        assert.include(owed.result as string, "may still be at work");
+        assert.match(owed.result as string, /^stu after timeout: .*may still be at work/);
 
         // One that did the work and never gave its result is not given the job again: it may
         // have acted on it already.
@@ -3534,7 +3534,7 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         const once = yield* workflows.waitFor(silent.runId, status("completed", "paused"));
         assert.match(
           once.result as string,
-          /^vwx after: the agent did not return a result: .* in thread-\d+$/,
+          /^vwx after no-result: the agent did not return a result: .* in thread-\d+$/,
         );
 
         // A correction that cannot be sent leaves the failure with the thread the work is in.
@@ -3548,7 +3548,15 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         yield* agents.end(unasked.runId, "first/0", {});
         yield* agents.end(unasked.runId, "second/0", { output: { head: "yz" } });
         const kept = yield* workflows.waitFor(unasked.runId, status("completed", "paused"));
-        assert.match(kept.result as string, /could not be asked again: .* in thread-\d+$/);
+        assert.match(kept.result as string, /^yz after died: .*could not be asked again: .* in thread-\d+$/);
+
+        // A turn someone stopped is not the agent's doing either, and is not tried again.
+        const halted = yield* workflows.start("fallback", { project: "p1" }, { idempotencyKey: "h" });
+        yield* agents.started(halted.runId, "first/0");
+        yield* agents.end(halted.runId, "first/0", { ending: "stopped", detail: "interrupted" });
+        yield* agents.end(halted.runId, "second/0", { output: { head: "ab" } });
+        const halt = yield* workflows.waitFor(halted.runId, status("completed", "paused"));
+        assert.equal(halt.result, "ab after stopped: the agent's turn was stopped: interrupted");
       }),
     );
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),

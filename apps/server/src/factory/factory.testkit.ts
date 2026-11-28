@@ -20,12 +20,12 @@ import { type FactoryDeps, makeFactoryWorkflows } from "./factoryWorkflow.ts";
 
 /**
  * A Workflows engine on a fresh database running only the factory's definitions, built from
- * `deps`, with the agents and forge a test plays. Time runs while `use` does, since the engine
- * polls and backs off on the clock.
+ * `deps`, with the agents and forge a test plays. Each `boot` is the server starting on that one
+ * database, so a second is a restart. Time runs while `use` does, since the engine polls and
+ * backs off on the clock.
  */
-export const runFactory = Effect.fnUntraced(function* <A, E>(
+export const factoryEngine = Effect.fnUntraced(function* (
   deps: FactoryDeps,
-  use: Effect.Effect<A, E, Workflows.Workflows>,
   plays: {
     readonly agents?: WorkflowAgents["Service"];
     readonly forge?: WorkflowForge["Service"];
@@ -54,8 +54,19 @@ export const runFactory = Effect.fnUntraced(function* <A, E>(
     Layer.provide(database),
     Layer.provide(NodeCrypto.layer),
   );
-  return yield* Effect.raceFirst(
-    Effect.scoped(Effect.provide(use, engine)),
-    Effect.forever(TestClock.adjust("1 second")),
-  );
+  return <A, E>(use: Effect.Effect<A, E, Workflows.Workflows>) =>
+    Effect.raceFirst(
+      Effect.scoped(Effect.provide(use, Layer.fresh(engine))),
+      Effect.forever(TestClock.adjust("1 second")),
+    );
+});
+
+/** One boot of `factoryEngine`. */
+export const runFactory = Effect.fnUntraced(function* <A, E>(
+  deps: FactoryDeps,
+  use: Effect.Effect<A, E, Workflows.Workflows>,
+  plays: Parameters<typeof factoryEngine>[1] = {},
+) {
+  const boot = yield* factoryEngine(deps, plays);
+  return yield* boot(use);
 });
