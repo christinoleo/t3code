@@ -35,6 +35,7 @@ import {
 } from "./FactoryTasks.ts";
 import { ReviewReport, TicketReport, WorkerReport } from "./reports.ts";
 import { type Actor, isOpen } from "./taskModel.ts";
+import * as TrackerMirror from "./TrackerMirror.ts";
 
 /** One task's lifecycle; a revived task's next generation is a new run. */
 const TaskRun = Schema.Struct({ task: TaskId, generation: Schema.Int });
@@ -42,6 +43,7 @@ const TaskRun = Schema.Struct({ task: TaskId, generation: Schema.Int });
 /** What the definition's body reaches by closure, so its runs need nothing beyond `InRun`. */
 export interface FactoryDeps {
   readonly tasks: FactoryTasks["Service"];
+  readonly issues: TrackerMirror.MirrorIssues;
   readonly enabledProjects: Effect.Effect<ReadonlyArray<FactoryProject>, ServerSettingsError>;
   readonly projectSettings: (
     project: ProjectId,
@@ -55,7 +57,9 @@ export interface FactoryDeps {
   }) => Effect.Effect<boolean, Error>;
 }
 
-const Projects = Schema.Array(Schema.Struct({ id: Schema.String, scope: Schema.String }));
+const Projects = Schema.Array(
+  Schema.Struct({ id: ProjectId, scope: Schema.String, settings: FactoryProjectSettings }),
+);
 const Ready = Schema.Array(TaskRun);
 
 const Brief = Schema.Struct({
@@ -690,14 +694,20 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
     "factory",
     { version: 1, payload: Tick, triggers: [every("1 minute")] },
     Effect.fn("factory.tick")(function* () {
-      const projects = yield* step(
-        "projects",
-        { returns: Projects },
-        Effect.map(deps.enabledProjects, (enabled) =>
-          enabled.map((project) => ({ id: project.id, scope: project.scope })),
-        ),
-      );
+      const projects = yield* step("projects", { returns: Projects }, deps.enabledProjects);
+      const mirror = (name: string, sync: typeof TrackerMirror.intake, project: FactoryProject) =>
+        step(
+          `${name}/${project.id}`,
+          { returns: Schema.Void },
+          sync(deps.tasks, deps.issues, project).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning(`factory ${name} failed`, { project: project.id, error }),
+            ),
+          ),
+        );
       for (const project of projects) {
+        yield* mirror("intake", TrackerMirror.intake, project);
+        yield* mirror("reconcile", TrackerMirror.reconcile, project);
         const ready = yield* step(
           `ready/${project.id}`,
           { returns: Ready },
@@ -720,6 +730,7 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
           { returns: Schema.Void },
           answerByComment(deps.tasks, project.scope),
         );
+        yield* mirror("mirror", TrackerMirror.send, project);
       }
       return yield* skip("tick");
     }),

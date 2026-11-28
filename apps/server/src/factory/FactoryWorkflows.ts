@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as IssueService from "../issue/IssueService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -18,6 +19,7 @@ export const layer = Layer.effect(
     const settings = yield* ServerSettings.ServerSettingsService;
     const threads = yield* ThreadManagement.ThreadManagementService;
     const vcs = yield* GitVcsDriver.GitVcsDriver;
+    const issues = yield* IssueService.IssueService;
     const git = (cwd: string, args: ReadonlyArray<string>) =>
       Effect.map(
         vcs.execute({ operation: "factory.baseTouchedSinceFork", cwd, args, timeoutMs: 120_000 }),
@@ -26,6 +28,7 @@ export const layer = Layer.effect(
     const files = (listed: string) => listed.split("\n").filter((file) => file !== "");
     return makeFactoryWorkflows({
       tasks,
+      issues,
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>
         Effect.map(settings.getSettings, (all) => factoryProjectSettingsOf(all, project)),
