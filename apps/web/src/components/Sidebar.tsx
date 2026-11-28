@@ -3480,7 +3480,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             tiles={railTiles}
             threads={railThreads}
             selectedKeys={projectScopeKeys}
-            onScope={setProjectScopeKeys}
+            onSelectAll={() => setProjectScopeKeys([])}
+            onUnscope={(keys) =>
+              setProjectScopeKeys(persistedProjectScopeKeys.filter((key) => !keys.includes(key)))
+            }
             onSelect={(key, additive) =>
               setProjectScopeKeys(nextProjectRailScope(projectScopeKeys, key, additive))
             }
