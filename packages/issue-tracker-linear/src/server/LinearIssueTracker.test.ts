@@ -59,7 +59,20 @@ const issue = (
   botActor: null,
   assignee: THEO,
   labels: { nodes: [{ id: "lbl_bug", name: "Bug", color: "#f00" }] },
+  parent: null,
+  children: { nodes: [] },
+  relations: { nodes: [] },
+  inverseRelations: { nodes: [] },
   ...overrides,
+});
+
+const related = (identifier: string, stateType = "started") => ({
+  id: `iss_${identifier}`,
+  identifier,
+  title: `Issue ${identifier}`,
+  url: `https://linear.app/acme/issue/${identifier}`,
+  state: state(stateType === "completed" ? "Done" : "In Progress", stateType),
+  team: { key: identifier.split("-")[0] },
 });
 
 /** An issue as the detail query answers it, with nothing hanging off it. */
@@ -513,6 +526,151 @@ describe("LinearIssueTracker", () => {
 
       const missing = yield* Effect.flip(api.getIssue({ ...target, key: "123" }));
       expect(missing.reason).toBe("not-found");
+    }),
+  );
+
+  it.effect("reads the parent, the children and only blocks relations, each from its side", () =>
+    Effect.gen(function* () {
+      const { tracker } = fakeLinear({
+        T3Viewer: () => ({
+          viewer: JULIUS,
+          organization: { urlKey: "acme" },
+          teams: { nodes: [] },
+        }),
+        T3Issue: () => ({
+          issue: {
+            ...bareDetail("ENG-7"),
+            parent: related("ENG-1"),
+            children: { nodes: [related("ENG-8", "completed")] },
+            // This issue's own relations point at the issues it blocks...
+            relations: {
+              nodes: [
+                { id: "rel_1", type: "blocks", relatedIssue: related("OPS-9") },
+                { id: "rel_2", type: "related", relatedIssue: related("ENG-2") },
+              ],
+            },
+            // ...and the ones other issues hold on it name its blockers.
+            inverseRelations: {
+              nodes: [
+                { id: "rel_3", type: "blocks", issue: related("ENG-3") },
+                { id: "rel_4", type: "duplicate", issue: related("ENG-4") },
+              ],
+            },
+          },
+        }),
+      });
+      const api = yield* tracker;
+      const { relations } = yield* api.getIssue({ ...target, key: "ENG-7" });
+      const keys = (targets: ReadonlyArray<{ readonly key: string }>) =>
+        targets.map((entry) => entry.key);
+      expect(relations?.parent).toEqual({
+        scope: "ENG",
+        key: "ENG-1",
+        displayKey: "ENG-1",
+        title: "Issue ENG-1",
+        url: "https://linear.app/acme/issue/ENG-1",
+        state: { category: "open", name: "In Progress" },
+      });
+      expect(relations?.children.map((child) => [child.key, child.state.category])).toEqual([
+        ["ENG-8", "closed"],
+      ]);
+      expect(keys(relations?.blockedBy ?? [])).toEqual(["ENG-3"]);
+      expect(relations?.blocking.map((entry) => [entry.scope, entry.key])).toEqual([
+        ["OPS", "OPS-9"],
+      ]);
+    }),
+  );
+
+  it.effect("writes blockers as a change to Linear's relations, and a parent by identifier", () =>
+    Effect.gen(function* () {
+      const writes: Array<readonly [string, unknown]> = [];
+      const { tracker } = fakeLinear({
+        T3Issue: (variables) => ({
+          issue: {
+            ...bareDetail(String(variables.id)),
+            inverseRelations: {
+              nodes: [
+                { id: "rel_keep", type: "blocks", issue: related("ENG-2") },
+                { id: "rel_drop", type: "blocks", issue: related("ENG-3") },
+                { id: "rel_other", type: "related", issue: related("ENG-5") },
+              ],
+            },
+          },
+        }),
+        T3IssueUpdate: (variables) => {
+          writes.push(["update", variables.input]);
+          return { issueUpdate: { success: true } };
+        },
+        T3IssueRelationCreate: (variables) => {
+          writes.push(["link", variables.input]);
+          return { issueRelationCreate: { success: true } };
+        },
+        T3IssueRelationDelete: (variables) => {
+          writes.push(["unlink", variables.id]);
+          return { issueRelationDelete: { success: true } };
+        },
+        T3Team: () => ({
+          teams: {
+            nodes: [
+              {
+                id: "team_eng",
+                key: "ENG",
+                name: "Engineering",
+                states: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                members: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                templates: { nodes: [] },
+              },
+            ],
+          },
+          issueLabels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        }),
+        T3IssueCreate: (variables) => {
+          writes.push(["create", variables.input]);
+          return {
+            issueCreate: {
+              success: true,
+              issue: { identifier: "ENG-10", url: "https://linear.app/acme/issue/ENG-10" },
+            },
+          };
+        },
+      });
+      const api = yield* tracker;
+      yield* api.update({
+        ...target,
+        key: "ENG-1",
+        relations: { blockedBy: [{ key: "ENG-2" }, { key: "4" }, { scope: "OPS", key: "6" }] },
+      });
+      expect(writes).toEqual([
+        ["unlink", "rel_drop"],
+        ["link", { issueId: "ENG-4", relatedIssueId: "ENG-1", type: "blocks" }],
+        ["link", { issueId: "OPS-6", relatedIssueId: "ENG-1", type: "blocks" }],
+      ]);
+
+      writes.length = 0;
+      yield* api.update({ ...target, key: "ENG-1", relations: { parent: { key: "ENG-9" } } });
+      yield* api.update({ ...target, key: "ENG-1", relations: { parent: null } });
+      expect(writes).toEqual([
+        ["update", { parentId: "ENG-9" }],
+        ["update", { parentId: null }],
+      ]);
+
+      writes.length = 0;
+      yield* api.create({
+        ...target,
+        title: "New",
+        body: "",
+        labels: [],
+        assignees: [],
+        relations: { parent: { key: "1" }, blockedBy: [{ key: "ENG-2" }] },
+      });
+      expect(writes).toEqual([
+        [
+          "create",
+          { teamId: "team_eng", title: "New", description: "", labelIds: [], parentId: "ENG-1" },
+        ],
+        ["link", { issueId: "ENG-2", relatedIssueId: "ENG-10", type: "blocks" }],
+      ]);
     }),
   );
 

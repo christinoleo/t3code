@@ -173,6 +173,27 @@ export const LinearIssue = Schema.Struct({
 })
 export interface LinearIssue extends Schema.Struct.Type<typeof LinearIssue.fields> {}
 
+/**
+ * `fragment LinearRelatedIssue on Issue`
+ *
+ * An issue is the core work item in Linear. Issues belong to a team, have a workflow status, can be assigned to users, carry a priority level, and can be organized into projects and cycles. Issues support sub-issues (parent-child hierarchy up to 10 levels deep), labels, due dates, estimates, and SLA tracking. They can also be linked to other issues via relations, attached to releases, and tracked through their full history of changes.
+ */
+export const LinearRelatedIssue = Schema.Struct({
+  /** The unique identifier of the entity. */
+  id: Shared.ID,
+  /** Issue's human readable identifier (e.g. ENG-123). */
+  identifier: Schema.String,
+  /** The issue's title. This is the primary human-readable summary of the work item. */
+  title: Schema.String,
+  /** Issue URL. */
+  url: Schema.String,
+  /** The workflow state (issue status) that the issue is currently in. Workflow states represent the issue's progress through the team's workflow, such as Triage, Todo, In Progress, Done, or Canceled. */
+  state: LinearWorkflowState,
+  /** The team that the issue belongs to. Every issue must belong to exactly one team, which determines the available workflow states, labels, and other team-specific configuration. */
+  team: LinearIssueTeamTeam
+})
+export interface LinearRelatedIssue extends Schema.Struct.Type<typeof LinearRelatedIssue.fields> {}
+
 /** `fragment LinearPageInfo on PageInfo` */
 export const LinearPageInfo = Schema.Struct({
   /** Indicates if there are more results when paginating forward. */
@@ -232,11 +253,11 @@ export declare namespace T3Viewer {
   export type Result = typeof T3Viewer.result.Type
 }
 
-export const IssueConnection = Schema.Struct({
+export const IssuesIssueConnection = Schema.Struct({
   nodes: Schema.Array(LinearIssue),
   pageInfo: LinearPageInfo
 })
-export interface IssueConnection extends Schema.Struct.Type<typeof IssueConnection.fields> {}
+export interface IssuesIssueConnection extends Schema.Struct.Type<typeof IssuesIssueConnection.fields> {}
 
 /** `query T3Issues` */
 export const T3Issues = GraphQL.query("T3Issues", {
@@ -267,7 +288,7 @@ export const T3Issues = GraphQL.query("T3Issues", {
   },
   result: Schema.Struct({
     /** All issues. Returns a paginated list of issues visible to the authenticated user. Can be filtered by various criteria including team, assignee, state, labels, project, and cycle. */
-    issues: IssueConnection
+    issues: IssuesIssueConnection
   })
 })
 export declare namespace T3Issues {
@@ -294,6 +315,43 @@ export const CommentConnection = Schema.Struct({
   pageInfo: LinearPageInfo
 })
 export interface CommentConnection extends Schema.Struct.Type<typeof CommentConnection.fields> {}
+
+export const ChildrenIssueConnection = Schema.Struct({
+  nodes: Schema.Array(LinearRelatedIssue)
+})
+export interface ChildrenIssueConnection extends Schema.Struct.Type<typeof ChildrenIssueConnection.fields> {}
+
+/** A relation between two issues. Issue relations represent directional relationships such as blocking, being blocked by, relating to, or duplicating another issue. Each relation connects a source issue to a related issue with a specific type describing the nature of the relationship. */
+export const RelationsNodesIssueRelation = Schema.Struct({
+  /** The unique identifier of the entity. */
+  id: Shared.ID,
+  /** The type of relationship between the source issue and the related issue. Possible values include blocks, duplicate, and related. */
+  type: Schema.String,
+  /** The target issue that the source issue is related to. The relation type describes how the source issue relates to this issue. */
+  relatedIssue: LinearRelatedIssue
+})
+export interface RelationsNodesIssueRelation extends Schema.Struct.Type<typeof RelationsNodesIssueRelation.fields> {}
+
+export const RelationsIssueRelationConnection = Schema.Struct({
+  nodes: Schema.Array(RelationsNodesIssueRelation)
+})
+export interface RelationsIssueRelationConnection extends Schema.Struct.Type<typeof RelationsIssueRelationConnection.fields> {}
+
+/** A relation between two issues. Issue relations represent directional relationships such as blocking, being blocked by, relating to, or duplicating another issue. Each relation connects a source issue to a related issue with a specific type describing the nature of the relationship. */
+export const InverseRelationsNodesIssueRelation = Schema.Struct({
+  /** The unique identifier of the entity. */
+  id: Shared.ID,
+  /** The type of relationship between the source issue and the related issue. Possible values include blocks, duplicate, and related. */
+  type: Schema.String,
+  /** The source issue whose relationship is being described. This is the issue from which the relation originates. */
+  issue: LinearRelatedIssue
+})
+export interface InverseRelationsNodesIssueRelation extends Schema.Struct.Type<typeof InverseRelationsNodesIssueRelation.fields> {}
+
+export const InverseRelationsIssueRelationConnection = Schema.Struct({
+  nodes: Schema.Array(InverseRelationsNodesIssueRelation)
+})
+export interface InverseRelationsIssueRelationConnection extends Schema.Struct.Type<typeof InverseRelationsIssueRelationConnection.fields> {}
 
 /** An attachment linking external content to an issue. Attachments represent connections to external resources such as GitHub pull requests, Slack messages, Zendesk tickets, Figma files, Sentry issues, Intercom conversations, and plain URLs. Each attachment has a title and subtitle displayed in the Linear UI, a URL serving as both the link destination and unique identifier per issue, and optional metadata specific to the source integration. */
 export const Attachment = Schema.Struct({
@@ -388,6 +446,14 @@ export const T3IssueIssueIssue = Schema.Struct({
   comments: CommentConnection,
   /** Reactions associated with the issue. */
   reactions: Schema.Array(LinearReaction),
+  /** The parent of the issue. */
+  parent: Schema.NullOr(LinearRelatedIssue),
+  /** Children of the issue. */
+  children: ChildrenIssueConnection,
+  /** Relations associated with this issue. */
+  relations: RelationsIssueRelationConnection,
+  /** Inverse relations associated with this issue. */
+  inverseRelations: InverseRelationsIssueRelationConnection,
   /** Attachments associated with the issue. */
   attachments: AttachmentConnection,
   /** History entries associated with the issue. */
@@ -403,7 +469,7 @@ export const T3Issue = GraphQL.query("T3Issue", {
       { name: "comments", body: "Int!" }
     ],
     selections: [
-      { name: "issue", body: ["(id:$", "id", "){...LinearIssue description team{states(first:100){nodes{...LinearWorkflowState}}}comments(first:$", "comments", " orderBy:createdAt){nodes{...LinearComment}pageInfo{...LinearPageInfo}}reactions{...LinearReaction}attachments(first:50){nodes{url title sourceType metadata}}history(first:100 orderBy:createdAt){nodes{id createdAt actor{...LinearUser}botActor{...LinearBot}fromState{...LinearWorkflowState}toState{...LinearWorkflowState}fromAssignee{...LinearUser}toAssignee{...LinearUser}addedLabels{...LinearLabel}removedLabels{...LinearLabel}fromTitle toTitle}}}"] }
+      { name: "issue", body: ["(id:$", "id", "){...LinearIssue description team{states(first:100){nodes{...LinearWorkflowState}}}comments(first:$", "comments", " orderBy:createdAt){nodes{...LinearComment}pageInfo{...LinearPageInfo}}reactions{...LinearReaction}parent{...LinearRelatedIssue}children(first:50){nodes{...LinearRelatedIssue}}relations(first:50){nodes{id type relatedIssue{...LinearRelatedIssue}}}inverseRelations(first:50){nodes{id type issue{...LinearRelatedIssue}}}attachments(first:50){nodes{url title sourceType metadata}}history(first:100 orderBy:createdAt){nodes{id createdAt actor{...LinearUser}botActor{...LinearBot}fromState{...LinearWorkflowState}toState{...LinearWorkflowState}fromAssignee{...LinearUser}toAssignee{...LinearUser}addedLabels{...LinearLabel}removedLabels{...LinearLabel}fromTitle toTitle}}}"] }
     ],
     fragments: [
       { name: "LinearIssue", body: ["on Issue{id identifier number title url createdAt updatedAt completedAt canceledAt state{...LinearWorkflowState}team{key}creator{...LinearUser}botActor{...LinearBot}assignee{...LinearUser}labels{nodes{...LinearLabel}}}"] },
@@ -411,6 +477,7 @@ export const T3Issue = GraphQL.query("T3Issue", {
       { name: "LinearComment", body: ["on Comment{id body createdAt url user{...LinearUser}botActor{...LinearBot}reactions{...LinearReaction}}"] },
       { name: "LinearPageInfo", body: ["on PageInfo{hasNextPage endCursor}"] },
       { name: "LinearReaction", body: ["on Reaction{id emoji user{...LinearUser}}"] },
+      { name: "LinearRelatedIssue", body: ["on Issue{id identifier title url state{...LinearWorkflowState}team{key}}"] },
       { name: "LinearUser", body: ["on User{id name displayName email avatarUrl}"] },
       { name: "LinearBot", body: ["on ActorBot{name userDisplayName avatarUrl}"] },
       { name: "LinearLabel", body: ["on IssueLabel{id name color}"] }
@@ -645,6 +712,68 @@ export declare namespace T3IssueUpdate {
   export type Result = typeof T3IssueUpdate.result.Type
 }
 
+/** The result of an issue relation mutation, containing the created or updated issue relation and a success indicator. */
+export const IssueRelationPayload = Schema.Struct({
+  /** Whether the operation was successful. */
+  success: Schema.Boolean
+})
+export interface IssueRelationPayload extends Schema.Struct.Type<typeof IssueRelationPayload.fields> {}
+
+/** `mutation T3IssueRelationCreate` */
+export const T3IssueRelationCreate = GraphQL.mutation("T3IssueRelationCreate", {
+  document: {
+    variables: [
+      { name: "input", body: "IssueRelationCreateInput!" }
+    ],
+    selections: [
+      { name: "issueRelationCreate", body: ["(input:$", "input", "){success}"] }
+    ],
+    fragments: []
+  },
+  variables: {
+    input: Shared.IssueRelationCreateInput
+  },
+  result: Schema.Struct({
+    /** Creates a new issue relation. */
+    issueRelationCreate: IssueRelationPayload
+  })
+})
+export declare namespace T3IssueRelationCreate {
+  export type Variables = typeof T3IssueRelationCreate.variables.Type
+  export type Result = typeof T3IssueRelationCreate.result.Type
+}
+
+/** A generic payload return from entity deletion mutations. */
+export const DeletePayload = Schema.Struct({
+  /** Whether the operation was successful. */
+  success: Schema.Boolean
+})
+export interface DeletePayload extends Schema.Struct.Type<typeof DeletePayload.fields> {}
+
+/** `mutation T3IssueRelationDelete` */
+export const T3IssueRelationDelete = GraphQL.mutation("T3IssueRelationDelete", {
+  document: {
+    variables: [
+      { name: "id", body: "String!" }
+    ],
+    selections: [
+      { name: "issueRelationDelete", body: ["(id:$", "id", "){success}"] }
+    ],
+    fragments: []
+  },
+  variables: {
+    id: Schema.String
+  },
+  result: Schema.Struct({
+    /** Deletes an issue relation. */
+    issueRelationDelete: DeletePayload
+  })
+})
+export declare namespace T3IssueRelationDelete {
+  export type Variables = typeof T3IssueRelationDelete.variables.Type
+  export type Result = typeof T3IssueRelationDelete.result.Type
+}
+
 /** The result of a comment mutation. */
 export const CommentPayload = Schema.Struct({
   /** Whether the operation was successful. */
@@ -706,13 +835,6 @@ export declare namespace T3ReactionCreate {
   export type Variables = typeof T3ReactionCreate.variables.Type
   export type Result = typeof T3ReactionCreate.result.Type
 }
-
-/** A generic payload return from entity deletion mutations. */
-export const DeletePayload = Schema.Struct({
-  /** Whether the operation was successful. */
-  success: Schema.Boolean
-})
-export interface DeletePayload extends Schema.Struct.Type<typeof DeletePayload.fields> {}
 
 /** `mutation T3ReactionDelete` */
 export const T3ReactionDelete = GraphQL.mutation("T3ReactionDelete", {
@@ -816,4 +938,4 @@ export declare namespace T3CommentReactions {
 }
 
 /** Every operation in LinearApi.graphql. */
-export const LinearApiGraphQLGroup = GraphQLGroup.make(T3Viewer, T3Issues, T3Issue, T3Comments, T3Team, T3IssueCreate, T3IssueUpdate, T3CommentCreate, T3ReactionCreate, T3ReactionDelete, T3IssueReactions, T3CommentReactions)
+export const LinearApiGraphQLGroup = GraphQLGroup.make(T3Viewer, T3Issues, T3Issue, T3Comments, T3Team, T3IssueCreate, T3IssueUpdate, T3IssueRelationCreate, T3IssueRelationDelete, T3CommentCreate, T3ReactionCreate, T3ReactionDelete, T3IssueReactions, T3CommentReactions)

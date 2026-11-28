@@ -14,6 +14,8 @@ import {
   type IssueLinkedPullRequest,
   type IssueReaction,
   type IssueReactionContent,
+  type IssueRelationRef,
+  type IssueRelationTarget,
   type IssueState,
   type IssueTemplate,
   type IssueViewerPermissions,
@@ -57,6 +59,7 @@ const CAPABILITIES: IssueCapabilities = {
   linkedPullRequests: true,
   events: true,
   search: true,
+  relations: true,
 };
 
 /** Everything granted: Linear's API reports no per-issue permissions and refuses with a message. */
@@ -126,6 +129,12 @@ function parseIdentifier(key: string): string | null {
   return /^[A-Za-z][A-Za-z0-9]*-[1-9]\d*$/.test(key.trim()) ? key.trim().toUpperCase() : null;
 }
 
+/** A ref's bare number counts in its own team, else in the team of the issue being written. */
+function relationIdentifier(ref: IssueRelationRef, scope: string): string | null {
+  const key = ref.key.trim();
+  return parseIdentifier(/^\d+$/.test(key) ? `${ref.scope ?? scope}-${key}` : key);
+}
+
 function toState(state: LinearApi.LinearWorkflowState): IssueState {
   return CLOSED_STATE_TYPES.includes(state.type)
     ? { category: "closed", name: state.name, closeReason: state.type }
@@ -161,6 +170,20 @@ function actorOf(user: LinearApi.LinearUser | null, bot: LinearBot | null): Issu
 function userName(user: LinearApi.LinearUser): string {
   return user.displayName ?? user.name ?? user.email ?? user.id;
 }
+
+function toRelationTarget(issue: LinearApi.LinearRelatedIssue): IssueRelationTarget {
+  return {
+    scope: issue.team.key,
+    key: issue.identifier,
+    displayKey: issue.identifier,
+    title: issue.title,
+    url: issue.url,
+    state: toState(issue.state),
+  };
+}
+
+/** Of Linear's relation types only `blocks` has a place; related and duplicate are not shown. */
+const isBlocks = (relation: { readonly type: string }) => relation.type === "blocks";
 
 /** Linear's connections report no totals, so a listing shows no comment count. */
 function toSummary(issue: LinearApi.LinearIssue, commentCount = 0): TrackerIssueSummary {
@@ -407,6 +430,43 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
         : Effect.succeed(member.id);
     };
 
+    const relationIdentifiers = (
+      operation: string,
+      scope: string,
+      refs: ReadonlyArray<IssueRelationRef>,
+    ) =>
+      Effect.forEach(refs, (ref) => {
+        const identifier = relationIdentifier(ref, scope);
+        return identifier === null
+          ? Effect.fail(failed(operation, `"${ref.key}" is not a Linear issue identifier.`))
+          : Effect.succeed(identifier);
+      });
+
+    const parentId = (operation: string, scope: string, parent: IssueRelationRef | null) =>
+      parent === null
+        ? Effect.succeed(null)
+        : relationIdentifiers(operation, scope, [parent]).pipe(Effect.map(([id]) => id!));
+
+    const writeBlockers = Effect.fn("LinearIssueTracker.writeBlockers")(function* (
+      identifier: string,
+      current: ReadonlyArray<{ readonly id: string; readonly blocker: string }>,
+      wanted: ReadonlyArray<string>,
+    ) {
+      const keep = new Set(wanted);
+      const have = new Set(current.map((relation) => relation.blocker));
+      yield* Effect.forEach(
+        current.filter((relation) => !keep.has(relation.blocker)),
+        (relation) => linear.deleteRelation(relation.id),
+        { discard: true },
+      );
+      yield* Effect.forEach(
+        [...keep].filter((blocker) => !have.has(blocker)),
+        (blocker) =>
+          linear.createRelation({ issueId: blocker, relatedIssueId: identifier, type: "blocks" }),
+        { discard: true },
+      );
+    });
+
     const viewerId: Effect.Effect<string | null> = linear.viewer().pipe(
       Effect.map((data) => data.viewer.id),
       Effect.orElseSucceed(() => null),
@@ -520,6 +580,16 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
             : null,
           events: toEvents(issue.history.nodes),
           linkedPullRequests: toLinkedPullRequests(issue.attachments.nodes),
+          relations: {
+            parent: issue.parent === null ? null : toRelationTarget(issue.parent),
+            children: issue.children.nodes.map(toRelationTarget),
+            blockedBy: issue.inverseRelations.nodes
+              .filter(isBlocks)
+              .map((relation) => toRelationTarget(relation.issue)),
+            blocking: issue.relations.nodes
+              .filter(isBlocks)
+              .map((relation) => toRelationTarget(relation.relatedIssue)),
+          },
         };
       }),
 
@@ -543,13 +613,29 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
         const scope = yield* requireTeam("create", input.scope);
         const labels = yield* labelIds("create", scope, input.labels);
         const assignee = yield* assigneeId("create", scope, input.assignees);
+        const parent = input.relations?.parent;
+        const blockers = yield* relationIdentifiers(
+          "create",
+          input.scope,
+          input.relations?.blockedBy ?? [],
+        );
         const created = yield* linear.createIssue({
           teamId: scope.team.id,
           title: input.title,
           description: input.body,
           labelIds: labels,
           ...(assignee === null ? {} : { assigneeId: assignee }),
+          ...(parent == null ? {} : { parentId: yield* parentId("create", input.scope, parent) }),
         });
+        // The issue exists now, so a failed link must still name it, or a retry files it twice.
+        yield* writeBlockers(created.identifier, [], blockers).pipe(
+          Effect.mapError((error) =>
+            failed(
+              "create",
+              `Filed ${created.identifier}, but linking its blockers failed: ${error.detail}`,
+            ),
+          ),
+        );
         return { key: created.identifier, displayKey: created.identifier, url: created.url };
       }),
 
@@ -559,12 +645,19 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
       }),
 
       update: Effect.fn("LinearIssueTracker.update")(function* (input) {
-        const { identifier } = yield* requireTeamIssue("update", input);
+        const issue = yield* requireTeamIssue("update", input);
+        const { identifier } = issue;
         const scope =
           input.labels !== undefined || input.assignees !== undefined
             ? yield* requireTeam("update", input.scope)
             : null;
-        yield* linear.updateIssue(identifier, {
+        const parent = input.relations?.parent;
+        const blockedBy = input.relations?.blockedBy;
+        const blockers =
+          blockedBy === undefined
+            ? undefined
+            : yield* relationIdentifiers("update", input.scope, blockedBy);
+        const fields = {
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.body === undefined ? {} : { description: input.body }),
           ...(scope === null || input.labels === undefined
@@ -573,7 +666,17 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
           ...(scope === null || input.assignees === undefined
             ? {}
             : { assigneeId: yield* assigneeId("update", scope, input.assignees) }),
-        });
+          ...(parent === undefined
+            ? {}
+            : { parentId: yield* parentId("update", input.scope, parent) }),
+        };
+        if (Object.keys(fields).length > 0) yield* linear.updateIssue(identifier, fields);
+        if (blockers !== undefined) {
+          const current = issue.inverseRelations.nodes
+            .filter(isBlocks)
+            .map((relation) => ({ id: relation.id, blocker: relation.issue.identifier }));
+          yield* writeBlockers(identifier, current, blockers);
+        }
       }),
 
       setState: Effect.fn("LinearIssueTracker.setState")(function* (input) {
