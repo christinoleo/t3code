@@ -23,6 +23,13 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
 4. Present these candidates to the user, in order of severity. When the factory runs you, there is no user to present to: file each candidate as a task with `create_issue` on the project's `t3` tracker (a build task, or a `kind/task` for one only Leo can do), and report the list through `t3_submit_output` as your brief asks.
 
+## Run by the factory
+
+When the factory files your retro after an integration epic merges, the session is that epic's threads and its children's: find them from each task's linked threads with `read_issue`.
+
+- File the candidates as step 4 says, but give hardening that doesn't fit in one PR the `needs-approval` label. It then waits for Leo to remove the label instead of keeping the queue busy on its own.
+- Then run `automate-me`, and report what it changed in the mode skill as one of your `decisions`. The epic's digest lists your decisions, which is how Leo hears of it.
+
 ## Reference
 
 ### Implementation vs Review

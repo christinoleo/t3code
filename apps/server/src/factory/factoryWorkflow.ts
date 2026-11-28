@@ -3,6 +3,7 @@ import {
   FactoryProjectSettings,
   ProjectId,
   type ServerSettingsError,
+  TASK_LABEL,
   TaskKind,
   type TaskState,
 } from "@t3tools/contracts";
@@ -15,7 +16,7 @@ import * as Schema from "effect/Schema";
 import { pullRequests } from "../workflows/forgeApi.ts";
 import { signal, start } from "../workflows/stepServices.ts";
 import { every, Tick } from "../workflows/triggers.ts";
-import { skip, step, stop, workflow } from "../workflows/workflow.ts";
+import { skip, sleep, step, stop, workflow } from "../workflows/workflow.ts";
 import {
   agent,
   type AgentFailure,
@@ -55,6 +56,12 @@ export interface FactoryDeps {
     readonly base: string;
     readonly head: string;
   }) => Effect.Effect<boolean, Error>;
+  /** Creates `branch` on the project's origin from `from`, unless it is there already. */
+  readonly ensureBranch: (branch: {
+    readonly project: string;
+    readonly branch: string;
+    readonly from: string;
+  }) => Effect.Effect<void, Error>;
 }
 
 const Projects = Schema.Array(
@@ -69,13 +76,16 @@ const Brief = Schema.Struct({
   title: Schema.String,
   body: Schema.String,
   url: Schema.String,
+  integration: Schema.Boolean,
+  base: Schema.String,
 });
 type Brief = typeof Brief.Type;
 
 type Facts = Readonly<Record<string, string>>;
 
-// Until integration epics (#95) give a task its own base.
-const BASE = "main";
+const MAIN = "main";
+const epicBranch = (key: string) => `epic/${key}`;
+const RETRO_CHECK = Duration.minutes(10);
 
 /** Instructions live in the skill's markdown; a brief carries only the task's facts. */
 const briefFor = (skill: string, task: Brief, settings: FactoryProjectSettings, facts: Facts) =>
@@ -142,7 +152,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
     {
       version: 1,
       payload: TaskRun,
-      asks: { "needs-you": "Needs you" },
+      asks: { "needs-you": "Needs you", digest: "Epic digest" },
       onEnd: (payload, end) =>
         end.outcome !== "cancelled"
           ? Effect.void
@@ -163,14 +173,25 @@ const taskWorkflow = (deps: FactoryDeps) =>
       const task = yield* step(
         "task",
         { returns: Brief },
-        Effect.map(deps.tasks.get(id), (found) => ({
-          key: displayKey(found),
-          kind: found.kind,
-          scope: found.scope,
-          title: found.title,
-          body: found.body,
-          url: found.url,
-        })),
+        Effect.gen(function* () {
+          const found = yield* deps.tasks.get(id);
+          const parent = found.parent === null ? null : yield* deps.tasks.get(found.parent);
+          return {
+            key: displayKey(found),
+            kind: found.kind,
+            scope: found.scope,
+            title: found.title,
+            body: found.body,
+            url: found.url,
+            integration: found.labels.includes(TASK_LABEL.integration),
+            base:
+              parent !== null &&
+              isOpen(parent.state) &&
+              parent.labels.includes(TASK_LABEL.integration)
+                ? epicBranch(displayKey(parent))
+                : MAIN,
+          };
+        }),
       );
       const settings = yield* step(
         "settings",
@@ -269,7 +290,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
       const attempts: Partial<Record<Phase, number>> = {};
       const threads: Array<AgentThread> = [];
       const phase = Effect.fn("factory.phase")(function* <A>(
-        kind: "build" | "fix" | "review" | "research" | "session",
+        kind: "build" | "fix" | "review" | "final-review" | "research" | "session",
         budget: number,
         judge: (report: A) => Judged,
         decisionsOf: (report: A) => ReadonlyArray<Decision>,
@@ -281,7 +302,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
         let infraStreak = 0;
         let facts = given;
         while (true) {
-          yield* enter(kind === "review" ? "reviewing" : "building");
+          yield* enter(kind === "review" || kind === "final-review" ? "reviewing" : "building");
           const nth = (attempts[kind] ?? 0) + 1;
           attempts[kind] = nth;
           const name = `${kind}/${nth}`;
@@ -353,7 +374,26 @@ const taskWorkflow = (deps: FactoryDeps) =>
       const model = settings.builder === null ? {} : { model: settings.builder };
       // The worker pushes here from a worktree of its own: a launch refuses a branch that exists,
       // which a retried round's would. An earlier generation's branch outlives it.
-      const branch = `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
+      const branch = task.integration
+        ? epicBranch(task.key)
+        : `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
+      const branchFacts = {
+        "Base branch": task.base,
+        Branch: branch,
+        ...(task.integration ? { "Integration epic": branch } : {}),
+      };
+      let branchTries = 0;
+      const ensureBranch = Effect.fnUntraced(function* (branch: string, from: string) {
+        while (true) {
+          const made = yield* step.try(
+            `branch/${++branchTries}`,
+            { returns: Schema.Void },
+            deps.ensureBranch({ project: task.scope, branch, from }),
+          );
+          if (made.outcome === "done") return;
+          yield* needsYou(`${branch} could not be created from ${from}: ${made.reason}`);
+        }
+      });
       const issue = { project: task.scope, url: task.url };
       const work = (kind: "build" | "fix", given: Facts, pullRequest?: string) =>
         Effect.map(
@@ -364,8 +404,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
             (report: WorkerReport) => report.decisions,
             (facts) => ({
               brief: briefFor("maestro-worker", task, settings, {
-                "Base branch": BASE,
-                Branch: branch,
+                ...branchFacts,
                 ...(pullRequest === undefined ? {} : { "Pull request": pullRequest }),
                 ...facts,
               }),
@@ -373,7 +412,11 @@ const taskWorkflow = (deps: FactoryDeps) =>
               returns: WorkerReport,
               ...model,
               project: task.scope,
-              workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
+              workspace: {
+                type: "worktree",
+                baseRef: task.integration ? branch : task.base,
+                startFromOrigin: true,
+              },
               issue,
               timeout: Duration.minutes(budgets.buildTimeoutMinutes),
             }),
@@ -384,6 +427,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
         );
 
       const build = Effect.fnUntraced(function* () {
+        if (task.base !== MAIN) yield* ensureBranch(task.base, MAIN);
+        if (task.integration) yield* ensureBranch(branch, task.base);
         const reviewer = yield* step(
           "reviewer",
           { returns: Schema.NullOr(Schema.Int) },
@@ -395,14 +440,13 @@ const taskWorkflow = (deps: FactoryDeps) =>
         const review = (pullRequest: string, given: Facts) =>
           Effect.map(
             phase(
-              "review",
+              task.integration ? "final-review" : "review",
               budgets.review,
               judgeReview,
               (report: ReviewReport) => report.decisions,
               (facts) => ({
                 brief: briefFor("maestro-reviewer", task, settings, {
-                  "Base branch": BASE,
-                  Branch: branch,
+                  ...branchFacts,
                   "Pull request": pullRequest,
                   ...facts,
                 }),
@@ -465,6 +509,22 @@ const taskWorkflow = (deps: FactoryDeps) =>
           );
           if (standing === "closed") pullRequest = undefined;
         });
+
+        let childChecks = 0;
+        while (
+          task.integration &&
+          !(yield* step(
+            `children/${++childChecks}`,
+            { returns: Schema.Boolean },
+            Effect.map(deps.tasks.relations(id), ({ children }) =>
+              children.some((child) => child.state === "done"),
+            ),
+          ))
+        ) {
+          facts = yield* needsYou(
+            `None of ${task.key}'s children is done, so it has nothing to merge.`,
+          );
+        }
 
         while (true) {
           if (pullRequest === undefined) {
@@ -530,16 +590,16 @@ const taskWorkflow = (deps: FactoryDeps) =>
           );
           if (touched.outcome === "failed") {
             facts = yield* needsYou(
-              `${BASE} could not be checked before merging: ${touched.reason}`,
+              `${task.base} could not be checked before merging: ${touched.reason}`,
               url,
             );
             continue;
           }
           if (touched.value) {
-            yield* spendRound(`${BASE} changed files that ${url} changes since its review.`);
+            yield* spendRound(`${task.base} changed files that ${url} changes since its review.`);
             facts = {
               ...facts,
-              "Main changed": `${BASE} moved past this pull request's base and changed files it changes. Rebase onto it and review again.`,
+              "Main changed": `${task.base} moved past this pull request's base and changed files it changes. ${task.integration ? "Merge it in" : "Rebase onto it"} and review again.`,
             };
             continue;
           }
@@ -595,14 +655,14 @@ const taskWorkflow = (deps: FactoryDeps) =>
           (facts) => ({
             brief: briefFor("wayfinder", task, settings, {
               Kind: task.kind,
-              "Base branch": BASE,
+              "Base branch": task.base,
               ...facts,
             }),
             title: `${task.kind === "research" ? "Research" : "Open"} ${task.key}: ${task.title}`,
             returns: TicketReport,
             ...model,
             project: task.scope,
-            workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
+            workspace: { type: "worktree", baseRef: task.base, startFromOrigin: true },
             issue,
             timeout: Duration.minutes(budgets.buildTimeoutMinutes),
           }),
@@ -625,8 +685,79 @@ const taskWorkflow = (deps: FactoryDeps) =>
         { returns: Schema.Void },
         Effect.forEach(threads, deps.settle, { discard: true }),
       );
+      if (!task.integration) return;
+
+      const retro = yield* step(
+        "retro",
+        { returns: Schema.Struct({ id: TaskId, key: Schema.String, url: Schema.String }) },
+        Effect.map(
+          deps.tasks.create(
+            {
+              scope: task.scope,
+              kind: "research",
+              title: `Retro: ${task.title}`,
+              body: `Use the \`retro\` skill on the integration epic ${task.key} (${task.url}), which just merged.`,
+            },
+            by,
+          ),
+          (filed) => ({ id: filed.id, key: displayKey(filed), url: filed.url }),
+        ),
+      );
+      for (let checks = 1; ; checks++) {
+        const closed = yield* step(
+          `retro/${checks}`,
+          { returns: Schema.Boolean },
+          Effect.map(deps.tasks.get(retro.id), (found) => !isOpen(found.state)),
+        );
+        if (closed) break;
+        yield* sleep(`retro-wait/${checks}`, RETRO_CHECK);
+      }
+      yield* step(
+        "digest/comment",
+        { returns: Schema.Void },
+        Effect.flatMap(digestOf(deps.tasks, id, retro.id), (body) =>
+          deps.tasks.comment(id, body, by),
+        ),
+      );
+      yield* ask("seen", {
+        title: `${task.key} merged: its digest of decisions is on the task`,
+        kind: "digest",
+        choices: ["seen"],
+        links: [
+          { label: task.key, url: task.url },
+          { label: retro.key, url: retro.url },
+        ],
+      });
     }),
   );
+
+const digestOf = Effect.fnUntraced(function* (
+  tasks: FactoryTasks["Service"],
+  epic: TaskId,
+  retro: TaskId,
+) {
+  const { children } = yield* tasks.relations(epic);
+  const sections: Array<string> = [];
+  for (const found of [yield* tasks.get(epic), ...children, yield* tasks.get(retro)]) {
+    const decisions = (yield* wholeTimeline(tasks, found.id)).flatMap((entry) =>
+      entry.type === "decision" ? [entry.decision] : [],
+    );
+    if (decisions.length === 0) continue;
+    sections.push(
+      [
+        `### ${displayKey(found)}: ${found.title}`,
+        ...decisions.map(
+          (decision) =>
+            `- **${decision.what}**: ${decision.why} (instead of: ${decision.alternative})`,
+        ),
+      ].join("\n"),
+    );
+  }
+  return [
+    "## Digest",
+    sections.length === 0 ? "No agent made a call of its own." : sections.join("\n\n"),
+  ].join("\n\n");
+});
 
 const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"], id: TaskId) {
   const entries: Array<TaskEntry> = [];

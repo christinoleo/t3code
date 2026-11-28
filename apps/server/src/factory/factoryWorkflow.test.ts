@@ -7,6 +7,7 @@ import {
   IssueTrackerKind,
   ProjectId,
   ServerSettings,
+  TASK_LABEL,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -59,6 +60,7 @@ const depsOver = (
   settled: Array<AgentThread> = [],
   baseTouchedSinceFork: FactoryDeps["baseTouchedSinceFork"] = () => Effect.succeed(false),
   issues: MirrorIssues = fakeTracker().issues,
+  ensureBranch: FactoryDeps["ensureBranch"] = () => Effect.void,
 ): FactoryDeps => ({
   tasks,
   issues,
@@ -67,6 +69,7 @@ const depsOver = (
     Effect.map(Ref.get(settings), (all) => factoryProjectSettingsOf(all, project)),
   settle: (thread) => Effect.sync(() => void settled.push(thread)),
   baseTouchedSinceFork,
+  ensureBranch,
 });
 
 const tickAt = (minute: number) =>
@@ -103,6 +106,15 @@ it.effect("a tick starts task runs only in projects whose factory is on", () =>
     );
     const alphaBuild = yield* file(ProjectId.make("alpha"), "Build it");
     yield* file(ProjectId.make("beta"), "Off here");
+    yield* tasks.create(
+      {
+        scope: ProjectId.make("alpha"),
+        title: "Hardening Leo has not approved",
+        body: "",
+        labels: [TASK_LABEL.approval],
+      },
+      PERSON,
+    );
 
     yield* runFactory(
       depsOver(tasks, settings),
@@ -1089,5 +1101,168 @@ it.effect("an issue comment answers Needs you, even on an issue that refuses lab
       "needs-you>building",
     ]);
     expect(promptOf(started, "build/2")).toContain("Leo's answer: Keep the old API.");
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "an integration epic lands its children on its branch, then merges itself and digests every decision",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const alpha = ProjectId.make("alpha");
+      const epic = yield* tasks.create(
+        { scope: alpha, title: "Epic", body: "", labels: [TASK_LABEL.integration] },
+        PERSON,
+      );
+      const children = [
+        yield* tasks.create({ scope: alpha, title: "One", body: "", parent: epic.id }, PERSON),
+        yield* tasks.create({ scope: alpha, title: "Two", body: "", parent: epic.id }, PERSON),
+      ];
+      const epicKey = FactoryTasks.displayKey(epic);
+      const epicBranch = `epic/${epicKey}`;
+
+      const started: Array<Started> = [];
+      const keyOf = (input: Started) => /for (T3-\d+) /.exec(input.prompt)![1]!;
+      const urlOf = (key: string) => `https://github.com/me/alpha/pull/${key.slice(3)}`;
+      const agents = WorkflowAgents.of({
+        start: (input) =>
+          Effect.sync(() => {
+            started.push(input);
+            return { threadId: `thread-${started.length}`, turnId: input.key };
+          }),
+        result: (turn) => {
+          const input = started.find((found) => found.key === turn.turnId)!;
+          const key = keyOf(input);
+          return Effect.succeed({
+            ending: "completed" as const,
+            detail: "",
+            reply: "",
+            output: input.prompt.includes("maestro-reviewer")
+              ? { outcome: "approve", decisions: [decided(`${key} reviewed`)] }
+              : { outcome: "pull-request", url: urlOf(key), decisions: [decided(`${key} built`)] },
+          });
+        },
+        interrupt: () => Effect.succeed("ended" as const),
+      });
+      const merged: Array<string> = [];
+      const forge = WorkflowForge.of({
+        ...unavailable,
+        pullRequests: {
+          ...unavailable.pullRequests,
+          read: (pullRequest) => {
+            const url = "url" in pullRequest ? pullRequest.url : "";
+            return Effect.succeed({
+              state: merged.includes(url) ? "merged" : "open",
+              mergeability: "mergeable",
+              url,
+              headBranch:
+                url === urlOf(epicKey) ? epicBranch : `factory/T3-${url.split("/").pop()}`,
+              checks: [{ name: "test", status: "success", description: null, url: null }],
+            } as never);
+          },
+          act: (pullRequest) =>
+            Effect.sync(() => void merged.push("url" in pullRequest ? pullRequest.url : "")),
+        },
+      });
+      const branches: Array<string> = [];
+
+      yield* runFactory(
+        depsOver(tasks, settings, [], undefined, undefined, ({ branch, from }) =>
+          Effect.sync(() => void branches.push(`${from}>${branch}`)),
+        ),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          const taskRuns = Effect.map(workflows.list(), (runs) =>
+            runs.filter((run) => run.workflow === "factory-task"),
+          );
+          expect(yield* startedBy(yield* tickAt(0))).toEqual(
+            children.map((child) => `start/${child.id}/0`),
+          );
+          const childRuns = (yield* taskRuns).map((run) => run.runId);
+          for (const runId of childRuns) {
+            yield* workflows.waitFor(runId, (found) => found.status === "completed");
+          }
+
+          expect(yield* startedBy(yield* tickAt(1))).toEqual([`start/${epic.id}/0`]);
+          const epicRunId = (yield* taskRuns).find((run) => !childRuns.includes(run.runId))!.runId;
+          yield* workflows.waitFor(epicRunId, (run) => run.detail === "sleep retro-wait/1");
+          const { items } = yield* tasks.list({ scope: alpha, state: "open", limit: 10 });
+          const retro = items.find((found) => found.kind === "research")!;
+          const retroRun = { kind: "factory", runId: "retro" } as const;
+          yield* tasks.record(retro.id, {
+            type: "decision",
+            by: retroRun,
+            decision: decided("Mode skill says to split by layer"),
+          });
+          yield* tasks.transition(retro.id, "building", retroRun);
+          yield* tasks.transition(retro.id, "done", retroRun);
+          yield* workflows.waitFor(
+            epicRunId,
+            (run) => run.status === "waiting" && run.detail === "seen",
+          );
+        }),
+        { agents, forge },
+      );
+
+      for (const child of children) {
+        const build = started.find((input) => keyOf(input) === FactoryTasks.displayKey(child))!;
+        expect(build.prompt).toContain(`Base branch: ${epicBranch}`);
+        expect(build.launch?.workspace).toMatchObject({ baseRef: epicBranch });
+        expect((yield* tasks.get(child.id)).state).toBe("done");
+      }
+      expect(new Set(branches)).toEqual(new Set([`main>${epicBranch}`]));
+      expect(merged.slice(0, 2).toSorted()).toEqual(
+        children.map((child) => urlOf(FactoryTasks.displayKey(child))),
+      );
+      expect(merged.slice(2)).toEqual([urlOf(epicKey)]);
+
+      const { entries } = yield* tasks.timeline(epic.id);
+      expect(statesOf(entries)).toEqual(["ready>building", "building>reviewing", "reviewing>done"]);
+      expect(entries.flatMap((entry) => (entry.type === "attempt" ? [entry.phase] : []))).toEqual([
+        "build",
+        "final-review",
+      ]);
+      const digest = entries.findLast((entry) => entry.type === "comment");
+      for (const what of [
+        `${epicKey} built`,
+        `${epicKey} reviewed`,
+        ...children.flatMap((child) => [
+          `${FactoryTasks.displayKey(child)} built`,
+          `${FactoryTasks.displayKey(child)} reviewed`,
+        ]),
+        "Mode skill says to split by layer",
+      ]) {
+        expect(digest?.type === "comment" ? digest.body : "").toContain(what);
+      }
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("an epic branch that can't be created asks Leo before any agent starts", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const alpha = ProjectId.make("alpha");
+    const epic = yield* tasks.create(
+      { scope: alpha, title: "Epic", body: "", labels: [TASK_LABEL.integration] },
+      PERSON,
+    );
+    const child = yield* tasks.create(
+      { scope: alpha, title: "One", body: "", parent: epic.id },
+      PERSON,
+    );
+    const started: Array<Started> = [];
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, undefined, () => Effect.fail(new Error("push rejected"))),
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        yield* waitAsked((yield* taskRun).runId, 1);
+      }),
+      { agents: scripted(() => "never", started) },
+    );
+
+    expect(started).toEqual([]);
+    expect((yield* tasks.get(child.id)).state).toBe("needs-you");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
