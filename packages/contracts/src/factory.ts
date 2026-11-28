@@ -46,7 +46,10 @@ export const TASK_LABEL = {
   kind: (kind: TaskKind) => `kind/${kind}`,
   /** Derived from open blockers, and refused on write. */
   blocked: "blocked",
+  /** An epic: its children's work lands on its own branch, and it waits for all of them. */
   integration: "integration",
+  /** Keeps a Ready task from being dispatched until Leo removes it. */
+  approval: "needs-approval",
   triage: "triage",
   untrusted: "untrusted",
 } as const;

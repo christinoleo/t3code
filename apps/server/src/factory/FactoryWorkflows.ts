@@ -1,10 +1,11 @@
-import { CommandId, factoryProjectSettingsOf, ThreadId } from "@t3tools/contracts";
+import { CommandId, factoryProjectSettingsOf, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as IssueService from "../issue/IssueService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { BuiltInWorkflows } from "../workflows/builtIn.ts";
@@ -18,13 +19,14 @@ export const layer = Layer.effect(
     const tasks = yield* FactoryTasks.FactoryTasks;
     const settings = yield* ServerSettings.ServerSettingsService;
     const threads = yield* ThreadManagement.ThreadManagementService;
+    const projects = yield* ProjectService.ProjectService;
     const vcs = yield* GitVcsDriver.GitVcsDriver;
     const issues = yield* IssueService.IssueService;
-    const git = (cwd: string, args: ReadonlyArray<string>) =>
-      Effect.map(
-        vcs.execute({ operation: "factory.baseTouchedSinceFork", cwd, args, timeoutMs: 120_000 }),
-        (result) => result.stdout.trim(),
+    const gitFor = (operation: string) => (cwd: string, args: ReadonlyArray<string>) =>
+      Effect.map(vcs.execute({ operation, cwd, args, timeoutMs: 120_000 }), (result) =>
+        result.stdout.trim(),
       );
+    const git = gitFor("factory.baseTouchedSinceFork");
     const files = (listed: string) => listed.split("\n").filter((file) => file !== "");
     return makeFactoryWorkflows({
       tasks,
@@ -72,6 +74,21 @@ export const layer = Layer.effect(
         if (moved.size === 0) return false;
         const changes = files(yield* git(checkout, ["diff", "--name-only", from, headRef]));
         return changes.some((file) => moved.has(file));
+      }),
+      ensureBranch: Effect.fn("FactoryWorkflows.ensureBranch")(function* ({
+        project,
+        branch,
+        from,
+      }) {
+        const { workspaceRoot: checkout } = yield* Effect.flatMap(
+          projects.getById(ProjectId.make(project)),
+          Effect.fromOption,
+        );
+        const run = gitFor("factory.ensureBranch");
+        if ((yield* run(checkout, ["ls-remote", "origin", `refs/heads/${branch}`])) !== "") return;
+        const fromRef = `refs/remotes/origin/${from}`;
+        yield* run(checkout, ["fetch", "--quiet", "origin", `+refs/heads/${from}:${fromRef}`]);
+        yield* run(checkout, ["push", "--quiet", "origin", `${fromRef}:refs/heads/${branch}`]);
       }),
     });
   }),

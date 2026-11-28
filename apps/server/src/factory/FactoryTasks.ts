@@ -43,7 +43,7 @@ export interface Task {
   /** Free labels; the kind and `blocked` labels are added on read. */
   readonly labels: ReadonlyArray<string>;
   readonly parent: TaskId | null;
-  /** An open task blocks it, or an integration parent's children are still open. */
+  /** An open task blocks it, or it is an integration parent with no children or an open one. */
   readonly blocked: boolean;
   readonly external: ExternalIssue | null;
   readonly author: Actor;
@@ -338,10 +338,20 @@ const make = Effect.gen(function* () {
   };
 
   const selectTasks = sql`
-    SELECT t.*, EXISTS (
+    SELECT t.*, (EXISTS (
       SELECT 1 FROM factory_task_edges e JOIN factory_tasks b ON b.id = e.blocker_id
       WHERE e.task_id = t.id AND b.state IN ${sql.in(OPEN_STATES)}
-    ) AS blocked, (
+    ) OR (
+      t.state IN ${sql.in(OPEN_STATES)}
+      AND EXISTS (SELECT 1 FROM json_each(t.labels_json) WHERE value = ${TASK_LABEL.integration})
+      AND (
+        NOT EXISTS (SELECT 1 FROM factory_tasks c WHERE c.parent_id = t.id)
+        OR EXISTS (
+          SELECT 1 FROM factory_tasks c
+          WHERE c.parent_id = t.id AND c.state IN ${sql.in(OPEN_STATES)}
+        )
+      )
+    )) AS blocked, (
       SELECT COUNT(*) FROM factory_task_entries c
       WHERE c.task_id = t.id AND c.type IN ('comment', 'decision')
     ) AS comment_count
@@ -675,6 +685,7 @@ const make = Effect.gen(function* () {
       SELECT * FROM (${selectTasks}) t
       WHERE t.scope = ${scope} AND t.state = 'ready' AND NOT t.blocked
         AND t.kind IN ${sql.in(DISPATCHED_KINDS)}
+        AND NOT EXISTS (SELECT 1 FROM json_each(t.labels_json) WHERE value = ${TASK_LABEL.approval})
       ORDER BY t.id
     `.pipe(
       failed("dispatchable"),
