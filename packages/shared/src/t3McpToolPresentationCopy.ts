@@ -26,6 +26,7 @@ const DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
   ["List issues", msg("List issues")],
   ["Read an issue", msg("Read an issue")],
   ["File an issue", msg("File an issue")],
+  ["Update an issue", msg("Update an issue")],
   ["Comment on an issue", msg("Comment on an issue")],
   ["Change an issue's state", msg("Change an issue's state")],
   ["Link an issue", msg("Link an issue")],
@@ -123,6 +124,7 @@ const DISPLAY_NAMES: ReadonlyMap<string, string> = new Map([
   ["Preview an HTML page", msg("Preview an HTML page")],
   ["Render an HTML page", msg("Render an HTML page")],
   ["Send a message", msg("Send a message")],
+  ["Send feedback to T3", msg("Send feedback to T3")],
 ]);
 
 /** @public */

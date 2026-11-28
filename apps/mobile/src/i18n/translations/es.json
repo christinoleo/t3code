@@ -5728,5 +5728,11 @@
   "03652640b11a4dd8": "Principal",
   "de30b8e7d1a2c787": "Secundarias",
   "6dfb265c8713121b": "Bloqueada por",
-  "3650fae70ca9e049": "Bloqueando"
+  "3650fae70ca9e049": "Bloqueando",
+  "c99fc069b1469f38": "Actualizar una incidencia",
+  "5caa64a6e4af8bce": "{count, plural, one {Se actualizó {count} incidencia} other {Se actualizaron {count} incidencias}}",
+  "fd52d36f2d28072d": "{count, plural, one {Se intentó actualizar {count} incidencia} other {Se intentó actualizar {count} incidencias}}",
+  "fdb6381df1e2ac2f": "Enviar comentarios a T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Se enviaron comentarios {count} vez} other {Se enviaron comentarios {count} veces}}",
+  "f578484f8452eab8": "{count, plural, one {Se intentó enviar comentarios {count} vez} other {Se intentó enviar comentarios {count} veces}}"
 }

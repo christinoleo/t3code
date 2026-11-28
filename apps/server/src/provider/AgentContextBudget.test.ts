@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import { T3_MCP_TOOL_NAMES } from "@t3tools/shared/t3McpToolPresentation";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
@@ -144,6 +145,16 @@ it.effect("only request_secret and send_to_user ask Claude Code to load them up 
       ["request_secret", { "anthropic/alwaysLoad": true }],
       ["send_to_user", { "anthropic/alwaysLoad": true }],
     ]);
+  }).pipe(Effect.provide(layerAdvertisedTools)),
+);
+
+// Without an entry, the timeline shows the raw tool name and Antigravity asks permission for it.
+it.effect("every advertised tool has a T3 presentation", () =>
+  Effect.gen(function* () {
+    const mcp = yield* McpServer.McpServer;
+    expect(
+      mcp.tools.map(({ tool }) => tool.name).filter((name) => !T3_MCP_TOOL_NAMES.has(name)),
+    ).toEqual([]);
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );
 

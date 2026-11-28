@@ -13377,5 +13377,11 @@
   "de30b8e7d1a2c787": "Enfants",
   "6dfb265c8713121b": "Bloqué par",
   "3650fae70ca9e049": "Bloque",
-  "a25e36f18edb091a": "Relations"
+  "a25e36f18edb091a": "Relations",
+  "c99fc069b1469f38": "Mettre à jour un ticket",
+  "5caa64a6e4af8bce": "{count, plural, one {{count} ticket mis à jour} other {{count} tickets mis à jour}}",
+  "fd52d36f2d28072d": "{count, plural, one {Tentative de mise à jour de {count} ticket} other {Tentative de mise à jour de {count} tickets}}",
+  "fdb6381df1e2ac2f": "Envoyer un avis à T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Avis envoyé {count} fois} other {Avis envoyé {count} fois}}",
+  "f578484f8452eab8": "{count, plural, one {Tentative d’envoi d’avis {count} fois} other {Tentative d’envoi d’avis {count} fois}}"
 }

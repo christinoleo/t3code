@@ -5736,5 +5736,11 @@
   "03652640b11a4dd8": "Parent",
   "de30b8e7d1a2c787": "Children",
   "6dfb265c8713121b": "Blocked by",
-  "3650fae70ca9e049": "Blocking"
+  "3650fae70ca9e049": "Blocking",
+  "c99fc069b1469f38": "Update an issue",
+  "5caa64a6e4af8bce": "{count, plural, one {Updated {count} issue} other {Updated {count} issues}}",
+  "fd52d36f2d28072d": "{count, plural, one {Tried to update {count} issue} other {Tried to update {count} issues}}",
+  "fdb6381df1e2ac2f": "Send feedback to T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Sent feedback {count} time} other {Sent feedback {count} times}}",
+  "f578484f8452eab8": "{count, plural, one {Tried to send feedback {count} time} other {Tried to send feedback {count} times}}"
 }

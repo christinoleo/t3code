@@ -49,7 +49,6 @@ function IssueRelationRow(props: {
   );
 }
 
-/** Hidden while the issue has no relations. */
 export function IssueRelationsSection(props: {
   readonly params: IssueParams;
   readonly relations: IssueRelations;

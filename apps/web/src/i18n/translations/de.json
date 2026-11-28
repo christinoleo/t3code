@@ -13378,5 +13378,11 @@
   "de30b8e7d1a2c787": "Untergeordnet",
   "6dfb265c8713121b": "Blockiert durch",
   "3650fae70ca9e049": "Blockiert",
-  "a25e36f18edb091a": "Beziehungen"
+  "a25e36f18edb091a": "Beziehungen",
+  "c99fc069b1469f38": "Ein Issue aktualisieren",
+  "5caa64a6e4af8bce": "{count, plural, one {{count} Issue aktualisiert} other {{count} Issues aktualisiert}}",
+  "fd52d36f2d28072d": "{count, plural, one {Versucht, {count} Issue zu aktualisieren} other {Versucht, {count} Issues zu aktualisieren}}",
+  "fdb6381df1e2ac2f": "Feedback an T3 senden",
+  "f6889f5ceab6fbdd": "{count, plural, one {{count}-mal Feedback gesendet} other {{count}-mal Feedback gesendet}}",
+  "f578484f8452eab8": "{count, plural, one {{count}-mal versucht, Feedback zu senden} other {{count}-mal versucht, Feedback zu senden}}"
 }
