@@ -10,7 +10,7 @@ import {
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { EyeIcon, EyeOffIcon, LayersIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, FolderIcon, LayersIcon } from "lucide-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ProjectIconOverride } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -224,7 +224,16 @@ function SortableRailTile(props: {
         {tile.kind === "project" ? (
           <ProjectFavicon project={tile.group} className="size-5" />
         ) : (
-          <FolderTileIcon tag={tile.tag} icon={props.folderIcon} className="size-5" />
+          <span className="relative inline-flex">
+            <FolderTileIcon tag={tile.tag} icon={props.folderIcon} className="size-5" />
+            <span
+              aria-hidden
+              data-slot="folder-tile-badge"
+              className="absolute -right-1.5 -bottom-1.5 flex size-3 items-center justify-center rounded-sm bg-sidebar text-sidebar-foreground/70"
+            >
+              <FolderIcon className="size-2.5" />
+            </span>
+          </span>
         )}
       </RailTileButton>
     </div>
