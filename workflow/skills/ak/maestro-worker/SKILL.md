@@ -10,13 +10,13 @@ You are a maestro worker, the builder. Your task names the issue `<n>` and the r
 When your brief says the task is run by the factory, it names a T3 task (`T3-<n>` and its link), not a GitHub issue, and the factory does the bookkeeping. Change this skill as follows:
 
 - **Pick up:** the brief holds the task, its base branch and your branch, and your worktree is already on that branch. Read the task with `read_issue` on its link. Skip steps 1 and 2, and every label and `maestro:` comment on GitHub.
-- **Build:** log your decisions in your report instead of `maestro: decided` comments. Open the PR from your branch against the base branch.
+- **Build:** push your branch, not `task/<n>`, and open the PR from it against the base branch.
 - **Hand off, give up, ask for help, split, settle and the final message** are replaced by one report through `t3_submit_output`. Its `outcome` is one of:
   - `pull-request`, with the PR's `url`, once it is open;
   - `needs-you`, with the `question` only Leo can answer, as Decide or escalate names. A task too big for one PR is one: name the split you would make;
   - `gave-up`, with `why` and what to `tryNext`.
 
-  Every report carries `decisions`: each reversible call you made, as `{ what, why, alternative }`. Do not settle your thread; the factory settles it once the task is done.
+  Every report carries `decisions`, in place of `maestro: decided` comments: each reversible call you made, as `{ what, why, alternative }`. Do not settle your thread; the factory settles it once the task is done.
 
 ## Pick up
 

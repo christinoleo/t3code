@@ -16,7 +16,7 @@ import { every, Tick } from "../workflows/triggers.ts";
 import { skip, step, workflow } from "../workflows/workflow.ts";
 import { agent, type AgentThread } from "../workflows/workflowAgent.ts";
 import type { FactoryProject } from "./FactorySettings.ts";
-import { displayKey, type FactoryTasks, type Phase, TaskId } from "./FactoryTasks.ts";
+import { displayKey, type FactoryTasks, type Phase, type Task, TaskId } from "./FactoryTasks.ts";
 import { ReviewReport, WorkerReport } from "./reports.ts";
 
 /** One task's lifecycle; a revived task's next generation is a new run. */
@@ -26,7 +26,6 @@ const TaskRun = Schema.Struct({ task: TaskId, generation: Schema.Int });
 export interface FactoryDeps {
   readonly tasks: FactoryTasks["Service"];
   readonly enabledProjects: Effect.Effect<ReadonlyArray<FactoryProject>, ServerSettingsError>;
-  /** Read once per run, so a run started before the factory was turned off still finishes. */
   readonly projectSettings: (
     project: ProjectId,
   ) => Effect.Effect<FactoryProjectSettings, ServerSettingsError>;
@@ -37,7 +36,6 @@ export interface FactoryDeps {
 const Projects = Schema.Array(Schema.Struct({ id: Schema.String, scope: Schema.String }));
 const Ready = Schema.Array(TaskRun);
 
-/** What a run keeps of its task: the facts its briefs and addresses are made from. */
 const Brief = Schema.Struct({
   key: Schema.String,
   scope: Schema.String,
@@ -50,7 +48,7 @@ type Brief = typeof Brief.Type;
 // Until integration epics (#95) give a task its own base.
 const BASE = "main";
 
-/** The one line that names the skill; every other word of instruction is in its markdown. */
+/** Instructions live in the skill's markdown; a brief carries only the task's facts. */
 const briefFor = (
   skill: string,
   task: Brief,
@@ -92,12 +90,23 @@ const taskWorkflow = (deps: FactoryDeps) =>
         deps.projectSettings(ProjectId.make(task.scope)),
       );
 
+      // A task dropped or revived since this run started is no longer this run's to move or merge.
+      const ours = (found: Task) =>
+        found.generation === payload.generation && found.state !== "dropped";
+      const superseded = () => skip(`${task.key} was dropped or revived since this run started.`);
       let moves = 0;
       const move = (to: TaskState, reason?: string) =>
-        step(
-          `move/${++moves}/${to}`,
-          { returns: Schema.Void },
-          Effect.asVoid(deps.tasks.transition(id, to, by, reason)),
+        Effect.flatMap(
+          step(
+            `move/${++moves}/${to}`,
+            { returns: Schema.Boolean },
+            Effect.flatMap(deps.tasks.get(id), (found) =>
+              ours(found)
+                ? Effect.as(deps.tasks.transition(id, to, by, reason), true)
+                : Effect.succeed(false),
+            ),
+          ),
+          (moved) => (moved ? Effect.void : superseded()),
         );
       const record = (
         phase: Phase,
@@ -230,12 +239,20 @@ const taskWorkflow = (deps: FactoryDeps) =>
       if (approvedCi !== null) return yield* needsYou(`After review, ${approvedCi}.`);
       const merged = yield* step.try(
         "merge",
-        { returns: Schema.Void },
-        pullRequests.act(pullRequest, "merge", { mergeMethod: settings.mergeMethod }),
+        { returns: Schema.Boolean },
+        Effect.flatMap(deps.tasks.get(id), (found) =>
+          ours(found)
+            ? Effect.as(
+                pullRequests.act(pullRequest, "merge", { mergeMethod: settings.mergeMethod }),
+                true,
+              )
+            : Effect.succeed(false),
+        ),
       );
       if (merged.outcome === "failed") {
         return yield* needsYou(`${report.url} could not be merged: ${merged.reason}`);
       }
+      if (!merged.value) return yield* superseded();
       yield* move("done");
       yield* step(
         "settle",

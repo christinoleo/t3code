@@ -63,7 +63,6 @@ const tickAt = (minute: number) =>
     ),
   );
 
-/** The task runs a tick started, once it is done. */
 const startedBy = (tickRun: { readonly runId: string }) =>
   Effect.gen(function* () {
     const workflows = yield* Workflows.Workflows;
@@ -110,7 +109,7 @@ type Started = Parameters<WorkflowAgents["Service"]["start"]>[0];
 const PULL_REQUEST = "https://github.com/me/alpha/pull/7";
 const decided = (what: string) => ({ what, why: `${what} is reversible`, alternative: "ask" });
 
-it.effect("a ready task is built, reviewed and merged, then ends Done", () =>
+it.effect("a ready task is built, reviewed and merged by one run, then ends Done", () =>
   Effect.gen(function* () {
     const tasks = yield* FactoryTasks.FactoryTasks;
     const reviewModel = { instanceId: "codex", model: "gpt-review" };
@@ -220,7 +219,7 @@ it.effect("a ready task is built, reviewed and merged, then ends Done", () =>
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
-it.effect("a revived task builds on a branch its earlier generation did not use", () =>
+it.effect("a run whose task is dropped and revived leaves it to the new generation's run", () =>
   Effect.gen(function* () {
     const tasks = yield* FactoryTasks.FactoryTasks;
     const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
@@ -229,20 +228,30 @@ it.effect("a revived task builds on a branch its earlier generation did not use"
       PERSON,
     );
     const branches: Array<string | undefined> = [];
+    const firstBuilding = yield* Deferred.make<void>();
+    const firstMayEnd = yield* Deferred.make<void>();
     const agents = WorkflowAgents.of({
       start: (input) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           const workspace = input.launch?.workspace;
           if (workspace?.type === "worktree") branches.push(workspace.branch);
-          return { threadId: `thread-${branches.length}`, turnId: input.key };
+          yield* Deferred.succeed(firstBuilding, undefined);
+          return { threadId: `thread-${branches.length}`, turnId: `${branches.length}` };
         }),
-      result: () =>
-        Effect.succeed({
-          ending: "completed" as const,
-          detail: "",
-          reply: "",
-          output: { outcome: "gave-up", why: "Stuck.", tryNext: "Again.", decisions: [] },
-        }),
+      result: (turn) =>
+        turn.turnId === "1"
+          ? Effect.as(Deferred.await(firstMayEnd), {
+              ending: "completed" as const,
+              detail: "",
+              reply: "",
+              output: { outcome: "pull-request", url: PULL_REQUEST, decisions: [] },
+            })
+          : Effect.succeed({
+              ending: "completed" as const,
+              detail: "",
+              reply: "",
+              output: { outcome: "gave-up", why: "Stuck.", tryNext: "Again.", decisions: [] },
+            }),
       interrupt: () => Effect.succeed("ended" as const),
     });
 
@@ -250,24 +259,34 @@ it.effect("a revived task builds on a branch its earlier generation did not use"
       depsOver(tasks, settings),
       Effect.gen(function* () {
         const workflows = yield* Workflows.Workflows;
-        const finish = Effect.gen(function* () {
-          for (const run of yield* workflows.list()) {
-            if (run.workflow === "factory-task") {
-              yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
-            }
-          }
-        });
+        const taskRuns = Effect.map(workflows.list(), (runs) =>
+          runs.filter((run) => run.workflow === "factory-task"),
+        );
         yield* startedBy(yield* tickAt(0));
-        yield* finish;
+        yield* Deferred.await(firstBuilding);
+        const [first] = yield* taskRuns;
         yield* tasks.transition(task.id, "dropped", PERSON);
         yield* tasks.transition(task.id, "ready", PERSON);
         expect(yield* startedBy(yield* tickAt(1))).toEqual([`start/${task.id}/1`]);
-        yield* finish;
+        const second = (yield* taskRuns).find((run) => run.runId !== first!.runId)!;
+        yield* workflows.waitFor(second.runId, (run) => run.status === "completed");
+
+        yield* Deferred.succeed(firstMayEnd, undefined);
+        yield* workflows.waitFor(first!.runId, (run) => run.status === "skipped");
       }),
       { agents },
     );
 
-    expect(branches).toHaveLength(2);
     expect(new Set(branches).size).toBe(2);
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(
+      entries.flatMap((entry) => (entry.type === "state" ? [`${entry.from}>${entry.to}`] : [])),
+    ).toEqual([
+      "ready>building",
+      "building>dropped",
+      "dropped>ready",
+      "ready>building",
+      "building>needs-you",
+    ]);
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

@@ -7,11 +7,11 @@ You are a maestro reviewer. Your task names the issue `<n>` and the repo. Anothe
 
 ## Run by the factory
 
-When your brief says the task is run by the factory, it names a T3 task (`T3-<n>` and its link), the PR, and the builder's branch. The factory waits for CI, merges, and records the outcome. Change this skill as follows:
+When your brief says the task is run by the factory, it names a T3 task (`T3-<n>` and its link), the PR, and the builder's branch. Change this skill as follows:
 
-- **Pick up:** read the task with `read_issue` on its link and the PR with `gh pr view <url>`. Your worktree already starts at the builder's branch, on a branch of its own: the builder's worktree holds that branch, so do not check it out. Skip GitHub labels and `maestro:` comments.
+- **Pick up:** skip steps 1 and 2. Read the task with `read_issue` on its link and the PR with `gh pr view <url>`. Your worktree already starts at the builder's branch, on a branch of its own: the builder's worktree holds that branch, so do not check it out. Skip GitHub labels and `maestro:` comments.
 - **Review:** steps 4 to 9 stand, except babysitting: the factory waits for CI before and after your review. Push your fixes to the builder's branch with `git push origin HEAD:<branch>`.
-- **Verify and Merge:** post no `maestro/verify` status. Run step 11's main check and rebase when it says to, but skip step 12: the factory merges, and the branch stays.
+- **Verify and Merge:** post no `maestro/verify` status. Run step 11's main check and rebase when it says to, pushing with `git push --force-with-lease origin HEAD:<branch>`, but skip its CI wait and all of step 12: the factory waits for CI, merges, and keeps the branch.
 - **Give up, ask for help, settle and the final message** are replaced by one report through `t3_submit_output`. Its `outcome` is one of:
   - `approve`, when nothing you found is left open and the PR is ready to merge;
   - `changes`, with the `requests` you could not fix yourself;
@@ -19,6 +19,8 @@ When your brief says the task is run by the factory, it names a T3 task (`T3-<n>
   - `gave-up`, with `why`.
 
   Every report carries `decisions`, as `{ what, why, alternative }`. Do not settle your thread; the factory settles it once the task is done.
+
+- **Log what you caught** stands, with `T3-<n>` in place of `#<n>`.
 
 ## Pick up
 
