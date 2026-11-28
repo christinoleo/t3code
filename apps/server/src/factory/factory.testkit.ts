@@ -20,11 +20,16 @@ import { type FactoryDeps, makeFactoryWorkflows } from "./factoryWorkflow.ts";
 
 /**
  * A Workflows engine on a fresh database running only the factory's definitions, built from
- * `deps`. Time runs while `use` does, since the engine polls and backs off on the clock.
+ * `deps`, with the agents and forge a test plays. Time runs while `use` does, since the engine
+ * polls and backs off on the clock.
  */
 export const runFactory = Effect.fnUntraced(function* <A, E>(
   deps: FactoryDeps,
   use: Effect.Effect<A, E, Workflows.Workflows>,
+  plays: {
+    readonly agents?: WorkflowAgents["Service"];
+    readonly forge?: WorkflowForge["Service"];
+  } = {},
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -40,8 +45,12 @@ export const runFactory = Effect.fnUntraced(function* <A, E>(
     database,
   );
   const engine = WorkflowEngine.layer(makeFactoryWorkflows(deps)).pipe(
-    Layer.provide(Layer.mock(WorkflowAgents)({})),
-    Layer.provide(Layer.succeed(WorkflowForge, unavailable)),
+    Layer.provide(
+      plays.agents === undefined
+        ? Layer.mock(WorkflowAgents)({})
+        : Layer.succeed(WorkflowAgents, plays.agents),
+    ),
+    Layer.provide(Layer.succeed(WorkflowForge, plays.forge ?? unavailable)),
     Layer.provide(database),
     Layer.provide(NodeCrypto.layer),
   );
