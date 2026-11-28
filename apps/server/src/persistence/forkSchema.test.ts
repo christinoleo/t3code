@@ -37,7 +37,7 @@ const indexedTags = Effect.gen(function* () {
   const rows = yield* sql<{ readonly thread_id: string; readonly tag: string }>`
     SELECT thread_id, tag FROM orchestration_v2_projection_thread_tags ORDER BY thread_id, tag
   `;
-  return rows.map((row) => [row.thread_id, row.tag]);
+  return rows.map((row): readonly [string, string] => [row.thread_id, row.tag]);
 });
 
 const recountedTags = Effect.gen(function* () {
@@ -48,17 +48,14 @@ const recountedTags = Effect.gen(function* () {
     WHERE json_valid(t.payload_json) AND tag.type = 'text'
     ORDER BY t.thread_id, tag.value
   `;
-  return rows.map((row) => [row.thread_id, row.tag]);
+  return rows.map((row): readonly [string, string] => [row.thread_id, row.tag]);
 });
 
 const assertTags = (expected: ReadonlyArray<readonly [string, string]>) =>
   Effect.gen(function* () {
     const actual = yield* indexedTags;
     assert.deepEqual(actual, yield* recountedTags);
-    assert.deepEqual(
-      actual,
-      expected.map(([threadId, tag]) => [threadId, tag]),
-    );
+    assert.deepEqual(actual, expected);
   });
 
 it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("fork schema", (it) => {

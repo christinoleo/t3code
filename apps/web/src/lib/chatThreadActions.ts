@@ -5,7 +5,6 @@ import type {
   ModelSelection,
   ProjectId,
   ScopedProjectRef,
-  ThreadId,
 } from "@t3tools/contracts";
 import type { ComposerThreadDraftState, DraftThreadEnvMode } from "../composerDraftStore";
 
@@ -28,7 +27,7 @@ interface NewThreadHandler {
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
     },
-  ): Promise<{ readonly threadId: ThreadId } | null | undefined | void>;
+  ): Promise<unknown>;
 }
 
 export interface ChatThreadActionContext {

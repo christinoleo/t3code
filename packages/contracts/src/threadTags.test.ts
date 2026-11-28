@@ -1,9 +1,12 @@
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
+import { OrchestrationV2Command, OrchestrationV2ThreadLaunchInput } from "./orchestrationV2.ts";
 import {
   activeHiddenThreadTags,
   folderIconsPatchAfterEdit,
   folderTagChanges,
+  MAX_THREAD_CREATE_TAGS,
 } from "./threadTags.ts";
 
 describe("folderTagChanges", () => {
@@ -92,5 +95,42 @@ describe("folderIconsPatchAfterEdit", () => {
     // A folder that kept threads after a partial failure keeps its icon.
     expect(folderIconsPatchAfterEdit(icons, "ops", "build", true)).toEqual({ build: rocket });
     expect(folderIconsPatchAfterEdit(icons, "ops", null, true)).toBeNull();
+  });
+});
+
+describe("create-time tags", () => {
+  const tagList = (count: number) => Array.from({ length: count }, (_, index) => `tag-${index}`);
+  const create = (tags: ReadonlyArray<string>) => ({
+    type: "thread.create",
+    createdBy: "user",
+    creationSource: "web",
+    commandId: "command-1",
+    threadId: "thread-1",
+    projectId: "project-1",
+    title: "Thread",
+    modelSelection: { instanceId: "codex", model: "gpt-5" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    tags,
+  });
+  const launch = (tags: ReadonlyArray<string>) => ({
+    commandId: "command-1",
+    projectId: "project-1",
+    title: "Thread",
+    modelSelection: { instanceId: "codex", model: "gpt-5" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    workspaceStrategy: { type: "root" },
+    tags,
+  });
+
+  it.each([
+    ["thread.create", Schema.decodeUnknownExit(OrchestrationV2Command), create],
+    ["thread launch", Schema.decodeUnknownExit(OrchestrationV2ThreadLaunchInput), launch],
+  ] as const)("%s accepts up to the cap and refuses more", (_, decode, input) => {
+    expect(decode(input(tagList(MAX_THREAD_CREATE_TAGS)))._tag).toBe("Success");
+    expect(decode(input(tagList(MAX_THREAD_CREATE_TAGS + 1)))._tag).toBe("Failure");
   });
 });

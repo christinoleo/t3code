@@ -107,6 +107,7 @@ export const unavailable = () =>
 
 export const dispatchFailure = (
   error: OrchestratorV2Error | ThreadManagement.ThreadManagementProviderInstanceDisabledError,
+  fallback = unavailable,
 ) =>
   error._tag === "ThreadManagementProviderInstanceDisabledError" ||
   error._tag === "OrchestratorRuntimeModeAboveCeilingError" ||
@@ -120,7 +121,7 @@ export const dispatchFailure = (
           code: "orchestration_error",
           message: Array.from(error.cause).slice(0, 1000).join(""),
         })
-      : unavailable();
+      : fallback();
 
 export interface CallerLimits {
   readonly runtimeMode: RuntimeMode;

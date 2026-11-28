@@ -9,6 +9,7 @@ import {
   CommandId,
   EnvironmentId,
   NodeId,
+  OrchestrationV2RenameThreadTagError,
   OrchestratorMcpThreadReadResult,
   type ProjectIconOverride,
   ServerSettingsError,
@@ -1796,6 +1797,7 @@ const folderToolkit = (options: {
   readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
   readonly threadCount?: number;
   readonly hiddenTags?: ReadonlyArray<string>;
+  readonly renameFailure?: ThreadManagement.ThreadManagementService["Service"]["renameThreadTag"];
 }) =>
   threadToolkitWithSettings(
     options.settings ??
@@ -1831,6 +1833,7 @@ const folderToolkit = (options: {
           return Effect.succeed({ sequence: options.dispatched.length, storedEvents: [] });
         },
         renameThreadTag: (input) => {
+          if (options.renameFailure !== undefined) return options.renameFailure(input);
           options.renamed.push(input);
           const threadCount = options.threadCount ?? 1;
           return Effect.succeed({ threadCount, threadIds: threadCount === 0 ? [] : [threadId] });
@@ -1955,6 +1958,33 @@ it.effect("a folder rename still reports success when its icon cannot follow", (
   }).pipe(
     Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed, settings: settingsDown })),
   );
+});
+
+it.effect.each([
+  {
+    case: "a refusal",
+    cause: (commandId: CommandId) =>
+      new OrchestratorCommandRejectedError({
+        commandId,
+        commandType: "thread.tag.rename",
+        cause: "Thread is read-only.",
+      }),
+    message: "Thread is read-only.",
+  },
+  {
+    case: "a storage failure",
+    cause: () => new OrchestratorProjectionError({ threadId, cause: "private-storage-path" }),
+    message: "Failed to update the folder.",
+  },
+])("a folder edit that fails with $case tells the agent what failed", ({ cause, message }) => {
+  const renameFailure = (input: { readonly commandId: CommandId; readonly from: string }) =>
+    Effect.fail(
+      new OrchestrationV2RenameThreadTagError({ from: input.from, cause: cause(input.commandId) }),
+    );
+  return Effect.gen(function* () {
+    const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
+    expect(declaredFailure(result)).toMatchObject({ code: "orchestration_error", message });
+  }).pipe(Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed: [], renameFailure })));
 });
 
 it.effect(
