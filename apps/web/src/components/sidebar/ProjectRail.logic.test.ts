@@ -367,8 +367,8 @@ describe("new thread in a folder scope", () => {
     expect(newThreadCreateTags(["tag:ops", "tag:infra"])).toEqual(none);
   });
 
-  it("leaves out a stored folder name the launch input would reject", () => {
-    for (const tag of ["x".repeat(65), "line\nbreak", "tab\tbed"]) {
+  it("leaves out a stored folder name the launch input would reject or trim", () => {
+    for (const tag of ["x".repeat(65), "line\nbreak", "tab\tbed", " ops", `${"x".repeat(64)} `]) {
       expect(newThreadCreateTags([`tag:${tag}`])).toEqual({ create: {}, unusableFolder: tag });
     }
   });

@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { ThreadTag, type ThreadFolderTagChange } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -289,12 +290,12 @@ export function threadRowFolders(
   return (tags ?? []).filter((tag) => !scopeKeys.includes(folderScopeKey(tag)));
 }
 
-const isThreadTag = Schema.is(ThreadTag);
+const decodeThreadTag = Schema.decodeUnknownOption(ThreadTag);
 
 /**
  * A thread started while the sidebar shows exactly one folder, and nothing else, is born in it.
- * Stored tags are read leniently, so a folder the strict launch input would reject is left out
- * rather than failing the launch and losing the message.
+ * Stored tags are read leniently, so a folder the strict launch input would reject or trim is left
+ * out rather than failing the launch or filing the thread under a different name.
  */
 export function newThreadCreateTags(scopeKeys: readonly string[]): {
   readonly create: { readonly tags?: readonly [string] };
@@ -302,7 +303,7 @@ export function newThreadCreateTags(scopeKeys: readonly string[]): {
 } {
   const tag = scopeKeys.length === 1 ? folderTagOfScopeKey(scopeKeys[0]!) : null;
   if (tag === null) return { create: {}, unusableFolder: null };
-  return isThreadTag(tag)
+  return Option.contains(decodeThreadTag(tag), tag)
     ? { create: { tags: [tag] }, unusableFolder: null }
     : { create: {}, unusableFolder: tag };
 }
