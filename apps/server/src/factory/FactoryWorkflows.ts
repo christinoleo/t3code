@@ -2,6 +2,7 @@ import { CommandId, factoryProjectSettingsOf, ProjectId, ThreadId } from "@t3too
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { readFeedbackReports } from "../feedback/FeedbackList.ts";
@@ -13,6 +14,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { BuiltInWorkflows } from "../workflows/builtIn.ts";
 import type { AgentThread } from "../workflows/workflowAgent.ts";
@@ -60,7 +62,15 @@ export const layer = Layer.effect(
       issues,
       intake: [
         t3Feedback(Effect.provideService(readFeedbackReports, SqlClient.SqlClient, sql)),
-        externalIssues(issues),
+        externalIssues(issues, (project) =>
+          Effect.map(projects.getShell(project), (shell) => {
+            // A fork binds its upstream first and its own repository second.
+            const bindings = sourceControlDefinitions.issueBindings(
+              Option.getOrUndefined(shell)?.repositoryIdentity,
+            );
+            return bindings.length > 1 ? bindings[0] : undefined;
+          }),
+        ),
       ],
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>
