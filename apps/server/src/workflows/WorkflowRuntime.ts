@@ -33,6 +33,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { engineTag, text, type WorkflowDefinition } from "./workflow.ts";
+import { BuiltInWorkflows } from "./builtIn.ts";
 import type * as WorkflowEngine from "./WorkflowEngine.ts";
 import * as WorkflowAgentThreads from "./WorkflowAgentThreads.ts";
 import * as WorkflowForge from "./WorkflowForge.ts";
@@ -234,6 +235,9 @@ const loadProblem = (
   return { message: text(cause), file, ...(line === undefined ? {} : { line }) };
 };
 
+/** Where built-in definitions sit among the files: a name no file can have. */
+const BUILT_IN = "(built-in)";
+
 /**
  * What is wrong between files that each loaded, given the runs that have not ended, with the
  * files that could each be the cause.
@@ -250,10 +254,18 @@ const definitionProblems = (
   readonly files: ReadonlyArray<string>;
   readonly clash: boolean;
 }> => {
+  // A built-in owns its name at every version, so a file cannot outrank it with a higher one.
+  const shipped = new Set(
+    files
+      .filter((file) => file.name === BUILT_IN)
+      .flatMap((file) => file.definitions.map((d) => d.name)),
+  );
+  const key = (definition: WorkflowDefinition) =>
+    shipped.has(definition.name) ? definition.name : engineTag(definition);
   const where = new Map<string, Array<string>>();
   for (const file of files) {
     for (const definition of file.definitions) {
-      where.set(engineTag(definition), [...(where.get(engineTag(definition)) ?? []), file.name]);
+      where.set(key(definition), [...(where.get(key(definition)) ?? []), file.name]);
     }
   }
   const waiting = new Map<string, number>();
@@ -316,6 +328,9 @@ export const make = Effect.fn("WorkflowRuntime.make")(function* <E, R>(
   const seen = new Map<string, string>();
   /** The last version of each file that loaded, which runs while a newer one does not. */
   const good = new Map<string, ReadonlyArray<WorkflowDefinition>>();
+  // Never pending, so it never changes and a file that clashes with it is held.
+  const builtIn = yield* BuiltInWorkflows;
+  if (builtIn.length > 0) good.set(BUILT_IN, builtIn);
   /** Files that loaded or went away since, kept apart until the change as a whole is taken. */
   const pending = new Map<string, ReadonlyArray<WorkflowDefinition> | null>();
   const broken = new Map<string, WorkflowDefinitionProblem>();
@@ -558,7 +573,14 @@ export const make = Effect.fn("WorkflowRuntime.make")(function* <E, R>(
 
   yield* lock.withPermits(1)(reload());
   // No file defines anything yet, though runs kept from before may still be read.
-  if (!(yield* Deferred.isDone(ready))) yield* boot([]);
+  if (!(yield* Deferred.isDone(ready))) {
+    const failed = yield* boot(builtIn);
+    if (failed !== null) {
+      unstarted = true;
+      between = [{ message: failed }];
+      yield* report;
+    }
+  }
 
   // The folder, not a file: an editor that saves by renaming replaces the file it was watching.
   yield* fileSystem.watch(directory).pipe(

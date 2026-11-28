@@ -113,6 +113,12 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("fork schema", (it) =
       yield* sql`
         INSERT INTO orchestration_v2_projection_thread_tags (thread_id, tag) VALUES ('marker', 'x')
       `;
+      // The factory tables exist after the first run.
+      yield* sql`
+        INSERT INTO factory_tasks (
+          scope, number, kind, state, title, body, author_json, created_at, updated_at
+        ) VALUES ('marker', 1, 'build', 'ready', 'x', '', '{}', '', '')
+      `;
       assert.deepEqual(yield* runMigrations(), []);
       assert.deepEqual(yield* schema(), before);
       assert.deepEqual(

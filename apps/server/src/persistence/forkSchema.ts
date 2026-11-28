@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { createFactorySchema, FACTORY_SCHEMA_OBJECTS } from "../factory/factorySchema.ts";
+
 // This fork merges upstream, whose migrator skips every id up to the highest recorded, so a
 // fork-only numbered migration breaks startup on a later merge. Fork schema goes in here instead.
 const THREAD_TAG_OBJECTS = [
@@ -11,21 +13,24 @@ const THREAD_TAG_OBJECTS = [
   "orchestration_v2_projection_thread_tags_delete",
 ];
 
-export const hasForkSchema = Effect.fn("forkSchema.hasForkSchema")(function* () {
+const allPresent = Effect.fn("forkSchema.allPresent")(function* (objects: ReadonlyArray<string>) {
   const sql = yield* SqlClient.SqlClient;
   const present = yield* sql<{ readonly name: string }>`
-    SELECT name FROM sqlite_schema WHERE name IN ${sql.in(THREAD_TAG_OBJECTS)}
+    SELECT name FROM sqlite_schema WHERE name IN ${sql.in(objects)}
   `;
-  return present.length === THREAD_TAG_OBJECTS.length;
+  return present.length === objects.length;
+});
+
+export const hasForkSchema = Effect.fn("forkSchema.hasForkSchema")(function* () {
+  return yield* allPresent([...THREAD_TAG_OBJECTS, ...FACTORY_SCHEMA_OBJECTS]);
 });
 
 /**
  * One row per tag a thread carries, so folder reads find a tag's threads by index instead of
  * scanning every payload's JSON. Triggers keep it exact on every write to the thread rows.
  */
-export const ensureForkSchema = Effect.fn("forkSchema.ensureForkSchema")(function* () {
+const ensureThreadTags = Effect.fn("forkSchema.ensureThreadTags")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  if (yield* hasForkSchema()) return;
   yield* Effect.log("Rebuilding the thread tag index");
   yield* sql.withTransaction(
     Effect.gen(function* () {
@@ -80,4 +85,11 @@ export const ensureForkSchema = Effect.fn("forkSchema.ensureForkSchema")(functio
       `;
     }),
   );
+});
+
+export const ensureForkSchema = Effect.fn("forkSchema.ensureForkSchema")(function* () {
+  if (!(yield* allPresent(THREAD_TAG_OBJECTS))) yield* ensureThreadTags();
+  if (!(yield* allPresent(FACTORY_SCHEMA_OBJECTS))) {
+    yield* (yield* SqlClient.SqlClient).withTransaction(createFactorySchema());
+  }
 });

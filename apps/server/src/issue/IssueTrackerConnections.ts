@@ -148,7 +148,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const current = (api: StandaloneIssueTrackerApi, accountId: IssueTrackerAccountId | null) =>
+  const stored = (api: StandaloneIssueTrackerApi, accountId: IssueTrackerAccountId | null) =>
     secrets.get(issueTrackerSecretName(api.kind, accountId)).pipe(
       Effect.mapError(secretFailure(api.kind, "The stored credential could not be read.")),
       Effect.flatMap((stored) =>
@@ -157,6 +157,11 @@ const make = Effect.gen(function* () {
           : status(api, accountId, decodeIssueTrackerCredential(stored.value)),
       ),
     );
+
+  const current = (api: StandaloneIssueTrackerApi, accountId: IssueTrackerAccountId | null) =>
+    api.standalone.credentialFree === true
+      ? status(api, accountId, { token: "", fields: {} })
+      : stored(api, accountId);
 
   const list: IssueTrackerConnections["Service"]["list"] = Effect.all({
     trackers: Effect.forEach(registry.standalone, (api) => current(api, null), { concurrency: 4 }),
@@ -234,6 +239,13 @@ const make = Effect.gen(function* () {
     "IssueTrackerConnections.connect",
   )(function* (input) {
     const api = yield* requireTracker(input.tracker);
+    if (api.standalone.credentialFree === true) {
+      return yield* new IssueTrackerConnectionError({
+        tracker: input.tracker,
+        reason: "rejected",
+        detail: `${api.standalone.displayName} needs no credential.`,
+      });
+    }
     const addAccount = input.addAccount === true;
     const token = input.token;
     if (token === null) {
