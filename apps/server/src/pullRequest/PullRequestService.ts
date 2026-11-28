@@ -91,6 +91,7 @@ import {
   type ProviderChangeRequestDetail,
   type ProviderCheckLog,
   type ProviderCheckRerun,
+  type ProviderWorkflowRun,
   type ProviderDiffFilePaths,
   type ProviderFilterOptionPage,
   type ProviderListCursor,
@@ -291,6 +292,11 @@ export class PullRequestService extends Context.Service<
     readonly rerunChecks: (
       input: PullRequestRef & { readonly check?: string },
     ) => Effect.Effect<ReadonlyArray<ProviderCheckRerun>, PullRequestError>;
+    /** Of the project's own repository; empty on a host that cannot list them. */
+    readonly failedBranchRuns: (input: {
+      readonly projectId: ProjectId;
+      readonly branch: string;
+    }) => Effect.Effect<ReadonlyArray<ProviderWorkflowRun>, PullRequestError>;
     readonly update: (input: PullRequestUpdateInput) => Effect.Effect<void, PullRequestError>;
     readonly comment: (input: PullRequestCommentInput) => Effect.Effect<void, PullRequestError>;
     readonly updateComment: (
@@ -651,6 +657,9 @@ function withRateLimitBackoff(
     ...(api.rerunChecks === undefined
       ? {}
       : { rerunChecks: interactive("rerunChecks", api.rerunChecks) }),
+    ...(api.listFailedBranchRuns === undefined
+      ? {}
+      : { listFailedBranchRuns: wrap("listFailedBranchRuns", api.listFailedBranchRuns) }),
     ...(api.updateChangeRequest === undefined
       ? {}
       : {
@@ -4100,6 +4109,21 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const failedBranchRuns: PullRequestService["Service"]["failedBranchRuns"] = Effect.fn(
+    "PullRequestService.failedBranchRuns",
+  )(function* (input) {
+    const { supported } = yield* listWorkspaceProjects({ projectId: input.projectId });
+    const own = supported[0];
+    const read = own?.api.listFailedBranchRuns;
+    if (own === undefined || read === undefined) return [];
+    return yield* read({
+      cwd: own.project.workspaceRoot,
+      repository: own.repository,
+      host: own.host,
+      branch: input.branch,
+    }).pipe(Effect.mapError(toPullRequestError("failedBranchRuns")));
+  });
+
   const runActionAndInvalidate: PullRequestService["Service"]["runAction"] = Effect.fn(
     "PullRequestService.runActionAndInvalidate",
   )(function* (input) {
@@ -4319,6 +4343,7 @@ export const make = Effect.gen(function* () {
     runAction: runActionAndInvalidate,
     checkLogs,
     rerunChecks,
+    failedBranchRuns,
     update: invalidatedByMutation(update),
     comment: invalidatedByMutation(comment),
     updateComment: invalidatedByMutation(updateComment),

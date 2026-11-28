@@ -1,4 +1,5 @@
 import { trimOptionalString as trimmed } from "@t3tools/source-control-core/server/pullRequestUtils";
+import type { ProviderWorkflowRun } from "@t3tools/source-control-core/server/PullRequestProvider";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as Result from "effect/Result";
@@ -1184,6 +1185,38 @@ export function decodeWorkflowRunsJson(
     })),
     rawCount: decoded.success.workflow_runs.length,
   });
+}
+
+const decodeFinishedWorkflowRuns = decodeJsonResult(
+  Schema.Struct({
+    workflow_runs: Schema.Array(
+      Schema.Struct({
+        id: Schema.Int,
+        name: Schema.optional(Schema.NullOr(Schema.String)),
+        html_url: Schema.optional(Schema.NullOr(Schema.String)),
+        head_sha: Schema.String,
+        event: Schema.String,
+        updated_at: Schema.String,
+      }),
+    ),
+  }),
+);
+
+export function decodeFinishedWorkflowRunsJson(
+  raw: string,
+): Result.Result<ReadonlyArray<ProviderWorkflowRun>, DecodeFailure> {
+  const decoded = decodeFinishedWorkflowRuns(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  return Result.succeed(
+    decoded.success.workflow_runs.map((run) => ({
+      id: String(run.id),
+      name: trimmed(run.name) ?? `Workflow run ${run.id}`,
+      url: trimmed(run.html_url),
+      headSha: run.head_sha,
+      event: run.event,
+      finishedAt: run.updated_at,
+    })),
+  );
 }
 
 // Approval-gated runs (action_required) are read separately as action-required checks.
