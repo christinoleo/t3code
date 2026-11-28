@@ -19,6 +19,8 @@ import type {
   IssueListState,
   IssueReaction,
   IssueReactionContent,
+  IssueRelations,
+  IssueRelationsInput,
   IssueSummary,
   IssueTemplateList,
   IssueTrackerKind,
@@ -95,6 +97,8 @@ export interface TrackerIssueDetail extends TrackerIssueSummary {
   readonly commentsCursor: string | null;
   readonly events: ReadonlyArray<IssueEvent>;
   readonly linkedPullRequests: ReadonlyArray<IssueLinkedPullRequest>;
+  /** Only from a tracker with `capabilities.relations`. */
+  readonly relations?: IssueRelations | undefined;
 }
 
 /**
@@ -154,6 +158,8 @@ export interface IssueTrackerApi {
       readonly body: string;
       readonly labels: ReadonlyArray<string>;
       readonly assignees: ReadonlyArray<string>;
+      /** Only passed when `capabilities.relations` is true. */
+      readonly relations?: IssueRelationsInput | undefined;
     },
   ) => Effect.Effect<IssueCreateResult, IssueTrackerError>;
 
@@ -167,7 +173,8 @@ export interface IssueTrackerApi {
 
   /**
    * Rewrites the present fields. Only called with a field the tracker declared it can write
-   * (`edit` for title and body, `labels`, `assignees`), and never with all of them absent.
+   * (`edit` for title and body, `labels`, `assignees`, `relations`), and never with all of them
+   * absent.
    */
   readonly update?: (
     input: IssueTarget & {
@@ -175,6 +182,7 @@ export interface IssueTrackerApi {
       readonly body?: string | undefined;
       readonly labels?: ReadonlyArray<string> | undefined;
       readonly assignees?: ReadonlyArray<string> | undefined;
+      readonly relations?: IssueRelationsInput | undefined;
     },
   ) => Effect.Effect<void, IssueTrackerError>;
 

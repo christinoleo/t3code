@@ -728,17 +728,20 @@ const make = Effect.gen(function* () {
       Effect.flatMap((project) =>
         project.api.create === undefined || !project.api.capabilities.create
           ? Effect.fail(unsupported("create", "filing issues"))
-          : project.api
-              .create({
-                cwd: project.project.workspaceRoot,
-                host: project.host,
-                scope: project.scope,
-                title: input.title,
-                body: input.body,
-                labels: input.labels,
-                assignees: input.assignees,
-              })
-              .pipe(Effect.mapError(toIssueError("create"))),
+          : input.relations !== undefined && project.api.capabilities.relations !== true
+            ? Effect.fail(unsupported("create", "relations"))
+            : project.api
+                .create({
+                  cwd: project.project.workspaceRoot,
+                  host: project.host,
+                  scope: project.scope,
+                  title: input.title,
+                  body: input.body,
+                  labels: input.labels,
+                  assignees: input.assignees,
+                  ...(input.relations === undefined ? {} : { relations: input.relations }),
+                })
+                .pipe(Effect.mapError(toIssueError("create"))),
       ),
     );
 
@@ -776,7 +779,12 @@ const make = Effect.gen(function* () {
       Effect.flatMap((project) => {
         const { capabilities } = project.api;
         const wantsWords = input.title !== undefined || input.body !== undefined;
-        if (!wantsWords && input.labels === undefined && input.assignees === undefined) {
+        if (
+          !wantsWords &&
+          input.labels === undefined &&
+          input.assignees === undefined &&
+          input.relations === undefined
+        ) {
           return Effect.fail(
             new IssueOperationError({ operation: "update", detail: "Nothing to change." }),
           );
@@ -788,6 +796,8 @@ const make = Effect.gen(function* () {
           return Effect.fail(unsupported("update", "labels"));
         if (input.assignees !== undefined && !capabilities.assignees)
           return Effect.fail(unsupported("update", "assignees"));
+        if (input.relations !== undefined && capabilities.relations !== true)
+          return Effect.fail(unsupported("update", "relations"));
         return project.api
           .update({
             cwd: project.project.workspaceRoot,
@@ -798,6 +808,7 @@ const make = Effect.gen(function* () {
             body: input.body,
             labels: input.labels,
             assignees: input.assignees,
+            relations: input.relations,
           })
           .pipe(
             Effect.mapError(toIssueError("update")),

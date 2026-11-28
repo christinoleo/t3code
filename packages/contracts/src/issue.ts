@@ -229,8 +229,44 @@ export const IssueCapabilities = Schema.Struct({
   search: Schema.Boolean,
   /** Some issues keep internal notes apart from customer replies; see `commentAudiences`. */
   internalComments: Schema.optional(Schema.Boolean),
+  /** A parent and blocked-by issues can be written; see `IssueRelationsInput`. */
+  relations: Schema.optional(Schema.Boolean),
 });
 export type IssueCapabilities = typeof IssueCapabilities.Type;
+
+/** Another issue of the same tracker and host that this one is related to. */
+export const IssueRelationTarget = Schema.Struct({
+  scope: TrimmedNonEmptyString,
+  key: TrimmedNonEmptyString,
+  displayKey: TrimmedNonEmptyString,
+  title: Schema.String,
+  url: TrimmedNonEmptyString,
+  state: IssueState,
+});
+export type IssueRelationTarget = typeof IssueRelationTarget.Type;
+
+export const IssueRelations = Schema.Struct({
+  parent: Schema.NullOr(IssueRelationTarget),
+  children: Schema.Array(IssueRelationTarget),
+  blockedBy: Schema.Array(IssueRelationTarget),
+  /** The inverse of `blockedBy`, read-only: written from the blocked issue's side. */
+  blocking: Schema.Array(IssueRelationTarget),
+});
+export type IssueRelations = typeof IssueRelations.Type;
+
+/** Names an issue of the same tracker and host; an absent `scope` means the writer's own. */
+export const IssueRelationRef = Schema.Struct({
+  scope: Schema.optional(TrimmedNonEmptyString),
+  key: TrimmedNonEmptyString,
+});
+export type IssueRelationRef = typeof IssueRelationRef.Type;
+
+/** Only the present fields are written; `blockedBy` is the whole set, as labels are. */
+export const IssueRelationsInput = Schema.Struct({
+  parent: Schema.optional(Schema.NullOr(IssueRelationRef)),
+  blockedBy: Schema.optional(Schema.Array(IssueRelationRef).check(Schema.isMaxLength(50))),
+});
+export type IssueRelationsInput = typeof IssueRelationsInput.Type;
 
 /**
  * What the signed-in account may do with this issue, which `capabilities` says nothing about.
@@ -270,6 +306,8 @@ export const IssueDetail = Schema.Struct({
   commentsCursor: Schema.NullOr(TrimmedNonEmptyString),
   events: Schema.Array(IssueEvent),
   linkedPullRequests: Schema.Array(IssueLinkedPullRequest),
+  /** Absent from a tracker that keeps no relations. */
+  relations: Schema.optional(IssueRelations),
 });
 export type IssueDetail = typeof IssueDetail.Type;
 
@@ -382,6 +420,7 @@ export const IssueCreateInput = Schema.Struct({
   body: IssueBody,
   labels: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(50)),
   assignees: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(25)),
+  relations: Schema.optional(IssueRelationsInput),
 });
 export type IssueCreateInput = typeof IssueCreateInput.Type;
 
@@ -411,6 +450,7 @@ export const IssueUpdateInput = Schema.Struct({
   body: Schema.optional(IssueBody),
   labels: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(50))),
   assignees: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(25))),
+  relations: Schema.optional(IssueRelationsInput),
 });
 export type IssueUpdateInput = typeof IssueUpdateInput.Type;
 

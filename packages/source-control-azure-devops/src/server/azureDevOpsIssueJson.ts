@@ -169,7 +169,7 @@ export interface AzureDevOpsWorkItem extends TrackerIssueSummary {
   readonly bodyField: BodyField;
   readonly project: string | null;
   readonly workItemType: string | null;
-  readonly relations: ReadonlyArray<typeof Relation.Type>;
+  readonly links: ReadonlyArray<typeof Relation.Type>;
 }
 
 /** A Bug has Repro Steps where other types have a Description, and in Agile and CMMI no Description. */
@@ -211,7 +211,7 @@ function toWorkItem(raw: typeof WorkItem.Type, closed: ClosedStates): AzureDevOp
     bodyField,
     project,
     workItemType: trimmed(fields["System.WorkItemType"]),
-    relations: raw.relations ?? [],
+    links: raw.relations ?? [],
   };
 }
 

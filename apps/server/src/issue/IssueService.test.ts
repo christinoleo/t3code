@@ -490,17 +490,44 @@ describe("IssueService", () => {
               Effect.sync(() => {
                 calls += 1;
               }),
+            update: () =>
+              Effect.sync(() => {
+                calls += 1;
+              }),
+            create: () =>
+              Effect.sync(() => {
+                calls += 1;
+                return { key: "2", displayKey: "#2", url: "https://github.com/acme/web/issues/2" };
+              }),
           }),
         ],
       });
       const ref = { projectId: "web" as ProjectId, tracker: GITHUB, scope: "acme/web", key: "1" };
+      const relations = { blockedBy: [{ key: "3" }] };
 
       // The state is the tracker's own name, passed through: the tracker is what proves it.
       yield* service.setState({ ...ref, state: "In Review" });
-      const reaction = yield* Effect.flip(
-        service.react({ ...ref, content: "heart", reacted: true }),
-      );
-      expect(reaction._tag).toBe("IssueOperationError");
+      const refused = [
+        yield* Effect.flip(service.react({ ...ref, content: "heart", reacted: true })),
+        yield* Effect.flip(service.update({ ...ref, relations })),
+        yield* Effect.flip(
+          service.create({
+            projectId: ref.projectId,
+            tracker: GITHUB,
+            scope: "acme/web",
+            title: "Blocked",
+            body: "",
+            labels: [],
+            assignees: [],
+            relations,
+          }),
+        ),
+      ];
+      expect(refused.map((error) => error._tag)).toEqual([
+        "IssueOperationError",
+        "IssueOperationError",
+        "IssueOperationError",
+      ]);
       expect(calls).toBe(1);
     }),
   );

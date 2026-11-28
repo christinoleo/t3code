@@ -3,6 +3,8 @@ import {
   IssueCommentAudience,
   IssueListState,
   IssueOperationError,
+  IssueRelations,
+  IssueRelationsInput,
   IssueState,
   IssueTrackerKind,
   IssueUnavailableError,
@@ -200,6 +202,8 @@ export const ReadIssueResult = Schema.Struct({
       closesIssue: Schema.Boolean,
     }),
   ),
+  /** Absent from a tracker that keeps no relations. */
+  relations: Schema.optional(IssueRelations),
 });
 export type ReadIssueResult = typeof ReadIssueResult.Type;
 
@@ -254,6 +258,11 @@ const ListIssuesTool = Tool.make("list_issues", {
         description: "Free text the tracker matches itself.",
       }),
     ),
+    labels: Schema.optional(
+      Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(200)))
+        .check(Schema.isMaxLength(20))
+        .annotate({ description: "Only issues with every one of these labels." }),
+    ),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
     cursors: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   }),
@@ -269,7 +278,7 @@ const ListIssuesTool = Tool.make("list_issues", {
 
 const ReadIssueTool = Tool.make("read_issue", {
   description:
-    "Read an issue: body, state, labels, assignees, recent comments and linked pull requests. Pass its url, or its key.",
+    "Read an issue: body, state, labels, assignees, recent comments, linked pull requests and relations. Pass its url, or its key.",
   parameters: IssueTargetInput,
   success: ReadIssueResult,
   failure: IssueToolError,
@@ -280,6 +289,11 @@ const ReadIssueTool = Tool.make("read_issue", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
+
+const RelationsParameter = IssueRelationsInput.annotate({
+  description:
+    "Where capabilities.relations is true. Keys of the same tracker; blockedBy replaces the whole set, and parent null removes it.",
+});
 
 const CreateIssueTool = Tool.make("create_issue", {
   description: "File an issue in a project's tracker.",
@@ -296,6 +310,7 @@ const CreateIssueTool = Tool.make("create_issue", {
     body: Schema.optional(Schema.String.check(Schema.isMaxLength(65_536))),
     labels: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(50))),
     assignees: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(25))),
+    relations: Schema.optional(RelationsParameter),
   }),
   success: CreateIssueResult,
   failure: IssueToolError,
@@ -305,6 +320,26 @@ const CreateIssueTool = Tool.make("create_issue", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, true);
+
+const UpdateIssueTool = Tool.make("update_issue", {
+  description:
+    "Change an issue's title, body, labels or relations. Only the fields you pass change; labels replaces the whole set.",
+  parameters: Schema.Struct({
+    ...IssueTargetInput.fields,
+    title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(1024))),
+    body: Schema.optional(Schema.String.check(Schema.isMaxLength(65_536))),
+    labels: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(50))),
+    relations: Schema.optional(RelationsParameter),
+  }),
+  success: IssueWriteResult,
+  failure: IssueToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Update issue")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
 
 const CommentOnIssueTool = Tool.make("comment_on_issue", {
@@ -392,6 +427,7 @@ export const IssuesToolkit = Toolkit.make(
   ListIssuesTool,
   ReadIssueTool,
   CreateIssueTool,
+  UpdateIssueTool,
   CommentOnIssueTool,
   SetIssueStateTool,
   LinkIssueTool,
