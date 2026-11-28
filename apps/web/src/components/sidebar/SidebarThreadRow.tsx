@@ -1619,7 +1619,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 <span className="min-w-0 truncate">{props.projectDisplayName}</span>
                 {props.folderLabel ? (
                   <span className="max-w-[60%] shrink-0 truncate">
-                    {props.projectDisplayName ? " · " : null}
+                    {props.projectDisplayName ? "\u00a0· " : null}
                     {props.folderLabel}
                   </span>
                 ) : null}

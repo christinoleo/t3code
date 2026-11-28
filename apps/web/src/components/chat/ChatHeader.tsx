@@ -96,10 +96,7 @@ export const ChatHeader = memo(function ChatHeader({
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const sidebarScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setSidebarScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
-  const folder =
-    activeThreadTags && activeThreadTags.length > 0
-      ? threadFilterTarget({ tags: activeThreadTags }, null, sidebarScopeKeys)
-      : null;
+  const folder = threadFilterTarget({ tags: activeThreadTags }, null, sidebarScopeKeys);
   const folderIcon = usePrimarySettings((settings) =>
     folder === null ? undefined : settings.folderIcons[folder.label],
   );
