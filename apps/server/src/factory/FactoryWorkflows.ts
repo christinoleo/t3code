@@ -2,7 +2,9 @@ import { CommandId, factoryProjectSettingsOf, ProjectId, ThreadId } from "@t3too
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
+import { readFeedbackReports } from "../feedback/FeedbackList.ts";
 import * as IssueService from "../issue/IssueService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
@@ -18,6 +20,8 @@ import * as FactoryTasks from "./FactoryTasks.ts";
 import { machines, settleLinked, stopOrphan } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import { makeFactoryWorkflows } from "./factoryWorkflow.ts";
+import { externalIssues } from "./intake/externalIssues.ts";
+import { t3Feedback } from "./intake/t3Feedback.ts";
 
 export const layer = Layer.effect(
   BuiltInWorkflows,
@@ -28,6 +32,7 @@ export const layer = Layer.effect(
     const projects = yield* ProjectService.ProjectService;
     const vcs = yield* GitVcsDriver.GitVcsDriver;
     const issues = yield* IssueService.IssueService;
+    const sql = yield* SqlClient.SqlClient;
     const gitFor = (operation: string) => (cwd: string, args: ReadonlyArray<string>) =>
       Effect.map(vcs.execute({ operation, cwd, args, timeoutMs: 120_000 }), (result) =>
         result.stdout.trim(),
@@ -53,6 +58,10 @@ export const layer = Layer.effect(
     return makeFactoryWorkflows({
       tasks,
       issues,
+      intake: [
+        t3Feedback(Effect.provideService(readFeedbackReports, SqlClient.SqlClient, sql)),
+        externalIssues(issues),
+      ],
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>
         Effect.map(settings.getSettings, (all) => factoryProjectSettingsOf(all, project)),
