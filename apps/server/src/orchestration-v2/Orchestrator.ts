@@ -14,7 +14,7 @@ import {
   runRanAfter,
   usageLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
-import { threadIssueKeysEqual } from "@t3tools/contracts";
+import { tagsAfterFolderMove, threadIssueKeysEqual } from "@t3tools/contracts";
 import { canonicalizeGitCafePullRequestUrl } from "@t3tools/source-control-definitions/registry";
 import { threadPullRequestsOf } from "../sourceControl/threadPullRequests.ts";
 import {
@@ -669,6 +669,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pin.reorder":
     case "thread.active.reorder":
     case "thread.tag.set":
+    case "thread.tag.move":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -4526,6 +4527,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               | "thread.unpin"
               | "thread.pin.reorder"
               | "thread.tag.set"
+              | "thread.tag.move"
               | "thread.active.reorder"
               | "thread.mark-unread"
               | "thread.metadata.update"
@@ -5257,6 +5259,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : current.filter((tag) => tag !== command.tag),
           };
         }
+        case "thread.tag.move":
+          return {
+            ...thread,
+            tags: tagsAfterFolderMove(thread.tags ?? [], command.folder, command.keep),
+          };
         case "thread.tag.rename": {
           const { from, to } = command;
           const current = thread.tags ?? [];
@@ -5736,6 +5743,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.active.reorder":
           return "thread.active-reordered" as const;
         case "thread.tag.set":
+        case "thread.tag.move":
         case "thread.tag.rename":
           return "thread.tags-updated" as const;
         case "thread.mark-unread":
@@ -16304,6 +16312,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
         };
       }
+      case "thread.tag.move": {
+        const thread = yield* findThread(command.threadId);
+        const current = thread?.tags ?? [];
+        const next = tagsAfterFolderMove(current, command.folder, command.keep);
+        const unchanged =
+          next.length === current.length && next.every((tag, index) => tag === current[index]);
+        if (thread !== null && unchanged) break;
+        yield* dispatchThreadMutation(command, events, effects);
+        break;
+      }
       case "thread.tag.rename": {
         // Every share commits together; a thread gone or already moved since the list is skipped.
         if (command.from === command.to) break;
@@ -16768,6 +16786,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.visit" ||
           // A rename that raced every thread out of the folder changes nothing.
           command.type === "thread.tag.rename" ||
+          // A thread already in the folder changes nothing.
+          command.type === "thread.tag.move" ||
           // A read can answer a watch again before a push's reopen lands; nothing is left to clear.
           command.type === "thread.pull-request-watch.checks-reopen" ||
           command.type === "thread.interrupt.unresponsive" ||

@@ -57,6 +57,16 @@ export function folderTagChanges(
     : [{ tag: folder, tagged: true }, ...removals];
 }
 
+/** A thread's tags once filed in `folder` (none when null), keeping the `keep` tags it has. */
+export function tagsAfterFolderMove(
+  currentTags: ReadonlyArray<string>,
+  folder: string | null,
+  keep: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const kept = currentTags.filter((tag) => tag === folder || keep.includes(tag));
+  return folder === null || kept.includes(folder) ? kept : [...kept, folder];
+}
+
 /**
  * The `folderIcons` settings patch that moves folder `from`'s icon to `to`, or
  * drops it when `to` is null. A merge keeps the target folder's own icon, and
