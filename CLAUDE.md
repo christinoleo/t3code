@@ -3,6 +3,7 @@
 ## Fork rules (christinoleo/t3code)
 
 - **No numbered database migrations.** This fork merges `pingdotgg/t3code` regularly, and the migrator skips every id up to the highest recorded and refuses to start on a name mismatch (`apps/server/src/persistence/Migrations.ts`). A fork-only migration id therefore breaks startup on a later upstream merge, whatever number it uses. Create fork-only schema idempotently at server startup instead (`CREATE TABLE/INDEX/TRIGGER IF NOT EXISTS`, after the numbered migrations, backfilling only when the object was just created). Decide this yourself; it is not a reason to stop for a human.
+- **Don't run the evals.** They call paid model APIs, and this fork has no budget or key for them. When a change touches model-facing text, still add or update the eval case the [Evals](AGENTS.md#evals) section asks for, but don't run it. Say in the PR that it didn't run, and have the reviewer judge the wording from the diff. Missing evals are never a reason to stop for a human.
 
 ### Mistake rules
 
