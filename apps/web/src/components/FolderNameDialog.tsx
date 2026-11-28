@@ -117,6 +117,7 @@ function FolderNameDialog({ request }: { request: FolderNameRequestCopy }) {
                 autoFocus
                 required
                 value={value}
+                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => {
                   setValue(event.target.value);
                   setInvalid(false);
