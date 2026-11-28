@@ -436,13 +436,14 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
                 : folderFailure();
             }),
           );
-        // No thread here held the folder, so its icon may belong to another environment's.
-        if (result.threadCount === 0) return result;
         const settings = yield* ServerSettings.ServerSettingsService;
         // The rename already landed, so a failed icon move must not report it as failed.
         yield* settings.getSettings.pipe(
           Effect.flatMap(({ folderIcons }) => {
-            const folderIconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to);
+            const folderIconsPatch = folderIconsPatchAfterEdit(folderIcons, from, to, {
+              kind: "one-environment",
+              moved: result.threadCount,
+            });
             return folderIconsPatch === null
               ? Effect.void
               : settings.updateSettings({ folderIcons: folderIconsPatch });

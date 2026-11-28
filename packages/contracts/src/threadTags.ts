@@ -69,6 +69,14 @@ export function tagsAfterFolderMove(
 }
 
 /**
+ * What a folder edit covered. Icons are shared by every environment holding the
+ * folder, so an edit of one environment owns the icon only when it moved a thread.
+ */
+export type FolderEditReach =
+  | { readonly kind: "whole-folder"; readonly fromSurvives: boolean }
+  | { readonly kind: "one-environment"; readonly moved: number };
+
+/**
  * The `folderIcons` settings patch that moves folder `from`'s icon to `to`, or
  * drops it when `to` is null. A merge keeps the target folder's own icon, and
  * a `from` that kept some threads after a partial failure keeps its icon too.
@@ -77,10 +85,12 @@ export function folderIconsPatchAfterEdit(
   icons: Readonly<Record<string, ProjectIconOverride>>,
   from: string,
   to: string | null,
-  fromSurvives = false,
+  reach: FolderEditReach,
 ): Record<string, ProjectIconOverride | null> | null {
   const icon = icons[from];
   if (icon === undefined || from === to) return null;
+  if (reach.kind === "one-environment" && reach.moved === 0) return null;
+  const fromSurvives = reach.kind === "whole-folder" && reach.fromSurvives;
   const patch: Record<string, ProjectIconOverride | null> = fromSurvives ? {} : { [from]: null };
   if (to !== null && icons[to] === undefined) patch[to] = icon;
   return Object.keys(patch).length > 0 ? patch : null;

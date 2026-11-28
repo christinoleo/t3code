@@ -86,15 +86,20 @@ describe("folderIconsPatchAfterEdit", () => {
   it("moves a renamed folder's icon and drops a deleted one", () => {
     const rocket = { kind: "emoji", emoji: "🚀" } as const;
     const star = { kind: "emoji", emoji: "⭐" } as const;
+    const whole = { kind: "whole-folder", fromSurvives: false } as const;
+    const survives = { kind: "whole-folder", fromSurvives: true } as const;
     const icons = { ops: rocket, infra: star };
-    expect(folderIconsPatchAfterEdit(icons, "ops", "build")).toEqual({ ops: null, build: rocket });
+    expect(folderIconsPatchAfterEdit(icons, "ops", "build", whole)).toEqual({
+      ops: null,
+      build: rocket,
+    });
     // Merging keeps the target folder's own icon.
-    expect(folderIconsPatchAfterEdit(icons, "ops", "infra")).toEqual({ ops: null });
-    expect(folderIconsPatchAfterEdit(icons, "ops", null)).toEqual({ ops: null });
-    expect(folderIconsPatchAfterEdit(icons, "docs", "build")).toBeNull();
+    expect(folderIconsPatchAfterEdit(icons, "ops", "infra", whole)).toEqual({ ops: null });
+    expect(folderIconsPatchAfterEdit(icons, "ops", null, whole)).toEqual({ ops: null });
+    expect(folderIconsPatchAfterEdit(icons, "docs", "build", whole)).toBeNull();
     // A folder that kept threads after a partial failure keeps its icon.
-    expect(folderIconsPatchAfterEdit(icons, "ops", "build", true)).toEqual({ build: rocket });
-    expect(folderIconsPatchAfterEdit(icons, "ops", null, true)).toBeNull();
+    expect(folderIconsPatchAfterEdit(icons, "ops", "build", survives)).toEqual({ build: rocket });
+    expect(folderIconsPatchAfterEdit(icons, "ops", null, survives)).toBeNull();
   });
 });
 

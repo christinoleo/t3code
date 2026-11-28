@@ -1499,7 +1499,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     );
     if (changed) {
       const iconsBeforeEdit = appAtomRegistry.get(primaryServerSettingsAtom).folderIcons;
-      const iconsPatch = folderIconsPatchAfterEdit(iconsBeforeEdit, from, to, fromSurvives);
+      const iconsPatch = folderIconsPatchAfterEdit(iconsBeforeEdit, from, to, {
+        kind: "whole-folder",
+        fromSurvives,
+      });
       if (iconsPatch !== null) updatePrimarySettings({ folderIcons: iconsPatch });
       const { railOrder, projectOrder, sidebarProjectScopeKeys } = useUiStateStore.getState();
       const nextRailOrder = railKeysAfterFolderEdit(railOrder, from, to, fromSurvives);
