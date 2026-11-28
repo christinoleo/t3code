@@ -13367,5 +13367,10 @@
   "6a78eb543f2cb337": "{count, plural, one {Se restauró {count} carpeta} other {Se restauraron {count} carpetas}}",
   "fa31841f29a7cc70": "{count, plural, =1 {Carpeta eliminada,} other {{count} carpetas eliminadas,}}",
   "cfecdd8ffc11d832": "Carpeta no aplicada",
-  "592b4c8f71f70441": "El nombre de carpeta {folder} no es válido, así que el nuevo hilo empieza fuera de ella."
+  "592b4c8f71f70441": "El nombre de carpeta {folder} no es válido, así que el nuevo hilo empieza fuera de ella.",
+  "03652640b11a4dd8": "Principal",
+  "de30b8e7d1a2c787": "Secundarias",
+  "6dfb265c8713121b": "Bloqueada por",
+  "3650fae70ca9e049": "Bloqueando",
+  "a25e36f18edb091a": "Relaciones"
 }

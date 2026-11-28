@@ -61,6 +61,7 @@ import { PullRequestSectionHeading } from "../pull-requests/PullRequestSectionHe
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
 import { usePullRequestConnected } from "../pull-requests/usePullRequestConnected";
 import { IssueCommentComposer } from "./IssueCommentComposer";
+import { IssueRelationsSection } from "./IssueRelations";
 import { issueIdentity, issueParamsKey, issueTarget, type IssueParams } from "./issueParams";
 import {
   IssueLabelPill,
@@ -761,6 +762,9 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                         ) : undefined
                       }
                     />
+                    {detail.relations ? (
+                      <IssueRelationsSection params={params} relations={detail.relations} />
+                    ) : null}
                     {detail.linkedPullRequests.length > 0 ? (
                       <LinkedPullRequests params={params} links={detail.linkedPullRequests} />
                     ) : null}

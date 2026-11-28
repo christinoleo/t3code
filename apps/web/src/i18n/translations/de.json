@@ -13373,5 +13373,10 @@
   "6a78eb543f2cb337": "Löschen von {count, plural, one {{count} Ordner} other {{count} Ordnern}} rückgängig gemacht",
   "fa31841f29a7cc70": "{count, plural, =1 {Ordner gelöscht,} other {{count} Ordner gelöscht,}}",
   "cfecdd8ffc11d832": "Ordner nicht übernommen",
-  "592b4c8f71f70441": "Der Ordnername {folder} ist ungültig, daher beginnt der neue Thread außerhalb davon."
+  "592b4c8f71f70441": "Der Ordnername {folder} ist ungültig, daher beginnt der neue Thread außerhalb davon.",
+  "03652640b11a4dd8": "Übergeordnet",
+  "de30b8e7d1a2c787": "Untergeordnet",
+  "6dfb265c8713121b": "Blockiert durch",
+  "3650fae70ca9e049": "Blockiert",
+  "a25e36f18edb091a": "Beziehungen"
 }

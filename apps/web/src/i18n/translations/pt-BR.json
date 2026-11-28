@@ -13372,5 +13372,10 @@
   "6a78eb543f2cb337": "Exclusão desfeita em {count, plural, one {{count} pasta} other {{count} pastas}}",
   "fa31841f29a7cc70": "{count, plural, =1 {Pasta excluída,} other {{count} pastas excluídas,}}",
   "cfecdd8ffc11d832": "Pasta não aplicada",
-  "592b4c8f71f70441": "O nome da pasta {folder} não é válido, então a nova thread começa fora dela."
+  "592b4c8f71f70441": "O nome da pasta {folder} não é válido, então a nova thread começa fora dela.",
+  "03652640b11a4dd8": "Pai",
+  "de30b8e7d1a2c787": "Filhas",
+  "6dfb265c8713121b": "Bloqueada por",
+  "3650fae70ca9e049": "Bloqueando",
+  "a25e36f18edb091a": "Relações"
 }

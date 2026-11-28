@@ -5723,5 +5723,10 @@
   "46d614fa7b4bf1e5": "Execuções de workflow",
   "f6cf1627f4acc5ef": "Visibilidade do comentário",
   "eb1fd384ad5919dd": "Nota interna",
-  "b45f0b467e9406d0": "Responder ao cliente"
+  "b45f0b467e9406d0": "Responder ao cliente",
+  "dad96dac460b7e9c": "Issue {status} {key}, {title}",
+  "03652640b11a4dd8": "Pai",
+  "de30b8e7d1a2c787": "Filhas",
+  "6dfb265c8713121b": "Bloqueada por",
+  "3650fae70ca9e049": "Bloqueando"
 }

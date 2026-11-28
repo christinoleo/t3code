@@ -13372,5 +13372,10 @@
   "6a78eb543f2cb337": "Suppression annulée pour {count, plural, one {{count} dossier} other {{count} dossiers}}",
   "fa31841f29a7cc70": "{count, plural, =1 {Dossier supprimé,} other {{count} dossiers supprimés,}}",
   "cfecdd8ffc11d832": "Dossier non appliqué",
-  "592b4c8f71f70441": "Le nom de dossier {folder} n’est pas valide : le nouveau fil démarre donc en dehors."
+  "592b4c8f71f70441": "Le nom de dossier {folder} n’est pas valide : le nouveau fil démarre donc en dehors.",
+  "03652640b11a4dd8": "Parent",
+  "de30b8e7d1a2c787": "Enfants",
+  "6dfb265c8713121b": "Bloqué par",
+  "3650fae70ca9e049": "Bloque",
+  "a25e36f18edb091a": "Relations"
 }

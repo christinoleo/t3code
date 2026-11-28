@@ -5731,5 +5731,10 @@
   "46d614fa7b4bf1e5": "Workflow runs",
   "f6cf1627f4acc5ef": "Comment audience",
   "eb1fd384ad5919dd": "Internal note",
-  "b45f0b467e9406d0": "Reply to customer"
+  "b45f0b467e9406d0": "Reply to customer",
+  "dad96dac460b7e9c": "{status} issue {key}, {title}",
+  "03652640b11a4dd8": "Parent",
+  "de30b8e7d1a2c787": "Children",
+  "6dfb265c8713121b": "Blocked by",
+  "3650fae70ca9e049": "Blocking"
 }
