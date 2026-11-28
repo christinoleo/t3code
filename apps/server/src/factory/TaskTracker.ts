@@ -40,7 +40,7 @@ const DESCRIPTOR: StandaloneIssueTrackerDescriptor = {
   tracker: KIND,
   displayName: "T3 tasks",
   host: TASK_TRACKER_HOST,
-  scopeNoun: "project",
+  scopeNoun: "queue",
   credential: { label: "None", helpUrl: null },
   credentialFree: true,
 };
