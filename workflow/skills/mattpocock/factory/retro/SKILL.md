@@ -21,7 +21,7 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 - **No-ops**: look for instructions in steering files that don't modify the agent's behavior. _Use when_ the steering files are large and unwieldy.
 - **Information access**: look for opportunities to increase the agent's access to information. Teeing dev server logs, readonly access to third-party services. _Use when_ a crucial piece of information was not available to the agent.
 
-4. Present these candidates to the user, in order of severity.
+4. Present these candidates to the user, in order of severity. When the factory runs you, there is no user to present to: file each candidate as a task with `create_issue` on the project's `t3` tracker (a build task, or a `kind/task` for one only Leo can do), and report the list through `t3_submit_output` as your brief asks.
 
 ## Reference
 

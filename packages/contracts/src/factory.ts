@@ -10,7 +10,15 @@ import { PullRequestMergeMethod } from "./pullRequest.ts";
 
 export const TASK_TRACKER_KIND = "t3";
 
-export const TaskKind = Schema.Literals(["build", "research", "grilling", "prototype", "task"]);
+/** A `map` is a wayfinder map: its tickets are its children, and it is never run itself. */
+export const TaskKind = Schema.Literals([
+  "build",
+  "research",
+  "grilling",
+  "prototype",
+  "task",
+  "map",
+]);
 export type TaskKind = typeof TaskKind.Type;
 
 export const TaskState = Schema.Literals([

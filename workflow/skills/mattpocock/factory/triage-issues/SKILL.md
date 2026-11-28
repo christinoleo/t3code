@@ -43,6 +43,15 @@ These are canonical role names. The actual label strings used in the issue track
 
 State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
 
+## On the T3 task store
+
+When the tracker is T3's own (`t3`), the factory runs what triage hands on, so the state roles become:
+
+- `ready-for-agent`: a Ready `kind/build` task, which the factory builds. File it with `create_issue`, or leave the triaged task Ready.
+- `ready-for-human`: a Ready `kind/task` task. The factory opens a thread for Leo with it.
+- `wontfix`: the task Dropped, with `set_issue_state`, after the comment.
+- `needs-triage` and `needs-info`: free labels on the task.
+
 ## Invocation
 
 The maintainer invokes `/triage-issues` and describes what they want in natural language. Interpret the request and act. Examples:

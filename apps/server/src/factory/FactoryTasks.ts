@@ -20,14 +20,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import {
-  Actor,
-  AUTO_DISPATCHED_KINDS,
-  isOpen,
-  OPEN_STATES,
-  refusal,
-  revives,
-} from "./taskModel.ts";
+import { Actor, DISPATCHED_KINDS, isOpen, OPEN_STATES, refusal, revives } from "./taskModel.ts";
 
 export const TaskId = Schema.Int.pipe(Schema.brand("TaskId"));
 export type TaskId = typeof TaskId.Type;
@@ -71,7 +64,15 @@ export const TaskEntry = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("attempt"),
     ...entryFields,
-    phase: Schema.Literals(["build", "fix", "review", "final-review", "research", "triage"]),
+    phase: Schema.Literals([
+      "build",
+      "fix",
+      "review",
+      "final-review",
+      "research",
+      "session",
+      "triage",
+    ]),
     thread: Schema.NullOr(
       Schema.Struct({ threadId: Schema.String, environmentId: Schema.NullOr(Schema.String) }),
     ),
@@ -210,7 +211,7 @@ export class FactoryTasks extends Context.Service<
       id: TaskId,
       entry: AttemptRecord | DecisionRecord,
     ) => Effect.Effect<void, TaskNotFoundError | TaskStoreError>;
-    /** Ready, unblocked, auto-dispatched kinds in one scope, oldest first. */
+    /** The frontier: ready, unblocked tasks of a dispatched kind in one scope, oldest first. */
     readonly dispatchable: (scope: string) => Effect.Effect<ReadonlyArray<Task>, TaskStoreError>;
     readonly unmirrored: (
       scope: string,
@@ -674,7 +675,7 @@ const make = Effect.gen(function* () {
     sql`
       SELECT * FROM (${selectTasks}) t
       WHERE t.scope = ${scope} AND t.state = 'ready' AND NOT t.blocked
-        AND t.kind IN ${sql.in(AUTO_DISPATCHED_KINDS)}
+        AND t.kind IN ${sql.in(DISPATCHED_KINDS)}
       ORDER BY t.id
     `.pipe(
       failed("dispatchable"),

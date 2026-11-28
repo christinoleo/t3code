@@ -3,6 +3,7 @@ import {
   FactoryProjectSettings,
   ProjectId,
   type ServerSettingsError,
+  TaskKind,
   type TaskState,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -18,6 +19,7 @@ import { skip, step, stop, workflow } from "../workflows/workflow.ts";
 import {
   agent,
   type AgentFailure,
+  type AskChoice,
   type AgentOptions,
   type AgentThread,
   ask,
@@ -31,8 +33,8 @@ import {
   type TaskEntry,
   TaskId,
 } from "./FactoryTasks.ts";
-import { ReviewReport, WorkerReport } from "./reports.ts";
-import { isOpen } from "./taskModel.ts";
+import { ReviewReport, TicketReport, WorkerReport } from "./reports.ts";
+import { type Actor, isOpen } from "./taskModel.ts";
 
 /** One task's lifecycle; a revived task's next generation is a new run. */
 const TaskRun = Schema.Struct({ task: TaskId, generation: Schema.Int });
@@ -58,6 +60,7 @@ const Ready = Schema.Array(TaskRun);
 
 const Brief = Schema.Struct({
   key: Schema.String,
+  kind: TaskKind,
   scope: Schema.String,
   title: Schema.String,
   body: Schema.String,
@@ -85,7 +88,10 @@ const briefFor = (skill: string, task: Brief, settings: FactoryProjectSettings, 
 
 const FREE_RETRY_CAUSES: ReadonlySet<AgentFailure> = new Set(["unstarted", "died", "stopped"]);
 
-type Judged = { readonly _tag: "done" | "gave-up" | "needs-you"; readonly detail: string };
+type Judged = {
+  readonly _tag: "done" | "opened-session" | "gave-up" | "needs-you";
+  readonly detail: string;
+};
 
 const judgeWork = (report: WorkerReport): Judged =>
   report.outcome === "pull-request"
@@ -103,7 +109,28 @@ const judgeReview = (report: ReviewReport): Judged =>
         ? { _tag: "needs-you", detail: report.question }
         : { _tag: "gave-up", detail: report.why };
 
+const judgeTicket = (report: TicketReport): Judged =>
+  report.outcome === "resolved"
+    ? { _tag: "done", detail: report.resolution }
+    : report.outcome === "session"
+      ? { _tag: "opened-session", detail: report.opening }
+      : { _tag: "gave-up", detail: `${report.why} Try next: ${report.tryNext}` };
+
 const needsYouWait = (nth: number) => `needs-you/${nth}`;
+
+const DROP: AskChoice = { value: "drop", description: "Drop the task." };
+const RETRY: ReadonlyArray<AskChoice> = [
+  { value: "retry", description: "Go on; your reason goes to the next agent." },
+  DROP,
+];
+const SESSION: ReadonlyArray<AskChoice> = [
+  {
+    value: "resolved",
+    requireReason: true,
+    description: "Close the ticket; your reason is its resolution.",
+  },
+  DROP,
+];
 
 const taskWorkflow = (deps: FactoryDeps) =>
   workflow(
@@ -134,6 +161,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
         { returns: Brief },
         Effect.map(deps.tasks.get(id), (found) => ({
           key: displayKey(found),
+          kind: found.kind,
           scope: found.scope,
           title: found.title,
           body: found.body,
@@ -205,15 +233,16 @@ const taskWorkflow = (deps: FactoryDeps) =>
       });
 
       let asked = 0;
-      const needsYou = Effect.fnUntraced(function* (reason: string, pullRequest?: string) {
+      const raise = Effect.fnUntraced(function* (
+        reason: string,
+        choices: ReadonlyArray<AskChoice>,
+        pullRequest?: string,
+      ) {
         yield* move("needs-you", reason);
         const answer = yield* ask(needsYouWait(++asked), {
           title: `${task.key} needs you: ${reason}`,
           kind: "needs-you",
-          choices: [
-            { value: "retry", description: "Go on; your reason goes to the next agent." },
-            { value: "drop", description: "Drop the task." },
-          ],
+          choices,
           links: [
             { label: task.key, url: task.url },
             ...(pullRequest === undefined || pullRequest === ""
@@ -226,14 +255,17 @@ const taskWorkflow = (deps: FactoryDeps) =>
           yield* move("dropped", given.reason ?? "Dropped from its Needs-you question.");
           return yield* stop(`${task.key} was dropped.`);
         }
-        const said = given?.reason?.trim() ?? "";
+        return given;
+      });
+      const needsYou = Effect.fnUntraced(function* (reason: string, pullRequest?: string) {
+        const said = (yield* raise(reason, RETRY, pullRequest))?.reason?.trim() ?? "";
         return said === "" ? {} : { "Leo's answer": said };
       });
 
       const attempts: Partial<Record<Phase, number>> = {};
       const threads: Array<AgentThread> = [];
       const phase = Effect.fn("factory.phase")(function* <A>(
-        kind: "build" | "fix" | "review",
+        kind: "build" | "fix" | "review" | "research" | "session",
         budget: number,
         judge: (report: A) => Judged,
         decisionsOf: (report: A) => ReadonlyArray<Decision>,
@@ -274,14 +306,16 @@ const taskWorkflow = (deps: FactoryDeps) =>
               tried.thread,
               judged._tag === "done"
                 ? "succeeded"
-                : judged._tag === "needs-you"
-                  ? "needs-you"
-                  : "failed",
+                : judged._tag === "gave-up"
+                  ? "failed"
+                  : "needs-you",
               judged._tag === "gave-up" ? "agent" : null,
               detail,
               decisionsOf(tried.value),
             );
-            if (judged._tag === "done") return tried.value;
+            if (judged._tag === "done" || judged._tag === "opened-session") {
+              return { report: tried.value, thread: tried.thread };
+            }
             if (judged._tag === "needs-you") {
               facts = { ...given, ...(yield* needsYou(detail, pullRequest)) };
               agentFailures = 0;
@@ -318,213 +352,269 @@ const taskWorkflow = (deps: FactoryDeps) =>
       const branch = `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
       const issue = { project: task.scope, url: task.url };
       const work = (kind: "build" | "fix", given: Facts, pullRequest?: string) =>
-        phase(
-          kind,
+        Effect.map(
+          phase(
+            kind,
+            budgets.build,
+            judgeWork,
+            (report: WorkerReport) => report.decisions,
+            (facts) => ({
+              brief: briefFor("maestro-worker", task, settings, {
+                "Base branch": BASE,
+                Branch: branch,
+                ...(pullRequest === undefined ? {} : { "Pull request": pullRequest }),
+                ...facts,
+              }),
+              title: `${kind === "build" ? "Build" : "Fix"} ${task.key}: ${task.title}`,
+              returns: WorkerReport,
+              ...model,
+              project: task.scope,
+              workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
+              issue,
+              timeout: Duration.minutes(budgets.buildTimeoutMinutes),
+            }),
+            given,
+            pullRequest,
+          ),
+          (done) => done.report,
+        );
+
+      const build = Effect.fnUntraced(function* () {
+        const reviewer = yield* step(
+          "reviewer",
+          { returns: Schema.NullOr(Schema.Int) },
+          settings.reviewers.length === 0
+            ? Effect.succeed(null)
+            : Random.nextIntBetween(0, settings.reviewers.length, { halfOpen: true }),
+        );
+        const reviewModel = reviewer === null ? undefined : settings.reviewers[reviewer];
+        const review = (pullRequest: string, given: Facts) =>
+          Effect.map(
+            phase(
+              "review",
+              budgets.review,
+              judgeReview,
+              (report: ReviewReport) => report.decisions,
+              (facts) => ({
+                brief: briefFor("maestro-reviewer", task, settings, {
+                  "Base branch": BASE,
+                  Branch: branch,
+                  "Pull request": pullRequest,
+                  ...facts,
+                }),
+                title: `Review ${task.key}: ${task.title}`,
+                returns: ReviewReport,
+                ...(reviewModel === undefined ? {} : { model: reviewModel }),
+                project: task.scope,
+                workspace: { type: "worktree", baseRef: branch, startFromOrigin: true },
+                issue,
+                timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
+              }),
+              given,
+              pullRequest,
+            ),
+            (done) => done.report,
+          );
+
+        let waits = 0;
+        const checks = (pullRequest: { readonly project: string; readonly url: string }) =>
+          Effect.map(
+            pullRequests.wait(`checks/${++waits}`, pullRequest, {
+              until: "checks",
+              timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
+            }),
+            (standing) =>
+              Option.isNone(standing)
+                ? "stuck"
+                : standing.value.state !== "open"
+                  ? standing.value.state
+                  : standing.value.checks === "failing"
+                    ? "failing"
+                    : "passing",
+          );
+
+        let facts: Facts = {};
+        let pullRequest: { readonly project: string; readonly url: string } | undefined;
+        let rounds = 0;
+        let heads = 0;
+        let mains = 0;
+        let merges = 0;
+        const spendRound = Effect.fnUntraced(function* (why: string) {
+          if (++rounds <= budgets.fixRounds) return;
+          const answer = yield* needsYou(
+            `${why} That is past ${budgets.fixRounds} fix rounds.`,
+            pullRequest?.url,
+          );
+          facts = { ...facts, ...answer };
+          // The round that asked runs on Leo's answer, so it is the first of the fresh count.
+          rounds = 1;
+        });
+        const fix = Effect.fnUntraced(function* (url: string, requests: string) {
+          yield* spendRound(requests);
+          yield* work("fix", { ...facts, Fix: requests }, url);
+          facts = {};
+        });
+        const lost = Effect.fnUntraced(function* (url: string, standing: "closed" | "stuck") {
+          facts = yield* needsYou(
+            standing === "closed" ? `${url} was closed.` : `The checks on ${url} did not settle.`,
+            url,
+          );
+          if (standing === "closed") pullRequest = undefined;
+        });
+
+        while (true) {
+          if (pullRequest === undefined) {
+            const built = yield* work("build", facts);
+            facts = {};
+            const url = built.outcome === "pull-request" ? built.url : "";
+            const head = yield* step.try(
+              `head/${++heads}`,
+              { returns: Schema.String },
+              Effect.map(
+                pullRequests.read({ project: task.scope, url }),
+                (found) => found.headBranch,
+              ),
+            );
+            if (head.outcome === "failed" || head.value !== branch) {
+              facts = yield* needsYou(`${url} is not a pull request from ${branch}.`, url);
+              continue;
+            }
+            pullRequest = { project: task.scope, url };
+          }
+          const url = pullRequest.url;
+          yield* enter("reviewing");
+
+          const before = yield* checks(pullRequest);
+          if (before === "merged") break;
+          if (before === "closed" || before === "stuck") {
+            yield* lost(url, before);
+            continue;
+          }
+          if (before === "failing") {
+            yield* fix(url, `The checks on ${url} fail.`);
+            continue;
+          }
+
+          const verdict = yield* review(url, facts);
+          facts = {};
+          if (verdict.outcome === "changes") {
+            yield* fix(url, verdict.requests);
+            continue;
+          }
+
+          const reviewedChecks = yield* checks(pullRequest);
+          if (reviewedChecks === "merged") break;
+          if (reviewedChecks === "closed" || reviewedChecks === "stuck") {
+            yield* lost(url, reviewedChecks);
+            continue;
+          }
+          if (reviewedChecks === "failing") {
+            yield* fix(url, `After review, the checks on ${url} fail.`);
+            continue;
+          }
+
+          const touched = yield* step.try(
+            `main/${++mains}`,
+            { returns: Schema.Boolean },
+            Effect.flatMap(pullRequests.read(pullRequest), (found) =>
+              deps.baseTouchedSinceFork({
+                checkout: found.workspaceRoot,
+                base: found.baseBranch,
+                head: found.headBranch,
+              }),
+            ),
+          );
+          if (touched.outcome === "failed") {
+            facts = yield* needsYou(
+              `${BASE} could not be checked before merging: ${touched.reason}`,
+              url,
+            );
+            continue;
+          }
+          if (touched.value) {
+            yield* spendRound(`${BASE} changed files that ${url} changes since its review.`);
+            facts = {
+              ...facts,
+              "Main changed": `${BASE} moved past this pull request's base and changed files it changes. Rebase onto it and review again.`,
+            };
+            continue;
+          }
+
+          const merge = ++merges;
+          const merged = yield* step.try(
+            `merge/${merge}`,
+            { returns: Schema.Boolean },
+            Effect.flatMap(deps.tasks.get(id), (found) =>
+              ours(found)
+                ? Effect.as(
+                    pullRequests.act(pullRequest!, "merge", { mergeMethod: settings.mergeMethod }),
+                    true,
+                  )
+                : Effect.succeed(false),
+            ),
+          );
+          if (merged.outcome === "done") {
+            if (!merged.value) return yield* superseded();
+            break;
+          }
+          // The host may have taken a merge whose reply was lost.
+          const landed = yield* step.try(
+            `merged/${merge}`,
+            { returns: Schema.Boolean },
+            Effect.map(pullRequests.read(pullRequest), (found) => found.state === "merged"),
+          );
+          if (landed.outcome === "done" && landed.value) break;
+          facts = yield* needsYou(`${url} could not be merged: ${merged.reason}`, url);
+        }
+      });
+
+      const postResolutionOnce = (resolution: string, by: Actor) =>
+        step(
+          "resolution",
+          { returns: Schema.Void },
+          Effect.gen(function* () {
+            if (!ours(yield* deps.tasks.get(id))) return;
+            const { entries } = yield* deps.tasks.timeline(id);
+            if (entries.some((entry) => entry.type === "comment" && entry.body === resolution)) {
+              return;
+            }
+            yield* deps.tasks.comment(id, resolution, by);
+          }),
+        );
+
+      const ticket = Effect.fnUntraced(function* () {
+        const done = yield* phase(
+          task.kind === "research" ? "research" : "session",
           budgets.build,
-          judgeWork,
-          (report: WorkerReport) => report.decisions,
+          judgeTicket,
+          (report: TicketReport) => report.decisions,
           (facts) => ({
-            brief: briefFor("maestro-worker", task, settings, {
+            brief: briefFor("wayfinder", task, settings, {
+              Kind: task.kind,
               "Base branch": BASE,
-              Branch: branch,
-              ...(pullRequest === undefined ? {} : { "Pull request": pullRequest }),
               ...facts,
             }),
-            title: `${kind === "build" ? "Build" : "Fix"} ${task.key}: ${task.title}`,
-            returns: WorkerReport,
+            title: `${task.kind === "research" ? "Research" : "Open"} ${task.key}: ${task.title}`,
+            returns: TicketReport,
             ...model,
             project: task.scope,
             workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
             issue,
             timeout: Duration.minutes(budgets.buildTimeoutMinutes),
           }),
-          given,
-          pullRequest,
+          {},
         );
-
-      const reviewer = yield* step(
-        "reviewer",
-        { returns: Schema.NullOr(Schema.Int) },
-        settings.reviewers.length === 0
-          ? Effect.succeed(null)
-          : Random.nextIntBetween(0, settings.reviewers.length, { halfOpen: true }),
-      );
-      const reviewModel = reviewer === null ? undefined : settings.reviewers[reviewer];
-      const review = (pullRequest: string, given: Facts) =>
-        phase(
-          "review",
-          budgets.review,
-          judgeReview,
-          (report: ReviewReport) => report.decisions,
-          (facts) => ({
-            brief: briefFor("maestro-reviewer", task, settings, {
-              "Base branch": BASE,
-              Branch: branch,
-              "Pull request": pullRequest,
-              ...facts,
-            }),
-            title: `Review ${task.key}: ${task.title}`,
-            returns: ReviewReport,
-            ...(reviewModel === undefined ? {} : { model: reviewModel }),
-            project: task.scope,
-            workspace: { type: "worktree", baseRef: branch, startFromOrigin: true },
-            issue,
-            timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
-          }),
-          given,
-          pullRequest,
-        );
-
-      let waits = 0;
-      const checks = (pullRequest: { readonly project: string; readonly url: string }) =>
-        Effect.map(
-          pullRequests.wait(`checks/${++waits}`, pullRequest, {
-            until: "checks",
-            timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
-          }),
-          (standing) =>
-            Option.isNone(standing)
-              ? "stuck"
-              : standing.value.state !== "open"
-                ? standing.value.state
-                : standing.value.checks === "failing"
-                  ? "failing"
-                  : "passing",
-        );
-
-      let facts: Facts = {};
-      let pullRequest: { readonly project: string; readonly url: string } | undefined;
-      let rounds = 0;
-      let heads = 0;
-      let mains = 0;
-      let merges = 0;
-      const spendRound = Effect.fnUntraced(function* (why: string) {
-        if (++rounds <= budgets.fixRounds) return;
-        const answer = yield* needsYou(
-          `${why} That is past ${budgets.fixRounds} fix rounds.`,
-          pullRequest?.url,
-        );
-        facts = { ...facts, ...answer };
-        // The round that asked runs on Leo's answer, so it is the first of the fresh count.
-        rounds = 1;
-      });
-      const fix = Effect.fnUntraced(function* (url: string, requests: string) {
-        yield* spendRound(requests);
-        yield* work("fix", { ...facts, Fix: requests }, url);
-        facts = {};
-      });
-      const lost = Effect.fnUntraced(function* (url: string, standing: "closed" | "stuck") {
-        facts = yield* needsYou(
-          standing === "closed" ? `${url} was closed.` : `The checks on ${url} did not settle.`,
-          url,
-        );
-        if (standing === "closed") pullRequest = undefined;
+        if (done.report.outcome === "resolved") {
+          return yield* postResolutionOnce(done.report.resolution, {
+            kind: "agent",
+            threadId: done.thread.threadId,
+          });
+        }
+        const answer = yield* raise(`its ${task.kind} session is open in its thread.`, SESSION);
+        yield* postResolutionOnce(answer?.reason ?? "", { kind: "person", name: "you" });
       });
 
-      while (true) {
-        if (pullRequest === undefined) {
-          const built = yield* work("build", facts);
-          facts = {};
-          const url = built.outcome === "pull-request" ? built.url : "";
-          const head = yield* step.try(
-            `head/${++heads}`,
-            { returns: Schema.String },
-            Effect.map(
-              pullRequests.read({ project: task.scope, url }),
-              (found) => found.headBranch,
-            ),
-          );
-          if (head.outcome === "failed" || head.value !== branch) {
-            facts = yield* needsYou(`${url} is not a pull request from ${branch}.`, url);
-            continue;
-          }
-          pullRequest = { project: task.scope, url };
-        }
-        const url = pullRequest.url;
-        yield* enter("reviewing");
-
-        const before = yield* checks(pullRequest);
-        if (before === "merged") break;
-        if (before === "closed" || before === "stuck") {
-          yield* lost(url, before);
-          continue;
-        }
-        if (before === "failing") {
-          yield* fix(url, `The checks on ${url} fail.`);
-          continue;
-        }
-
-        const verdict = yield* review(url, facts);
-        facts = {};
-        if (verdict.outcome === "changes") {
-          yield* fix(url, verdict.requests);
-          continue;
-        }
-
-        const reviewedChecks = yield* checks(pullRequest);
-        if (reviewedChecks === "merged") break;
-        if (reviewedChecks === "closed" || reviewedChecks === "stuck") {
-          yield* lost(url, reviewedChecks);
-          continue;
-        }
-        if (reviewedChecks === "failing") {
-          yield* fix(url, `After review, the checks on ${url} fail.`);
-          continue;
-        }
-
-        const touched = yield* step.try(
-          `main/${++mains}`,
-          { returns: Schema.Boolean },
-          Effect.flatMap(pullRequests.read(pullRequest), (found) =>
-            deps.baseTouchedSinceFork({
-              checkout: found.workspaceRoot,
-              base: found.baseBranch,
-              head: found.headBranch,
-            }),
-          ),
-        );
-        if (touched.outcome === "failed") {
-          facts = yield* needsYou(
-            `${BASE} could not be checked before merging: ${touched.reason}`,
-            url,
-          );
-          continue;
-        }
-        if (touched.value) {
-          yield* spendRound(`${BASE} changed files that ${url} changes since its review.`);
-          facts = {
-            ...facts,
-            "Main changed": `${BASE} moved past this pull request's base and changed files it changes. Rebase onto it and review again.`,
-          };
-          continue;
-        }
-
-        const merge = ++merges;
-        const merged = yield* step.try(
-          `merge/${merge}`,
-          { returns: Schema.Boolean },
-          Effect.flatMap(deps.tasks.get(id), (found) =>
-            ours(found)
-              ? Effect.as(
-                  pullRequests.act(pullRequest!, "merge", { mergeMethod: settings.mergeMethod }),
-                  true,
-                )
-              : Effect.succeed(false),
-          ),
-        );
-        if (merged.outcome === "done") {
-          if (!merged.value) return yield* superseded();
-          break;
-        }
-        // The host may have taken a merge whose reply was lost.
-        const landed = yield* step.try(
-          `merged/${merge}`,
-          { returns: Schema.Boolean },
-          Effect.map(pullRequests.read(pullRequest), (found) => found.state === "merged"),
-        );
-        if (landed.outcome === "done" && landed.value) break;
-        facts = yield* needsYou(`${url} could not be merged: ${merged.reason}`, url);
-      }
+      yield* task.kind === "build" ? build() : ticket();
       yield* move("done");
       yield* step(
         "settle",
@@ -545,6 +635,11 @@ const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"
   return entries;
 });
 
+const asksForSession = (before: ReadonlyArray<TaskEntry>) => {
+  const opened = before.findLast((entry) => entry.type === "attempt");
+  return opened?.type === "attempt" && opened.phase === "session" && opened.outcome === "needs-you";
+};
+
 const answerByComment = Effect.fnUntraced(function* (
   tasks: FactoryTasks["Service"],
   scope: string,
@@ -558,6 +653,7 @@ const answerByComment = Effect.fnUntraced(function* (
     const raised = entries[raisedAt];
     if (raised?.by.kind !== "factory") continue;
     const runId = raised.by.runId;
+    const choice = asksForSession(entries.slice(0, raisedAt)) ? "resolved" : "retry";
     const comment = entries
       .slice(raisedAt + 1)
       .find(
@@ -574,7 +670,7 @@ const answerByComment = Effect.fnUntraced(function* (
     ).length;
     yield* signal(
       { runId, wait: needsYouWait(nth) },
-      { choice: "retry", reason: comment.body },
+      { choice, reason: comment.body },
       { id: `comment/${comment.id}` },
     ).pipe(
       Effect.catch((error) =>
