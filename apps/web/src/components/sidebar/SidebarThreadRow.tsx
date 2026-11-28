@@ -1615,10 +1615,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 label for the wider row controls. */}
             {pinIndicator}
             {props.projectDisplayName || props.folderLabel ? (
-              <span
-                className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-              >
-                {[props.projectDisplayName, props.folderLabel].filter(Boolean).join(" · ")}
+              <span className="flex min-w-0 flex-1 font-normal text-secondary-label text-xs">
+                <span className="min-w-0 truncate">{props.projectDisplayName}</span>
+                {props.folderLabel ? (
+                  <span className="max-w-[60%] shrink-0 truncate">
+                    {props.projectDisplayName ? " · " : null}
+                    {props.folderLabel}
+                  </span>
+                ) : null}
               </span>
             ) : (
               <span className="flex-1" />
