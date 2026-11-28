@@ -119,6 +119,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
           `${phase}/record`,
           { returns: Schema.Void },
           Effect.gen(function* () {
+            if (!ours(yield* deps.tasks.get(id))) return;
             yield* deps.tasks.record(id, {
               type: "attempt",
               by,
@@ -141,7 +142,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
       // #92 replaces this with retries, budgets, fix rounds and a question that resumes the task.
       const needsYou = (reason: string) => move("needs-you", reason);
 
-      // A launch refuses a branch that exists, and an earlier generation's branch outlives it.
+      // The worker pushes here from a worktree of its own: a launch refuses a branch that exists,
+      // which a retried round's would. An earlier generation's branch outlives it.
       const branch = `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
       const issue = { project: task.scope, url: task.url };
       yield* move("building");
@@ -151,7 +153,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
         returns: WorkerReport,
         ...(settings.builder === null ? {} : { model: settings.builder }),
         project: task.scope,
-        workspace: { type: "worktree", baseRef: BASE, branch, startFromOrigin: true },
+        workspace: { type: "worktree", baseRef: BASE, startFromOrigin: true },
         issue,
         timeout: Duration.minutes(settings.budgets.buildTimeoutMinutes),
       });
@@ -176,6 +178,14 @@ const taskWorkflow = (deps: FactoryDeps) =>
       }
       yield* record("build", built.thread, "succeeded", report.url, report.decisions);
       const pullRequest = { project: task.scope, url: report.url };
+      const head = yield* step.try(
+        "head",
+        { returns: Schema.String },
+        Effect.map(pullRequests.read(pullRequest), (found) => found.headBranch),
+      );
+      if (head.outcome === "failed" || head.value !== branch) {
+        return yield* needsYou(`${report.url} is not a pull request from ${branch}.`);
+      }
       yield* move("reviewing");
 
       // Checks that are missing count as passing: not every repository runs CI.

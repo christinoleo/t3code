@@ -1,4 +1,5 @@
 import { CommandId, factoryProjectSettingsOf, ThreadId } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -33,7 +34,12 @@ export const layer = Layer.effect(
               .pipe(
                 Effect.asVoid,
                 Effect.catchCause((cause) =>
-                  Effect.logWarning("factory could not settle a worker thread", { thread, cause }),
+                  Cause.hasInterruptsOnly(cause)
+                    ? Effect.interrupt
+                    : Effect.logWarning("factory could not settle a worker thread", {
+                        thread,
+                        cause,
+                      }),
                 ),
               )
           : Effect.void,
