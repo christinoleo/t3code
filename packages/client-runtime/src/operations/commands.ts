@@ -507,7 +507,7 @@ export const deleteProject = Effect.fn("EnvironmentCommands.deleteProject")(func
 export const createThread = Effect.fn("EnvironmentCommands.createThread")(function* (
   input: CreateThreadInput,
 ) {
-  return yield* dispatch({
+  const result = yield* dispatch({
     type: "thread.create",
     commandId: yield* allocateCommandId(input),
     createdBy: "user",
@@ -522,6 +522,21 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     worktreePath: input.worktreePath,
     ...(input.tags === undefined ? {} : { tags: input.tags }),
   });
+  yield* tagWhereCreateDropsTags(input.threadId, input.tags);
+  return result;
+});
+
+// Create-time tags shipped one commit after threadTagRename; servers without it drop the key.
+const tagWhereCreateDropsTags = Effect.fn("EnvironmentCommands.tagWhereCreateDropsTags")(function* (
+  threadId: ThreadId,
+  tags: ReadonlyArray<string> | undefined,
+) {
+  if (tags === undefined || tags.length === 0) return;
+  const config = yield* getInitialServerConfig();
+  if (config.environment.capabilities.threadTagRename === true) return;
+  for (const tag of tags) {
+    yield* setThreadTag({ threadId, tag, tagged: true }).pipe(Effect.ignore);
+  }
 });
 
 function simpleThreadCommand(
@@ -864,7 +879,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
         attachments,
       },
     });
-    return yield* resend ? resendAfterSocketLoss(launch) : launch;
+    const launched = yield* resend ? resendAfterSocketLoss(launch) : launch;
+    yield* tagWhereCreateDropsTags(input.threadId, bootstrap?.tags);
+    return launched;
   }
 
   const requestedMode = input.dispatchMode ?? "auto";

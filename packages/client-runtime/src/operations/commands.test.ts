@@ -79,6 +79,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly projection?: OrchestrationV2ThreadProjection;
   readonly projectionRequests?: ThreadId[];
   readonly advertiseThreadStop?: boolean;
+  readonly advertiseThreadTagRename?: boolean;
 }) {
   const client = {
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
@@ -127,6 +128,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
         capabilities: {
           repositoryIdentity: true,
           ...(input.advertiseThreadStop === true ? { threadStop: true } : {}),
+          ...(input.advertiseThreadTagRename === true ? { threadTagRename: true } : {}),
         },
       },
     } as never),
@@ -306,6 +308,49 @@ describe("V2 environment commands", () => {
           branch: "feature",
         },
       });
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("tags a new thread after launch only on servers without create-time tags", () =>
+    Effect.gen(function* () {
+      const launchTagged = Effect.fn("launchTagged")(function* (advertiseThreadTagRename: boolean) {
+        const commands: OrchestrationV2Command[] = [];
+        const supervisor = yield* makeSupervisor({
+          commands,
+          projects: [],
+          advertiseThreadTagRename,
+        });
+        yield* startThreadTurn({
+          threadId: v2ThreadId,
+          message: {
+            messageId: MessageId.make("message-folder"),
+            role: "user",
+            text: "Hello",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: ProjectId.make("project-1"),
+              title: "Thread",
+              modelSelection: v2Projection.thread.modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt: "2026-06-20T00:00:00.000Z",
+              tags: ["ops"],
+            },
+          },
+        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+        return commands.filter((command) => command.type === "thread.tag.set");
+      });
+
+      expect(yield* launchTagged(false)).toMatchObject([
+        { type: "thread.tag.set", threadId: v2ThreadId, tag: "ops", tagged: true },
+      ]);
+      expect(yield* launchTagged(true)).toEqual([]);
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
