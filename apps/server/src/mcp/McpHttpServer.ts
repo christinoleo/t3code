@@ -80,6 +80,8 @@ import * as Feedback from "../feedback/FeedbackService.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
+import { FactoryToolkit } from "./toolkits/factory/tools.ts";
+import * as FactoryHandlers from "./toolkits/factory/handlers.ts";
 import * as ThemeHandlers from "./toolkits/theme/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
@@ -1525,6 +1527,10 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
 
 export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
+const layerFactoryToolkit = toolkitRegistration(FactoryToolkit, FactoryHandlers.layer).pipe(
+  Layer.provide(ThreadCommandExecutor.layer),
+);
+
 // Reports may name any tool this server advertises, read when a report arrives.
 const layerFeedbackToolkit = toolkitRegistration(FeedbackToolkit, FeedbackHandlers.layer).pipe(
   Layer.provide(
@@ -1603,6 +1609,7 @@ export const layerTools = Layer.mergeAll(
   layerFeedbackToolkit,
   layerEnvironmentToolkit,
   layerThemeToolkit,
+  layerFactoryToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

@@ -36,6 +36,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { FactoryProjectSettingsPatch, FactorySettings } from "./factory.ts";
 import {
   ProjectIconOverride,
   ProjectScript,
@@ -1556,6 +1557,8 @@ export const ServerSettings = Schema.Struct({
   linkedEnvironmentsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /** Beta: durable workflows from the workflows folder of the T3 home. Off runs none of them. */
   workflowsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Fork: the built-in software factory, per project (christinoleo/t3code#85). */
+  factory: FactorySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   /** Skipped top-level runs kept per workflow; older ones are deleted. */
   workflowSkippedRunsKept: WorkflowSkippedRunsKept.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_WORKFLOW_SKIPPED_RUNS_KEPT)),
@@ -2001,6 +2004,9 @@ export const ServerSettingsPatch = Schema.Struct({
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   workflowsEnabled: Schema.optionalKey(Schema.Boolean),
+  factory: Schema.optionalKey(
+    Schema.Struct({ projects: Schema.Record(ProjectId, FactoryProjectSettingsPatch) }),
+  ),
   workflowSkippedRunsKept: Schema.optionalKey(WorkflowSkippedRunsKept),
   promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),
   terseReplies: Schema.optionalKey(Schema.Boolean),

@@ -1,5 +1,6 @@
 import type { ModelPreferences } from "@t3tools/contracts/settings";
 import {
+  applyFactorySettingsPatch,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
@@ -603,6 +604,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(patch.defaultModelSelection !== undefined
       ? { defaultModelSelection: patch.defaultModelSelection }
+      : {}),
+    ...(patch.factory !== undefined
+      ? { factory: applyFactorySettingsPatch(current.factory, patch.factory) }
       : {}),
     ...(patch.fallbackModelSelection !== undefined
       ? { fallbackModelSelection: patch.fallbackModelSelection }

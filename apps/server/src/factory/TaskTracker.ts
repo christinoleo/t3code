@@ -17,6 +17,7 @@ import {
   type IssueRelationTarget,
   type IssueRelationsInput,
   type StandaloneIssueTrackerDescriptor,
+  TASK_TRACKER_KIND,
 } from "@t3tools/contracts";
 import {
   IssueTrackerError,
@@ -30,7 +31,6 @@ import * as ProjectService from "../project/ProjectService.ts";
 import {
   FactoryTasks,
   TASK_TRACKER_HOST,
-  TASK_TRACKER_KIND,
   TASK_URL_HOST,
   displayKey,
   shownLabels,
