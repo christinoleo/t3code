@@ -48,7 +48,7 @@ export function ProjectRail(props: {
   tiles: readonly ProjectRailTile[];
   threads: readonly EnvironmentThreadShell[];
   selectedKeys: readonly string[];
-  onSelectAll: () => void;
+  onScope: (keys: string[]) => void;
   onSelect: (key: string, additive: boolean) => void;
   onMove: (activeKey: string, overKey: string) => void;
   folderIcons: Readonly<Record<string, ProjectIconOverride>>;
@@ -122,7 +122,7 @@ export function ProjectRail(props: {
         label={gt("All projects")}
         selected={selectedKeys.length === 0}
         dot={allDot}
-        onClick={() => props.onSelectAll()}
+        onClick={() => props.onScope([])}
       >
         <LayersIcon className="size-4.5" />
       </RailTileButton>
@@ -134,7 +134,12 @@ export function ProjectRail(props: {
               variant="ghost-muted"
               aria-label={hideLabel}
               aria-pressed={hideIdle}
-              onClick={() => setHideIdle(!hideIdle)}
+              onClick={() => {
+                // Hiding idle tiles drops them from the filter too, so a hidden tile's empty view can't linger.
+                const shownKeys = selectedKeys.filter((key) => !states.get(key)?.idle);
+                if (!hideIdle && shownKeys.length < selectedKeys.length) props.onScope(shownKeys);
+                setHideIdle(!hideIdle);
+              }}
             />
           }
         >

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 import { act, fakeTimers, render } from "../../../test/render";
@@ -34,7 +35,7 @@ function renderRail(onTileMenu = vi.fn(), onSelect = vi.fn()) {
       tiles={[{ kind: "folder", key: "tag:ops", tag: "ops" }]}
       threads={[]}
       selectedKeys={[]}
-      onSelectAll={vi.fn()}
+      onScope={vi.fn()}
       onSelect={onSelect}
       onMove={vi.fn()}
       folderIcons={{}}
@@ -42,6 +43,44 @@ function renderRail(onTileMenu = vi.fn(), onSelect = vi.fn()) {
     />,
   );
 }
+
+describe("ProjectRail hide idle", () => {
+  it("takes idle tiles out of the filter, so a shown idle tile leaves the rail", async () => {
+    const onScope = vi.fn();
+    // The toggle persists, and a hidden idle tile would be missing from the tests after this one.
+    using _storage = { [Symbol.dispose]: () => localStorage.clear() };
+    await using screen = await render(
+      <ProjectRail
+        tiles={[
+          { kind: "folder", key: "tag:ops", tag: "ops" },
+          { kind: "folder", key: "tag:docs", tag: "docs" },
+        ]}
+        threads={[
+          {
+            id: "live",
+            environmentId: "env",
+            projectId: "p",
+            tags: ["ops"],
+            pinnedAt: null,
+            settledOverride: null,
+            snoozedUntil: null,
+            pendingGuestMessageCount: 0,
+            latestRun: null,
+            runtime: null,
+          } as unknown as Parameters<typeof ProjectRail>[0]["threads"][number],
+        ]}
+        selectedKeys={["tag:ops", "tag:docs"]}
+        onScope={onScope}
+        onSelect={vi.fn()}
+        onMove={vi.fn()}
+        folderIcons={{}}
+        onTileMenu={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Hide idle projects" }));
+    expect(onScope.mock.calls).toEqual([[["tag:ops"]]]);
+  });
+});
 
 describe("ProjectRail touch", () => {
   it("lets a tap through after a lifted tile's drag is cancelled", async () => {
