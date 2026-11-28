@@ -16,17 +16,26 @@ import * as Schema from "effect/Schema";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import type { AgentThread } from "../workflows/workflowAgent.ts";
-import { WorkflowAgents } from "../workflows/WorkflowAgents.ts";
-import { unavailable, WorkflowForge } from "../workflows/WorkflowForge.ts";
+import { WorkflowAgentError, WorkflowAgents } from "../workflows/WorkflowAgents.ts";
+import { unavailable, WorkflowForge, WorkflowForgeError } from "../workflows/WorkflowForge.ts";
 import * as Workflows from "../workflows/Workflows.ts";
-import { runFactory } from "./factory.testkit.ts";
+import { factoryEngine, runFactory } from "./factory.testkit.ts";
 import type { FactoryDeps } from "./factoryWorkflow.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
 
 const decodeSettings = Schema.decodeSync(ServerSettings);
+// The engine's clock runs as fast as the test lets it, so a busy machine passes hours between
+// two steps. Only a test about a timeout gets a short one.
+const PATIENT = { buildTimeoutMinutes: 525_600, reviewTimeoutMinutes: 525_600 };
 const settingsWith = (projects: Record<string, { readonly enabled: boolean }>) =>
-  decodeSettings({ factory: { projects } });
+  decodeSettings({
+    factory: {
+      projects: Object.fromEntries(
+        Object.entries(projects).map(([id, project]) => [id, { ...project, budgets: PATIENT }]),
+      ),
+    },
+  });
 
 const store = FactoryTasks.layer.pipe(
   Layer.provideMerge(
@@ -46,12 +55,14 @@ const depsOver = (
   tasks: FactoryTasks.FactoryTasks["Service"],
   settings: Ref.Ref<ServerSettings>,
   settled: Array<AgentThread> = [],
+  baseTouchedSinceFork: FactoryDeps["baseTouchedSinceFork"] = () => Effect.succeed(false),
 ): FactoryDeps => ({
   tasks,
   enabledProjects: Effect.map(Ref.get(settings), enabledProjects),
   projectSettings: (project) =>
     Effect.map(Ref.get(settings), (all) => factoryProjectSettingsOf(all, project)),
   settle: (thread) => Effect.sync(() => void settled.push(thread)),
+  baseTouchedSinceFork,
 });
 
 const tickAt = (minute: number) =>
@@ -60,6 +71,14 @@ const tickAt = (minute: number) =>
       "factory",
       { scheduledAt: `2026-11-28T10:0${minute}:00.000Z` },
       { idempotencyKey: `tick-${minute}` },
+    ),
+  );
+
+const waitAsked = (runId: string, nth: number) =>
+  Effect.flatMap(Workflows.Workflows, (workflows) =>
+    workflows.waitFor(
+      runId,
+      (run) => run.status === "waiting" && run.detail === `needs-you/${nth}`,
     ),
   );
 
@@ -106,6 +125,7 @@ it.effect("a tick starts task runs only in projects whose factory is on", () =>
 );
 
 type Started = Parameters<WorkflowAgents["Service"]["start"]>[0];
+const kindOf = (step: string) => step.split("/")[0]!;
 const PULL_REQUEST = "https://github.com/me/alpha/pull/7";
 const decided = (what: string) => ({ what, why: `${what} is reversible`, alternative: "ask" });
 
@@ -116,7 +136,14 @@ it.effect("a ready task is built, reviewed and merged by one run, then ends Done
     const settings = yield* Ref.make(
       decodeSettings({
         factory: {
-          projects: { alpha: { enabled: true, mergeMethod: "rebase", reviewers: [reviewModel] } },
+          projects: {
+            alpha: {
+              enabled: true,
+              mergeMethod: "rebase",
+              reviewers: [reviewModel],
+              budgets: PATIENT,
+            },
+          },
         },
       }),
     );
@@ -136,11 +163,11 @@ it.effect("a ready task is built, reviewed and merged by one run, then ends Done
       start: (input) =>
         Effect.gen(function* () {
           started.push(input);
-          if (input.origin.step === "build") yield* Deferred.succeed(building, undefined);
+          if (input.origin.step === "build/1") yield* Deferred.succeed(building, undefined);
           return { threadId: `thread-${input.origin.step}`, turnId: input.key };
         }),
       result: (turn) => {
-        const step = started.find((input) => input.key === turn.turnId)!.origin.step;
+        const step = kindOf(started.find((input) => input.key === turn.turnId)!.origin.step);
         return Effect.as(step === "build" ? Deferred.await(buildMayEnd) : Effect.void, {
           ending: "completed" as const,
           detail: "",
@@ -194,18 +221,18 @@ it.effect("a ready task is built, reviewed and merged by one run, then ends Done
         entry.type === "attempt" ? [[entry.phase, entry.outcome, entry.thread?.threadId]] : [],
       ),
     ).toEqual([
-      ["build", "succeeded", "thread-build"],
-      ["review", "succeeded", "thread-review"],
+      ["build", "succeeded", "thread-build/1"],
+      ["review", "succeeded", "thread-review/1"],
     ]);
     expect(
       entries.flatMap((entry) =>
         entry.type === "decision" ? [[entry.decision.what, entry.by]] : [],
       ),
     ).toEqual([
-      ["Kept the API", { kind: "agent", threadId: "thread-build" }],
-      ["Fixed a typo", { kind: "agent", threadId: "thread-review" }],
+      ["Kept the API", { kind: "agent", threadId: "thread-build/1" }],
+      ["Fixed a typo", { kind: "agent", threadId: "thread-review/1" }],
     ]);
-    const review = started.find((input) => input.origin.step === "review")!;
+    const review = started.find((input) => input.origin.step === "review/1")!;
     expect(review.thread).toBeUndefined();
     expect(review.model).toMatchObject(reviewModel);
     expect(merges).toEqual([
@@ -215,7 +242,7 @@ it.effect("a ready task is built, reviewed and merged by one run, then ends Done
         options: { mergeMethod: "rebase" },
       },
     ]);
-    expect(settled.map((thread) => thread.threadId)).toEqual(["thread-build", "thread-review"]);
+    expect(settled.map((thread) => thread.threadId)).toEqual(["thread-build/1", "thread-review/1"]);
     expect((yield* tasks.get(task.id)).state).toBe("done");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
@@ -269,7 +296,7 @@ it.effect("a run whose task is dropped and revived leaves it to the new generati
         yield* tasks.transition(task.id, "ready", PERSON);
         expect(yield* startedBy(yield* tickAt(1))).toEqual([`start/${task.id}/1`]);
         const second = (yield* taskRuns).find((run) => run.runId !== first!.runId)!;
-        yield* workflows.waitFor(second.runId, (run) => run.status === "completed");
+        yield* waitAsked(second.runId, 1);
 
         yield* Deferred.succeed(firstMayEnd, undefined);
         yield* workflows.waitFor(first!.runId, (run) => run.status === "skipped");
@@ -333,12 +360,12 @@ it.effect("a pull request from another branch is neither reviewed nor merged", (
         const [run] = (yield* workflows.list()).filter(
           (found) => found.workflow === "factory-task",
         );
-        yield* workflows.waitFor(run!.runId, (found) => found.status === "completed");
+        yield* waitAsked(run!.runId, 1);
       }),
       { agents, forge },
     );
 
-    expect(steps).toEqual(["build"]);
+    expect(steps).toEqual(["build/1"]);
     expect(merges).toEqual([]);
     expect((yield* tasks.get(task.id)).state).toBe("needs-you");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
@@ -386,13 +413,287 @@ it.effect("a timeline write that fails once is retried without repeating the att
         const [run] = (yield* workflows.list()).filter(
           (found) => found.workflow === "factory-task",
         );
-        yield* workflows.waitFor(run!.runId, (found) => found.status === "completed");
+        yield* waitAsked(run!.runId, 1);
       }),
       { agents },
     );
 
     const { entries } = yield* real.timeline(task.id);
-    expect(entries.filter((entry) => entry.type === "attempt")).toHaveLength(1);
-    expect(entries.filter((entry) => entry.type === "decision")).toHaveLength(1);
+    expect(entries.filter((entry) => entry.type === "attempt")).toHaveLength(2);
+    expect(entries.filter((entry) => entry.type === "decision")).toHaveLength(2);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+const scripted = (
+  script: (step: string) => Schema.Json | "unstartable" | "never",
+  started: Array<Started> = [],
+) =>
+  WorkflowAgents.of({
+    start: (input) =>
+      Effect.suspend(() => {
+        started.push(input);
+        return script(input.origin.step) === "unstartable"
+          ? Effect.fail(new WorkflowAgentError({ reason: "the machine is gone" }))
+          : Effect.succeed({ threadId: `thread-${input.origin.step}`, turnId: input.key });
+      }),
+    result: (turn) => {
+      const plan = script(started.findLast((input) => input.key === turn.turnId)!.origin.step);
+      return plan === "never"
+        ? Effect.never
+        : Effect.succeed({ ending: "completed" as const, detail: "", reply: "", output: plan });
+    },
+    interrupt: () => Effect.succeed("stopped" as const),
+  });
+
+const attemptOf = (step: string) => Number(step.split("/")[1]);
+const promptOf = (started: ReadonlyArray<Started>, step: string) =>
+  started.find((input) => input.origin.step === step)!.prompt;
+const taskRun = Effect.flatMap(Workflows.Workflows, (workflows) =>
+  Effect.map(workflows.list(), (runs) => runs.find((run) => run.workflow === "factory-task")!),
+);
+const statesOf = (entries: ReadonlyArray<FactoryTasks.TaskEntry>) =>
+  entries.flatMap((entry) => (entry.type === "state" ? [`${entry.from}>${entry.to}`] : []));
+const GAVE_UP = { outcome: "gave-up", why: "Stuck.", tryNext: "Read the logs.", decisions: [] };
+
+it.effect(
+  "infra failures are free up to five in a row, give-ups and stalls spend the build's two, and each cap asks Leo",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(
+        decodeSettings({
+          factory: {
+            projects: { alpha: { enabled: true, budgets: { ...PATIENT, buildTimeoutMinutes: 1 } } },
+          },
+        }),
+      );
+      const task = yield* tasks.create(
+        { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+        PERSON,
+      );
+      const started: Array<Started> = [];
+      const agents = scripted((step) => {
+        const nth = attemptOf(step);
+        if (nth === 1) return GAVE_UP;
+        if (nth === 7) return "never";
+        return nth <= 13 ? "unstartable" : GAVE_UP;
+      }, started);
+
+      yield* runFactory(
+        depsOver(tasks, settings),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const run = yield* taskRun;
+          yield* waitAsked(run.runId, 1);
+          yield* workflows.answer(run.runId, "needs-you/1", {
+            choice: "retry",
+            reason: "Use the other machine.",
+          });
+          yield* waitAsked(run.runId, 2);
+          yield* workflows.answer(run.runId, "needs-you/2", { choice: "drop" });
+          yield* workflows.waitFor(run.runId, (found) => found.status === "stopped");
+        }),
+        { agents },
+      );
+
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(entries.flatMap((entry) => (entry.type === "attempt" ? [entry.failure] : []))).toEqual(
+        ["agent", ...Array(5).fill("infra"), "agent", ...Array(6).fill("infra")],
+      );
+      expect(statesOf(entries)).toEqual([
+        "ready>building",
+        "building>needs-you",
+        "needs-you>building",
+        "building>needs-you",
+        "needs-you>dropped",
+      ]);
+      const reasons = entries.flatMap((entry) =>
+        entry.type === "state" && entry.to === "needs-you" ? [entry.reason] : [],
+      );
+      expect(reasons[0]).toMatch(/^The build failed 2 times: .*not done after 1m/);
+      expect(reasons[1]).toMatch(/^The build could not run 6 times in a row: /);
+      expect(promptOf(started, "build/2")).toContain(
+        "Last attempt: Stuck. Try next: Read the logs.",
+      );
+      expect(promptOf(started, "build/8")).toContain("Leo's answer: Use the other machine.");
+      expect((yield* tasks.get(task.id)).state).toBe("dropped");
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a Needs you outlives a restart, and Leo's comment on the task answers it", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const task = yield* tasks.create(
+      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+      PERSON,
+    );
+    const started: Array<Started> = [];
+    const agents = scripted(
+      (step) =>
+        attemptOf(step) <= 2
+          ? GAVE_UP
+          : { outcome: "needs-you", question: "Which API?", decisions: [] },
+      started,
+    );
+    const boot = yield* factoryEngine(depsOver(tasks, settings), { agents });
+
+    const run = yield* boot(
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        const found = yield* taskRun;
+        yield* waitAsked(found.runId, 1);
+        return found;
+      }),
+    );
+    yield* boot(
+      Effect.gen(function* () {
+        yield* waitAsked(run.runId, 1);
+        yield* tasks.comment(task.id, "Keep the old API.", PERSON);
+        yield* startedBy(yield* tickAt(1));
+        yield* waitAsked(run.runId, 2);
+      }),
+    );
+
+    expect(promptOf(started, "build/3")).toContain("Leo's answer: Keep the old API.");
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(statesOf(entries)).toEqual([
+      "ready>building",
+      "building>needs-you",
+      "needs-you>building",
+      "building>needs-you",
+    ]);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "red checks, requested changes and main moving each spend a fix round, and a third asks Leo",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const task = yield* tasks.create(
+        { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+        PERSON,
+      );
+      let ci = "failure";
+      let landed = false;
+      const started: Array<Started> = [];
+      const opened = { outcome: "pull-request", url: PULL_REQUEST, decisions: [] };
+      const agents = scripted((step) => {
+        if (step === "fix/1") ci = "success";
+        if (step === "fix/2")
+          return { outcome: "needs-you", question: "Which name?", decisions: [] };
+        if (step === "review/1")
+          return { outcome: "changes", requests: "Rename it.", decisions: [] };
+        return kindOf(step) === "review" ? { outcome: "approve", decisions: [] } : opened;
+      }, started);
+      const forge = WorkflowForge.of({
+        ...unavailable,
+        pullRequests: {
+          ...unavailable.pullRequests,
+          read: () =>
+            Effect.sync(
+              () =>
+                ({
+                  state: landed ? "merged" : "open",
+                  mergeability: "mergeable",
+                  url: PULL_REQUEST,
+                  headBranch: `factory/${FactoryTasks.displayKey(task)}`,
+                  checks: [{ name: "test", status: ci, description: null, url: null }],
+                }) as never,
+            ),
+          act: () =>
+            Effect.suspend(() => {
+              landed = true;
+              return Effect.fail(new WorkflowForgeError({ reason: "the connection reset" }));
+            }),
+        },
+      });
+      const baseTouchedSinceFork = () =>
+        Effect.sync(() => !started.some((input) => input.origin.step === "review/3"));
+
+      yield* runFactory(
+        depsOver(tasks, settings, [], baseTouchedSinceFork),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const run = yield* taskRun;
+          yield* waitAsked(run.runId, 1);
+          yield* workflows.answer(run.runId, "needs-you/1", {
+            choice: "retry",
+            reason: "Call it run.",
+          });
+          yield* waitAsked(run.runId, 2);
+          yield* workflows.answer(run.runId, "needs-you/2", { choice: "retry" });
+          yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
+        }),
+        { agents, forge },
+      );
+
+      expect(started.map((input) => input.origin.step)).toEqual([
+        "build/1",
+        "fix/1",
+        "review/1",
+        "fix/2",
+        "fix/3",
+        "review/2",
+        "review/3",
+      ]);
+      expect(promptOf(started, "fix/1")).toContain(`Fix: The checks on ${PULL_REQUEST} fail.`);
+      expect(promptOf(started, "fix/2")).toContain("Fix: Rename it.");
+      expect(promptOf(started, "fix/3")).toContain("Fix: Rename it.");
+      expect(promptOf(started, "fix/3")).toContain("Leo's answer: Call it run.");
+      expect(promptOf(started, "review/3")).toContain("Main changed: ");
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(statesOf(entries)).toEqual([
+        "ready>building",
+        "building>reviewing",
+        "reviewing>building",
+        "building>reviewing",
+        "reviewing>building",
+        "building>needs-you",
+        "needs-you>building",
+        "building>reviewing",
+        "reviewing>needs-you",
+        "needs-you>reviewing",
+        "reviewing>done",
+      ]);
+      expect(
+        entries.findLast((entry) => entry.type === "state" && entry.to === "needs-you"),
+      ).toMatchObject({ reason: expect.stringContaining("past 2 fix rounds") });
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("cancelling a task's run drops the task", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const task = yield* tasks.create(
+      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+      PERSON,
+    );
+    const building = yield* Deferred.make<void>();
+    const agents = scripted(() => {
+      Deferred.doneUnsafe(building, Effect.void);
+      return "never";
+    });
+
+    yield* runFactory(
+      depsOver(tasks, settings),
+      Effect.gen(function* () {
+        const workflows = yield* Workflows.Workflows;
+        yield* startedBy(yield* tickAt(0));
+        yield* Deferred.await(building);
+        const run = yield* taskRun;
+        yield* workflows.cancel(run.runId, "Not needed.");
+        yield* workflows.waitFor(run.runId, (found) => found.status === "cancelled");
+      }),
+      { agents },
+    );
+
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(statesOf(entries)).toEqual(["ready>building", "building>dropped"]);
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

@@ -18,7 +18,6 @@ import {
   IssueRef,
   type EnvironmentId,
 } from "@t3tools/contracts";
-import type { RunEnd } from "../workflows/workflow.ts";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import {
@@ -213,8 +212,6 @@ export class FactoryTasks extends Context.Service<
     ) => Effect.Effect<void, TaskNotFoundError | TaskStoreError>;
     /** Ready, unblocked, auto-dispatched kinds in one scope, oldest first. */
     readonly dispatchable: (scope: string) => Effect.Effect<ReadonlyArray<Task>, TaskStoreError>;
-    /** What a run that ended without a final state leaves the task as: cancelled→dropped, else ready. */
-    readonly runEnded: (id: TaskId, end: RunEnd) => Effect.Effect<void, string>;
     readonly unmirrored: (
       scope: string,
     ) => Effect.Effect<
@@ -696,7 +693,6 @@ const make = Effect.gen(function* () {
     transition,
     record,
     dispatchable,
-    runEnded: notImplemented("runEnded"),
     unmirrored: notImplemented("unmirrored"),
     markMirrored: notImplemented("markMirrored"),
   });
