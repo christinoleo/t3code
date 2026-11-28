@@ -266,6 +266,7 @@ import {
   folderEditOutcome,
   railOrderAfterMove,
   threadFilterTarget,
+  threadRowFolders,
 } from "./sidebar/ProjectRail.logic";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import { createSidebarShiftGuard } from "./Sidebar.shiftGuard";
@@ -4097,6 +4098,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 projectDisplayNameByKey.get(
                                   `${thread.environmentId}:${thread.projectId}`,
                                 ) ?? null
+                              }
+                              folderLabel={
+                                threadRowFolders(thread.tags, projectScopeKeys).join(", ") || null
                               }
                               providerEntryByInstanceId={
                                 providerEntriesByEnvironment.get(thread.environmentId) ??
