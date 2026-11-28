@@ -2,7 +2,10 @@ import { CommandId, factoryProjectSettingsOf, ProjectId, ThreadId } from "@t3too
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as SqlClient from "effect/sql/SqlClient";
 
+import { readFeedbackReports } from "../feedback/FeedbackList.ts";
 import * as IssueService from "../issue/IssueService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
@@ -11,6 +14,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { BuiltInWorkflows } from "../workflows/builtIn.ts";
 import type { AgentThread } from "../workflows/workflowAgent.ts";
@@ -18,6 +22,8 @@ import * as FactoryTasks from "./FactoryTasks.ts";
 import { machines, settleLinked, stopOrphan } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import { makeFactoryWorkflows } from "./factoryWorkflow.ts";
+import { externalIssues } from "./intake/externalIssues.ts";
+import { t3Feedback } from "./intake/t3Feedback.ts";
 
 export const layer = Layer.effect(
   BuiltInWorkflows,
@@ -28,6 +34,7 @@ export const layer = Layer.effect(
     const projects = yield* ProjectService.ProjectService;
     const vcs = yield* GitVcsDriver.GitVcsDriver;
     const issues = yield* IssueService.IssueService;
+    const sql = yield* SqlClient.SqlClient;
     const gitFor = (operation: string) => (cwd: string, args: ReadonlyArray<string>) =>
       Effect.map(vcs.execute({ operation, cwd, args, timeoutMs: 120_000 }), (result) =>
         result.stdout.trim(),
@@ -53,6 +60,18 @@ export const layer = Layer.effect(
     return makeFactoryWorkflows({
       tasks,
       issues,
+      intake: [
+        t3Feedback(Effect.provideService(readFeedbackReports, SqlClient.SqlClient, sql)),
+        externalIssues(issues, (project) =>
+          Effect.map(projects.getShell(project), (shell) => {
+            // A fork binds its upstream first and its own repository second.
+            const bindings = sourceControlDefinitions.issueBindings(
+              Option.getOrUndefined(shell)?.repositoryIdentity,
+            );
+            return bindings.length > 1 ? bindings[0] : undefined;
+          }),
+        ),
+      ],
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>
         Effect.map(settings.getSettings, (all) => factoryProjectSettingsOf(all, project)),

@@ -37,7 +37,8 @@ import {
   type TaskEntry,
   TaskId,
 } from "./FactoryTasks.ts";
-import { ReviewReport, TicketReport, WorkerReport } from "./reports.ts";
+import * as FactoryIntake from "./intake/IntakeSource.ts";
+import { ReviewReport, TicketReport, TriageReport, WorkerReport } from "./reports.ts";
 import { type Actor, isOpen } from "./taskModel.ts";
 import * as TrackerMirror from "./TrackerMirror.ts";
 
@@ -69,6 +70,7 @@ export interface FactoryDeps {
     readonly branch: string;
     readonly from: string;
   }) => Effect.Effect<void, Error>;
+  readonly intake: ReadonlyArray<FactoryIntake.IntakeSource>;
 }
 
 const Projects = Schema.Array(
@@ -82,6 +84,7 @@ const Brief = Schema.Struct({
   scope: Schema.String,
   title: Schema.String,
   body: Schema.String,
+  labels: Schema.Array(Schema.String),
   url: Schema.String,
   integration: Schema.Boolean,
   /** The branches of the open integration epics above it, outermost first. */
@@ -131,6 +134,13 @@ const judgeReview = (report: ReviewReport): Judged =>
         ? { _tag: "needs-you", detail: report.question }
         : { _tag: "gave-up", detail: report.why };
 
+const judgeTriage = (report: TriageReport): Judged =>
+  report.outcome === "file" || report.outcome === "drop"
+    ? { _tag: "done", detail: report.outcome === "file" ? report.title : report.why }
+    : report.outcome === "needs-you"
+      ? { _tag: "needs-you", detail: report.question }
+      : { _tag: "gave-up", detail: `${report.why} Try next: ${report.tryNext}` };
+
 const judgeTicket = (report: TicketReport): Judged =>
   report.outcome === "resolved"
     ? { _tag: "done", detail: report.resolution }
@@ -143,6 +153,10 @@ const needsYouWait = (nth: number) => `needs-you/${nth}`;
 const DROP: AskChoice = { value: "drop", description: "Drop the task." };
 const RETRY: ReadonlyArray<AskChoice> = [
   { value: "retry", description: "Go on; your reason goes to the next agent." },
+  DROP,
+];
+const APPROVE: ReadonlyArray<AskChoice> = [
+  { value: "build", description: "File it Ready to build." },
   DROP,
 ];
 const SESSION: ReadonlyArray<AskChoice> = [
@@ -167,7 +181,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
     {
       version: 1,
       payload: TaskRun,
-      asks: { "needs-you": "Needs you", digest: "Epic digest" },
+      asks: { "needs-you": "Needs you", digest: "Epic digest", approve: "Approve to build" },
       onEnd: (payload, end) =>
         end.outcome !== "cancelled"
           ? Effect.void
@@ -203,6 +217,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
             scope: found.scope,
             title: found.title,
             body: found.body,
+            labels: found.labels,
             url: found.url,
             integration: found.labels.includes(TASK_LABEL.integration),
             epics,
@@ -357,7 +372,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
       const attempts: Partial<Record<Phase, number>> = {};
       const threads: Array<AgentThread> = [];
       const phase = Effect.fn("factory.phase")(function* <A>(
-        kind: "build" | "fix" | "review" | "final-review" | "research" | "session",
+        kind: "build" | "fix" | "review" | "final-review" | "research" | "session" | "triage",
         budget: number,
         judge: (report: A) => Judged,
         decisionsOf: (report: A) => ReadonlyArray<Decision>,
@@ -768,7 +783,75 @@ const taskWorkflow = (deps: FactoryDeps) =>
         yield* postResolutionOnce(answer?.reason ?? "", { kind: "person", name: "you" });
       });
 
-      yield* task.kind === "build" ? build() : ticket();
+      const triage = Effect.fnUntraced(function* () {
+        const untrusted = task.labels.includes(TASK_LABEL.untrusted);
+        const { report } = yield* phase(
+          "triage",
+          budgets.build,
+          judgeTriage,
+          (found: TriageReport) => found.decisions,
+          settings.builder?.instanceId ?? null,
+          (facts, at) => ({
+            brief: briefFor("triage-issues", task, settings, {
+              "Base branch": base,
+              Source: untrusted ? "untrusted, so triage it read-only" : "trusted",
+              ...facts,
+            }),
+            title: `Triage ${task.key}: ${task.title}`,
+            returns: TriageReport,
+            ...model,
+            ...where(at),
+            workspace: { type: "worktree", baseRef: base, startFromOrigin: true },
+            ...(untrusted ? { interactionMode: "plan" as const } : {}),
+            timeout: Duration.minutes(budgets.buildTimeoutMinutes),
+          }),
+          {},
+        );
+        if (report.outcome === "drop") {
+          yield* move("dropped", report.why);
+          return yield* stop(`${task.key} was dropped by its triage.`);
+        }
+        if (report.outcome !== "file") return;
+        if (untrusted) {
+          yield* move("needs-you", `its triage would file "${report.title}" to build.`);
+          const answer = yield* ask("approve", {
+            title: `${task.key}: build "${report.title}"?`,
+            kind: "approve",
+            choices: APPROVE,
+            links: [{ label: task.key, url: task.url }],
+          });
+          const given = Option.getOrUndefined(answer);
+          if (given?.choice !== "build") {
+            yield* move("dropped", given?.reason ?? "Not approved to build.");
+            return yield* stop(`${task.key} was not approved.`);
+          }
+        }
+        const filed = yield* step(
+          "file",
+          { returns: Schema.String },
+          Effect.map(
+            deps.tasks.create(
+              {
+                scope: task.scope,
+                kind: "build",
+                title: report.title,
+                body: `${report.body}
+
+Filed by the triage of [${task.key}](${task.url}).`,
+              },
+              by,
+            ),
+            displayKey,
+          ),
+        );
+        yield* postResolutionOnce(`Filed ${filed} to build.`, by);
+      });
+
+      yield* task.kind === "build"
+        ? build()
+        : task.labels.includes(TASK_LABEL.triage)
+          ? triage()
+          : ticket();
       yield* move("done");
       yield* step(
         "settle",
@@ -860,9 +943,15 @@ const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"
   return entries;
 });
 
-const asksForSession = (before: ReadonlyArray<TaskEntry>) => {
-  const opened = before.findLast((entry) => entry.type === "attempt");
-  return opened?.type === "attempt" && opened.phase === "session" && opened.outcome === "needs-you";
+const awaitsApproval = (last: Extract<TaskEntry, { type: "attempt" }>) =>
+  last.phase === "triage" && last.outcome === "succeeded";
+
+const commentAnswers = (before: ReadonlyArray<TaskEntry>) => {
+  const last = before.findLast((entry) => entry.type === "attempt");
+  if (last?.type !== "attempt") return "retry";
+  if (last.phase === "session" && last.outcome === "needs-you") return "resolved";
+  if (awaitsApproval(last)) return "tap-only";
+  return "retry";
 };
 
 const answerByComment = Effect.fnUntraced(function* (
@@ -878,7 +967,8 @@ const answerByComment = Effect.fnUntraced(function* (
     const raised = entries[raisedAt];
     if (raised?.by.kind !== "factory") continue;
     const runId = raised.by.runId;
-    const choice = asksForSession(entries.slice(0, raisedAt)) ? "resolved" : "retry";
+    const choice = commentAnswers(entries.slice(0, raisedAt));
+    if (choice === "tap-only") continue;
     const comment = entries
       .slice(raisedAt + 1)
       .find(
@@ -914,7 +1004,7 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
   const tick = workflow(
     "factory",
     { version: 1, payload: Tick, triggers: [every("1 minute")], concurrency: 1 },
-    Effect.fn("factory.tick")(function* () {
+    Effect.fn("factory.tick")(function* (_tick, run) {
       yield* step(
         "orphans",
         { returns: Schema.Void },
@@ -941,6 +1031,25 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
           ),
         );
       for (const project of projects) {
+        for (const source of deps.intake) {
+          if (!source.enabled(project.settings.intake)) continue;
+          yield* step(
+            `intake/${source.id}/${project.id}`,
+            { returns: Schema.Void },
+            FactoryIntake.intake(deps.tasks, source, project, {
+              kind: "factory",
+              runId: run.id,
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("factory intake failed", {
+                  project: project.id,
+                  source: source.id,
+                  error,
+                }),
+              ),
+            ),
+          );
+        }
         yield* mirror("intake", TrackerMirror.intake, project);
         yield* mirror("reconcile", TrackerMirror.reconcile, project);
         const ready = yield* step(

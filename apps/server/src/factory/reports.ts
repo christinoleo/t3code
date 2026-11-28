@@ -36,3 +36,21 @@ export const TicketReport = Schema.Union([
   }),
 ]);
 export type TicketReport = typeof TicketReport.Type;
+
+export const TriageReport = Schema.Union([
+  Schema.Struct({
+    outcome: Schema.Literal("file"),
+    title: Schema.String,
+    body: Schema.String,
+    decisions,
+  }),
+  Schema.Struct({ outcome: Schema.Literal("drop"), why: Schema.String, decisions }),
+  Schema.Struct({ outcome: Schema.Literal("needs-you"), question: Schema.String, decisions }),
+  Schema.Struct({
+    outcome: Schema.Literal("gave-up"),
+    why: Schema.String,
+    tryNext: Schema.String,
+    decisions,
+  }),
+]);
+export type TriageReport = typeof TriageReport.Type;

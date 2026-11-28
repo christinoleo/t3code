@@ -13,6 +13,7 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
@@ -27,6 +28,7 @@ import type { FactoryDeps } from "./factoryWorkflow.ts";
 import type { Machine, MachineReport } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
+import type { IntakeSource } from "./intake/IntakeSource.ts";
 import type { MirrorIssues } from "./TrackerMirror.ts";
 
 const decodeSettings = Schema.decodeSync(ServerSettings);
@@ -106,6 +108,7 @@ const depsOver = (
   settle: (thread) => Effect.sync(() => void settled.push(thread)),
   baseTouchedSinceFork,
   ensureBranch,
+  intake: [],
 });
 
 const tickAt = (minute: number) =>
@@ -1528,4 +1531,164 @@ it.effect("a provider not yet checked after a restart is waited for, not asked a
       ),
     ).not.toContain("No machine has this project with a provider ready.");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+const repeatingSource = (
+  id: IntakeSource["id"],
+  trusted: boolean,
+  reports: ReadonlyArray<string>,
+  cursors: Array<string | null>,
+): IntakeSource => ({
+  id,
+  trusted,
+  enabled: (intake) => (id === "t3-feedback" ? intake.t3Feedback : intake.externalIssues),
+  poll: ({ cursor }) =>
+    Effect.sync(() => {
+      cursors.push(Option.getOrNull(cursor));
+      return {
+        reports: reports.map((title) => ({
+          dedupeKey: title,
+          title,
+          body: `${title} happened.`,
+          links: [{ label: "Report", url: `https://example.test/${title}` }],
+        })),
+        cursor: `after ${reports.at(-1)}`,
+      };
+    }),
+});
+
+it.effect(
+  "a source files one triage task per report while its toggle is on, an untrusted one's marked so",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const intakeOf = (externalIssues: boolean) =>
+        decodeSettings({
+          factory: {
+            projects: {
+              alpha: {
+                enabled: true,
+                budgets: PATIENT,
+                intake: { t3Feedback: true, externalIssues },
+              },
+            },
+          },
+        });
+      const settings = yield* Ref.make(intakeOf(false));
+      const feedbackCursors: Array<string | null> = [];
+      const issueCursors: Array<string | null> = [];
+      const deps = {
+        ...depsOver(tasks, settings),
+        intake: [
+          repeatingSource("t3-feedback", true, ["Tool crashed", "Wrong title"], feedbackCursors),
+          repeatingSource("external-issues", false, ["Stranger's bug"], issueCursors),
+        ],
+      };
+      const filed = Effect.map(
+        tasks.list({ scope: "alpha", state: "all", limit: 100 }),
+        ({ items }) =>
+          items
+            .map((task) => [task.title, task.kind, task.labels.toSorted()])
+            .toSorted(([a], [b]) => String(a).localeCompare(String(b))),
+      );
+
+      yield* runFactory(
+        deps,
+        Effect.gen(function* () {
+          yield* startedBy(yield* tickAt(0));
+          yield* startedBy(yield* tickAt(1));
+          expect(issueCursors).toEqual([]);
+          expect(yield* filed).toEqual([
+            ["Tool crashed", "research", ["triage"]],
+            ["Wrong title", "research", ["triage"]],
+          ]);
+
+          yield* Ref.set(settings, intakeOf(true));
+          yield* startedBy(yield* tickAt(2));
+        }),
+        { agents: scripted(() => "never") },
+      );
+
+      expect(feedbackCursors).toEqual([null, "after Wrong title", "after Wrong title"]);
+      expect(yield* filed).toEqual([
+        ["Stranger's bug", "research", ["triage", "untrusted"]],
+        ["Tool crashed", "research", ["triage"]],
+        ["Wrong title", "research", ["triage"]],
+      ]);
+      const [stranger] = (yield* tasks.list({
+        scope: "alpha",
+        state: "all",
+        limit: 100,
+      })).items.filter((task) => task.title === "Stranger's bug");
+      expect(stranger!.body).toContain("- [Report](https://example.test/Stranger's bug)");
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "a trusted triage files its build at once; an untrusted one triages read-only and waits for the approve tap",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const triageOf = (title: string, labels: ReadonlyArray<string>) =>
+        tasks.create(
+          { scope: ProjectId.make("alpha"), kind: "research", title, body: "", labels },
+          PERSON,
+        );
+      const trusted = yield* triageOf("Feedback", ["triage"]);
+      const untrusted = yield* triageOf("Stranger", ["triage", "untrusted"]);
+      const started: Array<Started> = [];
+      const agents = scripted(
+        () => ({ outcome: "file", title: "Fix the crash", body: "Repro: run it.", decisions: [] }),
+        started,
+      );
+      const builds = Effect.map(
+        tasks.list({ scope: "alpha", state: "all", limit: 100 }),
+        ({ items }) => items.filter((task) => task.kind === "build"),
+      );
+
+      yield* runFactory(
+        depsOver(tasks, settings),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const runs = (yield* workflows.list()).filter((run) => run.workflow === "factory-task");
+          const settled = yield* Effect.forEach(runs, (run) =>
+            workflows.waitFor(
+              run.runId,
+              (found) =>
+                found.status === "completed" ||
+                (found.status === "waiting" && found.detail === "approve"),
+            ),
+          );
+          const waiting = settled.find((run) => run.status === "waiting")!;
+          expect(settled.map((run) => run.status).toSorted()).toEqual(["completed", "waiting"]);
+          expect((yield* tasks.get(untrusted.id)).state).toBe("needs-you");
+          expect((yield* builds).length).toBe(1);
+
+          yield* tasks.comment(untrusted.id, "Looks fine, build it.", PERSON);
+          yield* startedBy(yield* tickAt(1));
+          expect((yield* workflows.get(waiting.runId)).run.detail).toBe("approve");
+
+          yield* workflows.answer(waiting.runId, "approve", { choice: "build" });
+          yield* workflows.waitFor(waiting.runId, (found) => found.status === "completed");
+        }),
+        { agents },
+      );
+
+      const filed = yield* builds;
+      expect(filed.map((task) => task.title)).toEqual(["Fix the crash", "Fix the crash"]);
+      expect(filed.every((task) => task.body.startsWith("Repro: run it."))).toBe(true);
+      expect((yield* tasks.get(trusted.id)).state).toBe("done");
+      expect((yield* tasks.get(untrusted.id)).state).toBe("done");
+      const launched = started
+        .filter((input) => input.origin.step.startsWith("triage/"))
+        .map((input) => [
+          input.prompt.includes("Use the `triage-issues` skill"),
+          input.launch?.interactionMode,
+        ]);
+      expect(launched).toHaveLength(2);
+      expect(launched).toContainEqual([true, "plan"]);
+      expect(launched).toContainEqual([true, undefined]);
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
