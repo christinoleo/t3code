@@ -1450,7 +1450,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const api = readLocalApi();
       if (!api) return;
       // Counts loaded threads, the ones the folder shows; a server rename also untags archived ones.
-      const members = folderEditPlan(readThreadShells(), from, null).map(({ thread }) => thread);
+      const members = readThreadShells().filter((thread) => thread.tags?.includes(from));
       const count = members.length;
       const toProjects = members.filter((thread) => thread.tags?.length === 1).length;
       const confirmed = await settlePromise(() =>
