@@ -990,7 +990,7 @@ it.effect(
         tasks.create(
           {
             scope: ProjectId.make("alpha"),
-            kind: "grilling",
+            kind: "map",
             title: `Talk ${key}`,
             body: "",
             blockedBy,
