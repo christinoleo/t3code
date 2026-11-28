@@ -124,7 +124,7 @@ import {
 import {
   buildSidebarProjectPickerEntries,
   projectGroupsSpanEnvironments,
-  resolveSidebarProjectScopeKeys,
+  shownSidebarProjectScopeKeys,
   folderScopeKey,
   folderTagOfScopeKey,
   getSidebarProjectSettingsKey,
@@ -1222,15 +1222,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // An archived project's scope reads as all projects, matching the menu.
   const scopeGroups = pickableProjectGroups(projectGroups);
   const threads = useQuietThreadShells();
-  const archivedProjectKeys = new Set(
-    projectGroups.filter((project) => project.archived).map((project) => project.projectKey),
-  );
-  const chosenProjectScopeKeys = resolveSidebarProjectScopeKeys({
+  const chosenProjectScopeKeys = shownSidebarProjectScopeKeys({
     groups: projectGroups,
     keys: persistedProjectScopeKeys,
     settings: projectGroupingSettings,
     canClearMissingScope: allProjectSnapshotsReady && allProjectConfigsReady,
-  }).filter((key) => !archivedProjectKeys.has(key));
+  });
   const chosenProjectGroups = scopeGroups.filter((project) =>
     chosenProjectScopeKeys.includes(project.projectKey),
   );

@@ -17,6 +17,10 @@ import {
   threadFilterTarget,
   threadRowFolders,
 } from "./ProjectRail.logic";
+import {
+  shownSidebarProjectScopeKeys,
+  type SidebarProjectSnapshot,
+} from "../../sidebarProjectGrouping";
 
 const environmentId = EnvironmentId.make("environment-local");
 
@@ -371,6 +375,17 @@ describe("new thread in a folder scope", () => {
     for (const tag of ["x".repeat(65), "line\nbreak", "tab\tbed", " ops", `${"x".repeat(64)} `]) {
       expect(newThreadCreateTags([`tag:${tag}`])).toEqual({ create: {}, unusableFolder: tag });
     }
+  });
+
+  it("reads the scope the sidebar shows, not the stored one", () => {
+    const groups = [
+      { ...group("old"), archived: true },
+      { ...group("live"), archived: false },
+    ] as unknown as SidebarProjectSnapshot[];
+    const tagsFor = (keys: readonly string[]) =>
+      newThreadCreateTags(shownSidebarProjectScopeKeys({ groups, keys })).create;
+    expect(tagsFor(["tag:ops", "group:old"])).toEqual({ tags: ["ops"] });
+    expect(tagsFor(["tag:ops", "group:live"])).toEqual({});
   });
 });
 

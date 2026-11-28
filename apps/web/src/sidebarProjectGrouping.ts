@@ -136,6 +136,16 @@ export function resolveSidebarProjectScopeKeys(input: {
   ];
 }
 
+/** The scope the sidebar shows: stored keys, less missing and archived projects. */
+export function shownSidebarProjectScopeKeys(
+  input: Parameters<typeof resolveSidebarProjectScopeKeys>[0],
+): string[] {
+  const archived = new Set(
+    input.groups.filter((group) => group.archived).map((group) => group.projectKey),
+  );
+  return resolveSidebarProjectScopeKeys(input).filter((key) => !archived.has(key));
+}
+
 export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
