@@ -22,7 +22,9 @@ export const ciOnMain = (
       const runs = yield* failedRuns({ projectId: project.id, branch });
       const fresh = runs
         // A pull request from a fork's branch of the same name runs on that branch too.
-        .filter((run) => !run.event.startsWith("pull_request") && time(run.finishedAt) >= time(from))
+        .filter(
+          (run) => !run.event.startsWith("pull_request") && time(run.finishedAt) >= time(from),
+        )
         .toSorted((a, b) => time(a.finishedAt) - time(b.finishedAt));
       return {
         reports: fresh.map((run) => ({
