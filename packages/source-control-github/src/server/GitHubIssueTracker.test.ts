@@ -482,7 +482,20 @@ describe("GitHubIssueTracker", () => {
           const { query, variables } = decodeVariables(text);
           const operation = query.match(/(?:query|mutation)\s+(\w+)/)?.[1] ?? "";
           const number = variables["number"];
-          if (operation === "IssueRelationState") {
+          // #50 is a pull request: GitHub fails `repository.issue` as NOT_FOUND.
+          const pullRequest = {
+            data: { repository: { issue: null } },
+            errors: [
+              {
+                type: "NOT_FOUND",
+                path: ["repository", "issue"],
+                message: "Could not resolve to an Issue with the number of 50.",
+              },
+            ],
+          };
+          if (number === 50) {
+            response = pullRequest;
+          } else if (operation === "IssueRelationState") {
             response = {
               data: {
                 repository: {
@@ -498,15 +511,21 @@ describe("GitHubIssueTracker", () => {
               },
             };
           } else if (operation === "IssueNodeId") {
-            // #50 is a pull request, which `repository.issue` does not return.
-            const id =
-              number === 50 ? null : `I_${variables["name"] === "api" ? "api" : ""}${number}`;
             response = {
               data: {
                 repository: {
-                  issue: id === null ? null : { id, state: "OPEN", stateReason: null },
+                  issue: {
+                    id: `I_${variables["name"] === "api" ? "api" : ""}${number}`,
+                    state: "OPEN",
+                    stateReason: null,
+                  },
                 },
               },
+            };
+          } else if (variables["blockingIssueId"] === "I_66") {
+            response = {
+              data: { addBlockedBy: null },
+              errors: [{ type: "FORBIDDEN", message: "Resource not accessible by integration" }],
             };
           } else {
             writes.push([operation, variables]);
@@ -534,8 +553,8 @@ describe("GitHubIssueTracker", () => {
       });
       expect(writes.splice(0)).toEqual([
         ["AddSubIssue", { issueId: "I_8", subIssueId: "I_42" }],
-        ["AddBlockedBy", { issueId: "I_42", blockingIssueId: "I_api12" }],
         ["RemoveBlockedBy", { issueId: "I_42", blockingIssueId: "I_31" }],
+        ["AddBlockedBy", { issueId: "I_42", blockingIssueId: "I_api12" }],
       ]);
 
       yield* api.update({ ...target, relations: { parent: null } });
@@ -551,23 +570,37 @@ describe("GitHubIssueTracker", () => {
 
       expect(
         yield* Effect.flip(
-          api.update({ ...target, relations: { blockedBy: [{ key: "30" }, { key: "50" }] } }),
+          api.update({
+            ...target,
+            title: "Renamed",
+            relations: { blockedBy: [{ key: "30" }, { key: "50" }] },
+          }),
         ),
       ).toMatchObject({ operation: "update", reason: "not-found" });
+      expect(
+        yield* Effect.flip(
+          api.update({ ...target, title: "Renamed", relations: { parent: { key: "42" } } }),
+        ),
+      ).toMatchObject({ operation: "update", detail: "An issue cannot be linked to itself." });
+      expect(
+        yield* Effect.flip(api.update({ ...target, key: "50", relations: { parent: null } })),
+      ).toMatchObject({ operation: "update", reason: "not-found" });
+      const draft = { ...target, title: "Child", body: "", labels: [], assignees: [] };
+      expect(
+        yield* Effect.flip(api.create({ ...draft, relations: { parent: { key: "50" } } })),
+      ).toMatchObject({ operation: "create", reason: "not-found" });
       expect(writes).toEqual([]);
 
-      yield* api.create({
-        ...target,
-        title: "Child",
-        body: "",
-        labels: [],
-        assignees: [],
-        relations: { parent: { key: "7" } },
-      });
-      expect(writes).toEqual([
+      yield* api.create({ ...draft, relations: { parent: { key: "7" } } });
+      expect(writes.splice(0)).toEqual([
         ["POST", "https://api.github.com/repos/acme/web/issues"],
         ["AddSubIssue", { issueId: "I_7", subIssueId: "I_43" }],
       ]);
+
+      const refused = yield* Effect.flip(
+        api.create({ ...draft, relations: { blockedBy: [{ key: "66" }] } }),
+      );
+      expect(refused.detail).toContain("#43 (https://github.com/acme/web/issues/43)");
     }),
   );
 
@@ -713,7 +746,10 @@ describe("GitHubIssueTracker", () => {
       expect(issue.relations).toBeUndefined();
       expect(
         yield* Effect.flip(api.update({ ...target, key: "42", relations: { parent: null } })),
-      ).toMatchObject({ operation: "update", reason: "failed" });
+      ).toMatchObject({
+        operation: "update",
+        detail: "Sub-issues and blocked-by links are only written on github.com.",
+      });
       expect(queries).toHaveLength(2);
     }),
   );

@@ -134,7 +134,6 @@ function toRelationTarget(scope: string, raw: Issues.IssueRelationTarget): Issue
   };
 }
 
-/** `scope` is the read issue's repository; a target elsewhere shows its repository in `displayKey`. */
 export function toIssueRelations(scope: string, raw: Issues.IssueRelationFields): IssueRelations {
   const targets = (connection: {
     readonly nodes: ReadonlyArray<Issues.IssueRelationTarget | null> | null;
