@@ -219,3 +219,55 @@ it.effect("a ready task is built, reviewed and merged, then ends Done", () =>
     expect((yield* tasks.get(task.id)).state).toBe("done");
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
+
+it.effect("a revived task builds on a branch its earlier generation did not use", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+    const task = yield* tasks.create(
+      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+      PERSON,
+    );
+    const branches: Array<string | undefined> = [];
+    const agents = WorkflowAgents.of({
+      start: (input) =>
+        Effect.sync(() => {
+          const workspace = input.launch?.workspace;
+          if (workspace?.type === "worktree") branches.push(workspace.branch);
+          return { threadId: `thread-${branches.length}`, turnId: input.key };
+        }),
+      result: () =>
+        Effect.succeed({
+          ending: "completed" as const,
+          detail: "",
+          reply: "",
+          output: { outcome: "gave-up", why: "Stuck.", tryNext: "Again.", decisions: [] },
+        }),
+      interrupt: () => Effect.succeed("ended" as const),
+    });
+
+    yield* runFactory(
+      depsOver(tasks, settings),
+      Effect.gen(function* () {
+        const workflows = yield* Workflows.Workflows;
+        const finish = Effect.gen(function* () {
+          for (const run of yield* workflows.list()) {
+            if (run.workflow === "factory-task") {
+              yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
+            }
+          }
+        });
+        yield* startedBy(yield* tickAt(0));
+        yield* finish;
+        yield* tasks.transition(task.id, "dropped", PERSON);
+        yield* tasks.transition(task.id, "ready", PERSON);
+        expect(yield* startedBy(yield* tickAt(1))).toEqual([`start/${task.id}/1`]);
+        yield* finish;
+      }),
+      { agents },
+    );
+
+    expect(branches).toHaveLength(2);
+    expect(new Set(branches).size).toBe(2);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);

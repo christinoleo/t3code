@@ -132,7 +132,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
       // #92 replaces this with retries, budgets, fix rounds and a question that resumes the task.
       const needsYou = (reason: string) => move("needs-you", reason);
 
-      const branch = `factory/${task.key}`;
+      // A launch refuses a branch that exists, and an earlier generation's branch outlives it.
+      const branch = `factory/${task.key}${payload.generation === 0 ? "" : `-g${payload.generation}`}`;
       const issue = { project: task.scope, url: task.url };
       yield* move("building");
       const built = yield* agent.try("build", {
