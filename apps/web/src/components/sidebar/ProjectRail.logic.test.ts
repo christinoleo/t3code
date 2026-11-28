@@ -6,6 +6,8 @@ import {
   folderEditPlan,
   folderEditTargets,
   nextProjectRailScope,
+  projectScopeMenuItems,
+  selectedProjectScopeItem,
   railOrderAfterMove,
   railKeysAfterFolderEdit,
   folderEditOutcome,
@@ -339,5 +341,35 @@ describe("new thread in a folder scope", () => {
     expect(newThreadCreateTags(["group:a"])).toEqual({});
     expect(newThreadCreateTags(["tag:ops", "group:a"])).toEqual({});
     expect(newThreadCreateTags(["tag:ops", "tag:infra"])).toEqual({});
+  });
+});
+
+describe("projects filter menu", () => {
+  const projectItems = [
+    { value: "all", label: "All projects" },
+    { value: "group:web", label: "web" },
+  ];
+
+  it("lists the rail's folders after the projects, in the order they were dragged to", () => {
+    const rail = tiles([group("web")], [{ tags: ["alpha"] }, { tags: ["beta"] }], {
+      railOrder: ["tag:beta", "group:web", "tag:alpha"],
+    });
+
+    expect(projectScopeMenuItems(projectItems, rail)).toEqual([
+      ...projectItems,
+      { value: "tag:beta", label: "beta" },
+      { value: "tag:alpha", label: "alpha" },
+    ]);
+  });
+
+  it("marks the one scoped project or folder, all projects when unscoped, none for several or unknown", () => {
+    const items = projectScopeMenuItems(projectItems, tiles([group("web")], [{ tags: ["alpha"] }]));
+
+    expect(selectedProjectScopeItem(items, ["tag:alpha"])?.value).toBe("tag:alpha");
+    expect(selectedProjectScopeItem(items, ["group:web"])?.value).toBe("group:web");
+    expect(selectedProjectScopeItem(items, [])?.value).toBe("all");
+    expect(selectedProjectScopeItem(items, ["group:web", "tag:alpha"])).toBeNull();
+    // A scoped project that has not loaded yet is not "All projects".
+    expect(selectedProjectScopeItem(items, ["group:loading"])).toBeNull();
   });
 });

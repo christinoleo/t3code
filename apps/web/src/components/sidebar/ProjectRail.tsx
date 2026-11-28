@@ -223,19 +223,24 @@ function SortableRailTile(props: {
       >
         {tile.kind === "project" ? (
           <ProjectFavicon project={tile.group} className="size-5" />
-        ) : props.folderIcon ? (
-          <ProjectIconOverrideView icon={props.folderIcon} className="size-5" />
         ) : (
-          <FolderMonogram tag={tile.tag} />
+          <FolderTileIcon tag={tile.tag} icon={props.folderIcon} className="size-5" />
         )}
       </RailTileButton>
     </div>
   );
 }
 
-function FolderMonogram(props: { tag: string }) {
+export function FolderTileIcon(props: {
+  tag: string;
+  icon: ProjectIconOverride | undefined;
+  className: string;
+}) {
+  if (props.icon) return <ProjectIconOverrideView icon={props.icon} className={props.className} />;
   const identity = deriveProjectIdentity(props.tag);
-  return <ProjectMonogram text={identity.monogram} color={identity.color} className="size-5" />;
+  return (
+    <ProjectMonogram text={identity.monogram} color={identity.color} className={props.className} />
+  );
 }
 
 function RailTileButton(props: {

@@ -276,3 +276,28 @@ export function newThreadCreateTags(scopeKeys: readonly string[]): {
   const tag = scopeKeys.length === 1 ? folderTagOfScopeKey(scopeKeys[0]!) : null;
   return tag === null ? {} : { tags: [tag] };
 }
+
+interface ProjectScopeMenuItem {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** Appends the rail's folders, in rail order, so the filter lists every folder the rail shows. */
+export function projectScopeMenuItems(
+  projectItems: readonly ProjectScopeMenuItem[],
+  tiles: readonly ProjectRailTile<RailGroup>[],
+): ProjectScopeMenuItem[] {
+  const folders = tiles.flatMap((tile) =>
+    tile.kind === "folder" ? [{ value: tile.key, label: tile.tag }] : [],
+  );
+  return [...projectItems, ...folders];
+}
+
+export function selectedProjectScopeItem<TItem extends ProjectScopeMenuItem>(
+  items: readonly TItem[],
+  scopeKeys: readonly string[],
+): TItem | null {
+  if (scopeKeys.length > 1) return null;
+  const value = scopeKeys[0] ?? "all";
+  return items.find((item) => item.value === value) ?? null;
+}
