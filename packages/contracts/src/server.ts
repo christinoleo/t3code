@@ -391,6 +391,13 @@ export type ServerProviders = typeof ServerProviders.Type;
 export const isProviderAvailable = (snapshot: ServerProvider): boolean =>
   snapshot.availability !== "unavailable";
 
+/** Whether an enabled provider can take a new thread now. */
+export const canProviderStartThreads = (snapshot: ServerProvider): boolean =>
+  snapshot.installed &&
+  snapshot.status !== "error" &&
+  snapshot.auth.status !== "unauthenticated" &&
+  isProviderAvailable(snapshot);
+
 /** Legacy producers omit this field and support text generation. */
 export const isProviderTextGenerationCapable = (snapshot: ServerProvider): boolean =>
   snapshot.supportsTextGeneration !== false;

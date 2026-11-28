@@ -9,6 +9,7 @@ import {
   ServerSettings,
   TASK_LABEL,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -23,6 +24,7 @@ import { unavailable, WorkflowForge, WorkflowForgeError } from "../workflows/Wor
 import * as Workflows from "../workflows/Workflows.ts";
 import { factoryEngine, runFactory } from "./factory.testkit.ts";
 import type { FactoryDeps } from "./factoryWorkflow.ts";
+import type { Machine, MachineReport } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
 import type { MirrorIssues } from "./TrackerMirror.ts";
@@ -54,6 +56,36 @@ const store = FactoryTasks.layer.pipe(
 
 const PERSON = { kind: "person", name: "Leo" } as const;
 
+const report = (
+  cpuUtilization: number,
+  projects: ReadonlyArray<string>,
+  providers: ReadonlyArray<{ readonly instanceId: string; readonly ready: boolean }> = [
+    { instanceId: "codex", ready: true },
+  ],
+): MachineReport => ({
+  resources: {
+    sampledAt: 0,
+    cpuUtilization,
+    cpuCount: 8,
+    availableMemoryBytes: 8_000_000_000,
+    totalMemoryBytes: 16_000_000_000,
+  },
+  projects: projects.map((name) => ({
+    projectId: name,
+    repositoryKey: `github.com/me/${name.replace(/-there$/, "")}`,
+  })),
+  providers,
+});
+
+const reported = (
+  now: () => ReadonlyArray<readonly [environment: string | undefined, report: MachineReport]>,
+) =>
+  Effect.flatMap(Clock.currentTimeMillis, (receivedAt) =>
+    Effect.sync(() =>
+      now().map(([environment, report]): Machine => ({ environment, report, receivedAt })),
+    ),
+  );
+
 const depsOver = (
   tasks: FactoryTasks.FactoryTasks["Service"],
   settings: Ref.Ref<ServerSettings>,
@@ -61,9 +93,13 @@ const depsOver = (
   baseTouchedSinceFork: FactoryDeps["baseTouchedSinceFork"] = () => Effect.succeed(false),
   issues: MirrorIssues = fakeTracker().issues,
   ensureBranch: FactoryDeps["ensureBranch"] = () => Effect.void,
+  placement: Partial<Pick<FactoryDeps, "machines" | "stopOrphan">> = {},
 ): FactoryDeps => ({
   tasks,
   issues,
+  machines: reported(() => [[undefined, report(0.1, ["alpha", "beta"])]]),
+  stopOrphan: () => Effect.succeed(true),
+  ...placement,
   enabledProjects: Effect.map(Ref.get(settings), enabledProjects),
   projectSettings: (project) =>
     Effect.map(Ref.get(settings), (all) => factoryProjectSettingsOf(all, project)),
@@ -1305,4 +1341,191 @@ it.effect(
       expect(branches).toEqual([`main>${outerBranch}`, `${outerBranch}>${innerBranch}`]);
       expect(started[0]?.prompt).toContain(`Base branch: ${innerBranch}`);
     }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+const placementTask = Effect.gen(function* () {
+  const tasks = yield* FactoryTasks.FactoryTasks;
+  const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+  const task = yield* tasks.create(
+    { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+    PERSON,
+  );
+  return { tasks, settings, task };
+});
+
+it.effect("a worker goes to the least busy machine with the project and a ready provider", () =>
+  Effect.gen(function* () {
+    const { tasks, settings } = yield* placementTask;
+    const started: Array<Started> = [];
+    const agents = scripted(() => GAVE_UP, started);
+    const machines = reported(() => [
+      [undefined, report(0.9, ["alpha"])],
+      ["env-bare", report(0, ["other-there"])],
+      ["env-logged-out", report(0, ["alpha-there"], [{ instanceId: "codex", ready: false }])],
+      ["env-worker", report(0.5, ["alpha-there"])],
+    ]);
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, undefined, undefined, { machines }),
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        yield* waitAsked((yield* taskRun).runId, 1);
+      }),
+      { agents },
+    );
+
+    expect(started.map((input) => [input.environment, input.project])).toEqual([
+      ["env-worker", "alpha-there"],
+      ["env-worker", "alpha-there"],
+    ]);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a burst of workers spreads across machines as each start shows in the load", () =>
+  Effect.gen(function* () {
+    const { tasks, settings } = yield* placementTask;
+    yield* tasks.create({ scope: ProjectId.make("alpha"), title: "And this", body: "" }, PERSON);
+    const started: Array<Started> = [];
+    const both = yield* Deferred.make<void>();
+    const agents = WorkflowAgents.of({
+      start: (input) =>
+        Effect.gen(function* () {
+          started.push(input);
+          if (started.length === 2) yield* Deferred.succeed(both, undefined);
+          return { threadId: `thread-${started.length}`, turnId: input.key };
+        }),
+      result: () => Effect.never,
+      interrupt: () => Effect.succeed("ended" as const),
+    });
+    const busy = (environment: string | undefined) =>
+      0.1 + 0.4 * started.filter((input) => input.environment === environment).length;
+    const machines = reported(() => [
+      [undefined, report(busy(undefined), ["alpha"])],
+      ["env-worker", report(busy("env-worker"), ["alpha-there"])],
+    ]);
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, undefined, undefined, { machines }),
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        yield* Deferred.await(both);
+      }),
+      { agents },
+    );
+
+    expect(new Set(started.map((input) => input.environment))).toEqual(
+      new Set([undefined, "env-worker"]),
+    );
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "a worker whose machine is lost is retried elsewhere for free, and stopped there once it answers",
+  () =>
+    Effect.gen(function* () {
+      const { tasks, settings, task } = yield* placementTask;
+      const started: Array<Started> = [];
+      const retried = yield* Deferred.make<void>();
+      const agents = WorkflowAgents.of({
+        start: (input) =>
+          Effect.gen(function* () {
+            started.push(input);
+            if (input.environment === undefined) yield* Deferred.succeed(retried, undefined);
+            return {
+              threadId: `thread-${started.length}`,
+              turnId: input.key,
+              ...(input.environment === undefined ? {} : { environment: input.environment }),
+            };
+          }),
+        result: (turn) =>
+          started.find((input) => input.key === turn.turnId)!.environment === undefined
+            ? Effect.never
+            : Effect.succeed({ ending: "failed" as const, detail: "connection lost", reply: "" }),
+        interrupt: (thread) =>
+          thread.environment === undefined
+            ? Effect.succeed("stopped" as const)
+            : Effect.fail(new WorkflowAgentError({ reason: "unreachable" })),
+      });
+      const machines = reported(() => [
+        [undefined, report(0.5, ["alpha"])],
+        ["env-worker", report(0.1, ["alpha-there"])],
+      ]);
+      const stops: Array<AgentThread> = [];
+      const stopOrphan = (thread: AgentThread) => Effect.sync(() => stops.push(thread) > 1);
+
+      yield* runFactory(
+        depsOver(tasks, settings, [], undefined, undefined, undefined, { machines, stopOrphan }),
+        Effect.gen(function* () {
+          yield* startedBy(yield* tickAt(0));
+          yield* Deferred.await(retried);
+          for (const minute of [1, 2, 3]) yield* startedBy(yield* tickAt(minute));
+        }),
+        { agents },
+      );
+
+      expect(started.map((input) => input.environment)).toEqual(["env-worker", undefined]);
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(entries.flatMap((entry) => (entry.type === "attempt" ? [entry.failure] : []))).toEqual(
+        ["infra"],
+      );
+      expect(stops).toEqual([
+        { threadId: "thread-1", environment: "env-worker" },
+        { threadId: "thread-1", environment: "env-worker" },
+      ]);
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a task no machine can run asks Leo instead of waiting", () =>
+  Effect.gen(function* () {
+    const { tasks, settings, task } = yield* placementTask;
+    const machines = reported(() => [
+      [undefined, report(0.1, ["alpha"], [{ instanceId: "codex", ready: false }])],
+    ]);
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, undefined, undefined, { machines }),
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        yield* waitAsked((yield* taskRun).runId, 1);
+      }),
+    );
+
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(
+      entries.flatMap((entry) =>
+        entry.type === "state" && entry.to === "needs-you" ? [entry.reason] : [],
+      ),
+    ).toEqual(["No machine has this project with a provider ready."]);
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("a provider not yet checked after a restart is waited for, not asked about", () =>
+  Effect.gen(function* () {
+    const { tasks, settings, task } = yield* placementTask;
+    const started: Array<Started> = [];
+    const agents = scripted(() => GAVE_UP, started);
+    let looks = 0;
+    const machines = Effect.suspend(() =>
+      reported(() => [
+        [undefined, report(0.1, ["alpha"], [{ instanceId: "codex", ready: looks++ > 0 }])],
+      ]),
+    );
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, undefined, undefined, { machines }),
+      Effect.gen(function* () {
+        yield* startedBy(yield* tickAt(0));
+        yield* waitAsked((yield* taskRun).runId, 1);
+      }),
+      { agents },
+    );
+
+    expect(started.length).toBeGreaterThan(0);
+    const { entries } = yield* tasks.timeline(task.id);
+    expect(
+      entries.flatMap((entry) =>
+        entry.type === "state" && entry.to === "needs-you" ? [entry.reason] : [],
+      ),
+    ).not.toContain("No machine has this project with a provider ready.");
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

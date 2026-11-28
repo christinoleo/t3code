@@ -7,16 +7,18 @@ import {
   TaskKind,
   type TaskState,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 
+import type { ProjectOperationError } from "../project/ProjectService.ts";
 import { pullRequests } from "../workflows/forgeApi.ts";
-import { signal, start } from "../workflows/stepServices.ts";
+import { signal, start, store } from "../workflows/stepServices.ts";
 import { every, Tick } from "../workflows/triggers.ts";
-import { skip, sleep, step, stop, workflow } from "../workflows/workflow.ts";
+import { skip, sleep, step, stop, within, workflow } from "../workflows/workflow.ts";
 import {
   agent,
   type AgentFailure,
@@ -25,6 +27,7 @@ import {
   type AgentThread,
   ask,
 } from "../workflows/workflowAgent.ts";
+import { choosePlacement, HERE, type Machine, Placed, type Placement } from "./FactoryPlacement.ts";
 import type { FactoryProject } from "./FactorySettings.ts";
 import {
   displayKey,
@@ -49,6 +52,10 @@ export interface FactoryDeps {
   readonly projectSettings: (
     project: ProjectId,
   ) => Effect.Effect<FactoryProjectSettings, ServerSettingsError>;
+  /** This machine's report and every reachable linked machine's, read now. */
+  readonly machines: Effect.Effect<ReadonlyArray<Machine>, ProjectOperationError>;
+  /** True once a linked worker the engine could not stop is stopped or gone. */
+  readonly stopOrphan: (thread: AgentThread) => Effect.Effect<boolean>;
   /** Never fails: a thread left open is no reason to hold back a task that is done. */
   readonly settle: (thread: AgentThread) => Effect.Effect<void>;
   readonly baseTouchedSinceFork: (pullRequest: {
@@ -146,6 +153,13 @@ const SESSION: ReadonlyArray<AskChoice> = [
   },
   DROP,
 ];
+
+const LOAD_SHOWS_A_START_MS = 30_000;
+const lastStart = store.entry("factory/placement/last-start", Schema.Number);
+const OrphanThread = Schema.Struct({ threadId: Schema.String, environment: Schema.String });
+const ORPHANS = "factory/orphan/";
+const orphan = (thread: typeof OrphanThread.Type) =>
+  store.entry(`${ORPHANS}${thread.environment}/${thread.threadId}`, OrphanThread);
 
 const taskWorkflow = (deps: FactoryDeps) =>
   workflow(
@@ -289,6 +303,57 @@ const taskWorkflow = (deps: FactoryDeps) =>
         return said === "" ? {} : { "Leo's answer": said };
       });
 
+      let placements = 0;
+      const place = Effect.fnUntraced(function* (
+        provider: string | null,
+        exclude: ReadonlyArray<string>,
+      ) {
+        // A provider reads as not ready until its first check after a restart, here or on a
+        // peer, so `none` gets a second look a minute later before it asks.
+        let unplaced = false;
+        while (true) {
+          const nth = ++placements;
+          const placed = yield* within(
+            "factory-placement",
+            { limit: 1 },
+            Effect.gen(function* () {
+              const gap = yield* step(
+                `place/${nth}/gap`,
+                { returns: Schema.Number },
+                Effect.gen(function* () {
+                  const last = yield* lastStart.get;
+                  const now = yield* Clock.currentTimeMillis;
+                  return Option.match(last, {
+                    onNone: () => 0,
+                    onSome: (at) => Math.max(0, at + LOAD_SHOWS_A_START_MS - now),
+                  });
+                }),
+              );
+              if (gap > 0) yield* sleep(`place/${nth}/after-last-start`, Duration.millis(gap));
+              return yield* step(
+                `place/${nth}`,
+                { returns: Placed },
+                Effect.gen(function* () {
+                  const machines = yield* Effect.option(deps.machines);
+                  const now = yield* Clock.currentTimeMillis;
+                  if (Option.isNone(machines)) return { _tag: "full" } as const;
+                  const chosen = choosePlacement(
+                    machines.value,
+                    { project: task.scope, provider, exclude },
+                    now,
+                  );
+                  if (chosen._tag === "placed") yield* lastStart.set(now);
+                  return chosen;
+                }),
+              );
+            }),
+          );
+          if (placed._tag === "placed" || (placed._tag === "none" && unplaced)) return placed;
+          unplaced = placed._tag === "none";
+          yield* sleep(`place/${nth}/${placed._tag}`, "1 minute");
+        }
+      });
+
       const attempts: Partial<Record<Phase, number>> = {};
       const threads: Array<AgentThread> = [];
       const phase = Effect.fn("factory.phase")(function* <A>(
@@ -296,25 +361,40 @@ const taskWorkflow = (deps: FactoryDeps) =>
         budget: number,
         judge: (report: A) => Judged,
         decisionsOf: (report: A) => ReadonlyArray<Decision>,
-        launch: (facts: Facts) => AgentOptions<A, unknown>,
+        provider: string | null,
+        launch: (facts: Facts, at: Placement) => AgentOptions<A, unknown>,
         given: Facts,
         pullRequest?: string,
       ) {
         let agentFailures = 0;
         let infraStreak = 0;
         let facts = given;
+        let exclude: ReadonlyArray<string> = [];
         while (true) {
           yield* enter(kind === "review" || kind === "final-review" ? "reviewing" : "building");
+          const placed = yield* place(provider, exclude);
+          if (placed._tag === "none") {
+            facts = { ...given, ...(yield* needsYou(placed.why, pullRequest)) };
+            continue;
+          }
+          const at = placed.placement;
           const nth = (attempts[kind] ?? 0) + 1;
           attempts[kind] = nth;
           const name = `${kind}/${nth}`;
-          const tried = yield* agent.try(name, launch(facts));
+          const tried = yield* agent.try(name, launch(facts, at));
           if (tried.thread !== undefined) threads.push(tried.thread);
           let detail: string;
           let infra = false;
+          exclude = [];
           if (tried.outcome === "failed") {
             infra = FREE_RETRY_CAUSES.has(tried.cause);
             detail = tried.reason;
+            if (infra) exclude = [at.environment ?? HERE];
+            const lost = tried.thread;
+            if (tried.cause === "died" && lost?.environment !== undefined) {
+              const stray = { threadId: lost.threadId, environment: lost.environment };
+              yield* step(`${name}/orphan`, { returns: Schema.Void }, orphan(stray).set(stray));
+            }
             yield* record(
               name,
               kind,
@@ -401,7 +481,10 @@ const taskWorkflow = (deps: FactoryDeps) =>
           }
         }
       });
-      const issue = { project: task.scope, url: task.url };
+      const where = (at: Placement) =>
+        at.environment === undefined
+          ? { project: at.project, issue: { project: task.scope, url: task.url } }
+          : { project: at.project, environment: at.environment };
       const work = (kind: "build" | "fix", given: Facts, pullRequest?: string) =>
         Effect.map(
           phase(
@@ -409,7 +492,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
             budgets.build,
             judgeWork,
             (report: WorkerReport) => report.decisions,
-            (facts) => ({
+            settings.builder?.instanceId ?? null,
+            (facts, at) => ({
               brief: briefFor("maestro-worker", task, settings, {
                 ...branchFacts,
                 ...(pullRequest === undefined ? {} : { "Pull request": pullRequest }),
@@ -418,13 +502,12 @@ const taskWorkflow = (deps: FactoryDeps) =>
               title: `${kind === "build" ? "Build" : "Fix"} ${task.key}: ${task.title}`,
               returns: WorkerReport,
               ...model,
-              project: task.scope,
+              ...where(at),
               workspace: {
                 type: "worktree",
                 baseRef: task.integration ? branch : base,
                 startFromOrigin: true,
               },
-              issue,
               timeout: Duration.minutes(budgets.buildTimeoutMinutes),
             }),
             given,
@@ -450,7 +533,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
               budgets.review,
               judgeReview,
               (report: ReviewReport) => report.decisions,
-              (facts) => ({
+              reviewModel?.instanceId ?? null,
+              (facts, at) => ({
                 brief: briefFor("maestro-reviewer", task, settings, {
                   ...branchFacts,
                   "Pull request": pullRequest,
@@ -459,9 +543,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
                 title: `Review ${task.key}: ${task.title}`,
                 returns: ReviewReport,
                 ...(reviewModel === undefined ? {} : { model: reviewModel }),
-                project: task.scope,
+                ...where(at),
                 workspace: { type: "worktree", baseRef: branch, startFromOrigin: true },
-                issue,
                 timeout: Duration.minutes(budgets.reviewTimeoutMinutes),
               }),
               given,
@@ -659,7 +742,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
           budgets.build,
           judgeTicket,
           (report: TicketReport) => report.decisions,
-          (facts) => ({
+          settings.builder?.instanceId ?? null,
+          (facts, at) => ({
             brief: briefFor("wayfinder", task, settings, {
               Kind: task.kind,
               "Base branch": base,
@@ -668,9 +752,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
             title: `${task.kind === "research" ? "Research" : "Open"} ${task.key}: ${task.title}`,
             returns: TicketReport,
             ...model,
-            project: task.scope,
+            ...where(at),
             workspace: { type: "worktree", baseRef: base, startFromOrigin: true },
-            issue,
             timeout: Duration.minutes(budgets.buildTimeoutMinutes),
           }),
           {},
@@ -832,6 +915,20 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
     "factory",
     { version: 1, payload: Tick, triggers: [every("1 minute")], concurrency: 1 },
     Effect.fn("factory.tick")(function* () {
+      yield* step(
+        "orphans",
+        { returns: Schema.Void },
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            yield* store.entries(ORPHANS, OrphanThread),
+            ({ value }) =>
+              Effect.flatMap(deps.stopOrphan(value), (stopped) =>
+                stopped ? orphan(value).delete : Effect.void,
+              ),
+            { concurrency: "unbounded", discard: true },
+          );
+        }),
+      );
       const projects = yield* step("projects", { returns: Projects }, deps.enabledProjects);
       const mirror = (name: string, sync: typeof TrackerMirror.intake, project: FactoryProject) =>
         step(

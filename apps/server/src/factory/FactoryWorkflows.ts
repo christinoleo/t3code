@@ -5,11 +5,17 @@ import * as Layer from "effect/Layer";
 
 import * as IssueService from "../issue/IssueService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as PeerMcpClient from "../peer/PeerMcpClient.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { BuiltInWorkflows } from "../workflows/builtIn.ts";
+import type { AgentThread } from "../workflows/workflowAgent.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
+import { machines, settleLinked, stopOrphan } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import { makeFactoryWorkflows } from "./factoryWorkflow.ts";
 
@@ -28,34 +34,42 @@ export const layer = Layer.effect(
       );
     const git = gitFor("factory.baseTouchedSinceFork");
     const files = (listed: string) => listed.split("\n").filter((file) => file !== "");
+    const services = yield* Effect.context<
+      | HostResources.HostResources
+      | ProjectService.ProjectService
+      | ProviderRegistry.ProviderRegistry
+      | PeerLinks.PeerLinks
+      | PeerMcpClient.PeerMcpClient
+    >();
+    const quietly = <A, E, R>(thread: AgentThread, effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.asVoid,
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("factory could not settle a worker thread", { thread, cause }),
+        ),
+      );
     return makeFactoryWorkflows({
       tasks,
       issues,
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>
         Effect.map(settings.getSettings, (all) => factoryProjectSettingsOf(all, project)),
-      // Threads on linked environments are settled once placement puts workers there (#93).
+      machines: Effect.provide(machines, services),
+      stopOrphan: (thread) => Effect.provide(stopOrphan(thread), services),
       settle: (thread) =>
         thread.environment === undefined
-          ? threads
-              .settleThread({
+          ? quietly(
+              thread,
+              threads.settleThread({
                 threadId: ThreadId.make(thread.threadId),
                 // One settle per thread, however often the step is retried.
                 commandId: CommandId.make(`factory:settle:${thread.threadId}`),
                 byOwnAgent: false,
-              })
-              .pipe(
-                Effect.asVoid,
-                Effect.catchCause((cause) =>
-                  Cause.hasInterruptsOnly(cause)
-                    ? Effect.interrupt
-                    : Effect.logWarning("factory could not settle a worker thread", {
-                        thread,
-                        cause,
-                      }),
-                ),
-              )
-          : Effect.void,
+              }),
+            )
+          : quietly(thread, Effect.provide(settleLinked(thread), services)),
       baseTouchedSinceFork: Effect.fn("FactoryWorkflows.baseTouchedSinceFork")(function* ({
         checkout,
         base,

@@ -1,6 +1,7 @@
 import { factoryProjectSettingsOf, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { describeSelf } from "../../../factory/FactoryPlacement.ts";
 import { configure } from "../../../factory/FactorySettings.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Settings from "../../../serverSettings.ts";
@@ -10,6 +11,9 @@ import { unavailable } from "../../threadAccess.ts";
 import { FactoryToolkit } from "./tools.ts";
 
 export const layer = McpToolAccess.toLayer(FactoryToolkit, {
+  factory_machine: McpToolAccess.reads(() =>
+    describeSelf.pipe(Effect.mapError(() => unavailable())),
+  ),
   factory_configure: McpToolAccess.writesEnvironment(
     ({ environmentId: _environmentId, projectId, ...patch }, check) =>
       Effect.gen(function* () {
