@@ -430,14 +430,13 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         const result = yield* threads
           .renameThreadTag({ commandId: yield* newCommandId(), from, to })
           .pipe(
-            Effect.mapError((error) =>
-              isOrchestratorV2Error(error.cause)
-                ? dispatchFailure(error.cause)
-                : new OrchestratorMcpFailure({
-                    code: "orchestration_error",
-                    message: error.message,
-                  }),
-            ),
+            Effect.mapError((error) => {
+              const folderFailure = () =>
+                new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message });
+              return isOrchestratorV2Error(error.cause)
+                ? dispatchFailure(error.cause, folderFailure)
+                : folderFailure();
+            }),
           );
         // No thread here held the folder, so its icon may belong to another environment's.
         if (result.threadCount === 0) return result;
