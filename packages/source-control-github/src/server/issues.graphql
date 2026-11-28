@@ -479,6 +479,40 @@ query IssueSearchWithStatus($q: String!, $cursor: String, $rows: Int!) {
   }
 }
 
+# Sub-issues and dependencies ride with statuses: Enterprise Server may lack both. One page is the
+# whole set, since GitHub caps sub-issues at 100 and dependencies at 50 per issue.
+fragment IssueRelationTarget on Issue {
+  number
+  title
+  url
+  state
+  stateReason
+  repository {
+    nameWithOwner
+  }
+}
+
+fragment IssueRelationFields on Issue {
+  parent {
+    ...IssueRelationTarget
+  }
+  subIssues(first: 100) {
+    nodes {
+      ...IssueRelationTarget
+    }
+  }
+  blockedBy(first: 100) {
+    nodes {
+      ...IssueRelationTarget
+    }
+  }
+  blocking(first: 100) {
+    nodes {
+      ...IssueRelationTarget
+    }
+  }
+}
+
 # One document so an issue read costs a single query against the viewer's GraphQL allowance.
 query IssueDetailWithStatus($owner: String!, $name: String!, $number: Int!) {
   viewer {
@@ -493,6 +527,7 @@ query IssueDetailWithStatus($owner: String!, $name: String!, $number: Int!) {
     }
     issue(number: $number) {
       ...IssueDetailFields
+      ...IssueRelationFields
       viewerCanSetStatus
       status {
         ...PlanningStatusFields

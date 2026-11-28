@@ -78,6 +78,40 @@ const DETAIL_RESPONSE = JSON.stringify({
           nodes: [{ name: "bug", color: "d73a4a" }, null],
         },
         body: "Typing in the composer drops focus after a paste.",
+        parent: {
+          number: 7,
+          title: "Composer polish",
+          url: "https://github.com/acme/web/issues/7",
+          state: "OPEN",
+          stateReason: null,
+          repository: { nameWithOwner: "acme/web" },
+        },
+        subIssues: {
+          nodes: [
+            {
+              number: 12,
+              title: "Paste handler drops selection",
+              url: "https://github.com/acme/api/issues/12",
+              state: "CLOSED",
+              stateReason: "COMPLETED",
+              repository: { nameWithOwner: "acme/api" },
+            },
+            null,
+          ],
+        },
+        blockedBy: {
+          nodes: [
+            {
+              number: 30,
+              title: "Editor refactor",
+              url: "https://github.com/acme/web/issues/30",
+              state: "OPEN",
+              stateReason: null,
+              repository: { nameWithOwner: "Acme/Web" },
+            },
+          ],
+        },
+        blocking: { nodes: [] },
         viewerCanUpdate: false,
         viewerCanClose: false,
         viewerCanReopen: true,
@@ -434,6 +468,109 @@ describe("GitHubIssueTracker", () => {
     }),
   );
 
+  it.effect("writes a parent and blockers as native links, changing only what differs", () =>
+    Effect.gen(function* () {
+      const writes: unknown[] = [];
+      const http = HttpClient.make((request) => {
+        if (request.body._tag !== "Uint8Array") return Effect.die("Expected a JSON request.");
+        const text = new TextDecoder().decode(request.body.body);
+        let response: unknown;
+        if (request.url !== "https://api.github.com/graphql") {
+          writes.push([request.method, request.url]);
+          response = { number: 43, html_url: "https://github.com/acme/web/issues/43" };
+        } else {
+          const { query, variables } = decodeVariables(text);
+          const operation = query.match(/(?:query|mutation)\s+(\w+)/)?.[1] ?? "";
+          const number = variables["number"];
+          if (operation === "IssueRelationState") {
+            response = {
+              data: {
+                repository: {
+                  issue:
+                    number === 42
+                      ? {
+                          id: "I_42",
+                          parent: { id: "I_7" },
+                          blockedBy: { nodes: [{ id: "I_30" }, { id: "I_31" }] },
+                        }
+                      : { id: "I_43", parent: null, blockedBy: { nodes: [] } },
+                },
+              },
+            };
+          } else if (operation === "IssueNodeId") {
+            // #50 is a pull request, which `repository.issue` does not return.
+            const id =
+              number === 50 ? null : `I_${variables["name"] === "api" ? "api" : ""}${number}`;
+            response = {
+              data: {
+                repository: {
+                  issue: id === null ? null : { id, state: "OPEN", stateReason: null },
+                },
+              },
+            };
+          } else {
+            writes.push([operation, variables]);
+            response = { data: { [operation.charAt(0).toLowerCase() + operation.slice(1)]: null } };
+          }
+        }
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(JSON.stringify(response), {
+              headers: { "content-type": "application/json" },
+            }),
+          ),
+        );
+      });
+      const api = yield* GitHubIssueTracker.make.pipe(Effect.provide(transport(http)));
+      const target = { cwd: "/w", host: "github.com", scope: "acme/web", key: "42" };
+
+      yield* api.update({
+        ...target,
+        relations: {
+          parent: { key: "8" },
+          blockedBy: [{ key: "30" }, { scope: "acme/api", key: "12" }],
+        },
+      });
+      expect(writes.splice(0)).toEqual([
+        ["AddSubIssue", { issueId: "I_8", subIssueId: "I_42" }],
+        ["AddBlockedBy", { issueId: "I_42", blockingIssueId: "I_api12" }],
+        ["RemoveBlockedBy", { issueId: "I_42", blockingIssueId: "I_31" }],
+      ]);
+
+      yield* api.update({ ...target, relations: { parent: null } });
+      expect(writes.splice(0)).toEqual([
+        ["RemoveSubIssue", { issueId: "I_7", subIssueId: "I_42" }],
+      ]);
+
+      yield* api.update({
+        ...target,
+        relations: { parent: { key: "7" }, blockedBy: [{ key: "31" }, { key: "30" }] },
+      });
+      expect(writes).toEqual([]);
+
+      expect(
+        yield* Effect.flip(
+          api.update({ ...target, relations: { blockedBy: [{ key: "30" }, { key: "50" }] } }),
+        ),
+      ).toMatchObject({ operation: "update", reason: "not-found" });
+      expect(writes).toEqual([]);
+
+      yield* api.create({
+        ...target,
+        title: "Child",
+        body: "",
+        labels: [],
+        assignees: [],
+        relations: { parent: { key: "7" } },
+      });
+      expect(writes).toEqual([
+        ["POST", "https://api.github.com/repos/acme/web/issues"],
+        ["AddSubIssue", { issueId: "I_7", subIssueId: "I_43" }],
+      ]);
+    }),
+  );
+
   it.effect("moves an issue between the repository's issue statuses", () =>
     Effect.gen(function* () {
       const status = (id: string, name: string, key: string, stateReason: string | null) => ({
@@ -568,9 +705,16 @@ describe("GitHubIssueTracker", () => {
         sort: "updated",
         limit: 10,
       });
-      yield* api.getIssue({ ...target, key: "42" });
+      const issue = yield* api.getIssue({ ...target, key: "42" });
       expect(queries).toHaveLength(2);
-      for (const query of queries) expect(query).not.toMatch(/status|planningStatuses/i);
+      for (const query of queries) {
+        expect(query).not.toMatch(/status|planningStatuses|subIssues|blockedBy|blocking/i);
+      }
+      expect(issue.relations).toBeUndefined();
+      expect(
+        yield* Effect.flip(api.update({ ...target, key: "42", relations: { parent: null } })),
+      ).toMatchObject({ operation: "update", reason: "failed" });
+      expect(queries).toHaveLength(2);
     }),
   );
 
@@ -894,6 +1038,37 @@ Redact secrets before uploading.`);
           closesIssue: true,
         },
       ]);
+      expect(issue.relations).toEqual({
+        parent: {
+          scope: "acme/web",
+          key: "7",
+          displayKey: "#7",
+          title: "Composer polish",
+          url: "https://github.com/acme/web/issues/7",
+          state: { category: "open", name: "Open" },
+        },
+        children: [
+          {
+            scope: "acme/api",
+            key: "12",
+            displayKey: "acme/api#12",
+            title: "Paste handler drops selection",
+            url: "https://github.com/acme/api/issues/12",
+            state: { category: "closed", name: "Completed", closeReason: "completed" },
+          },
+        ],
+        blockedBy: [
+          {
+            scope: "Acme/Web",
+            key: "30",
+            displayKey: "#30",
+            title: "Editor refactor",
+            url: "https://github.com/acme/web/issues/30",
+            state: { category: "open", name: "Open" },
+          },
+        ],
+        blocking: [],
+      });
       // An event kind this page has no vocabulary for is dropped rather than guessed at.
       expect(issue.events.map((event) => [event.kind, event.detail])).toEqual([
         ["labeled", "bug"],
