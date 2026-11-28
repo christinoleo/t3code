@@ -66,7 +66,6 @@ const issue = (
   ...overrides,
 });
 
-/** Another issue as a relation names it. */
 const related = (identifier: string, stateType = "started") => ({
   id: `iss_${identifier}`,
   identifier,
@@ -610,9 +609,33 @@ describe("LinearIssueTracker", () => {
           writes.push(["unlink", variables.id]);
           return { issueRelationDelete: { success: true } };
         },
+        T3Team: () => ({
+          teams: {
+            nodes: [
+              {
+                id: "team_eng",
+                key: "ENG",
+                name: "Engineering",
+                states: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                labels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                members: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+                templates: { nodes: [] },
+              },
+            ],
+          },
+          issueLabels: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        }),
+        T3IssueCreate: (variables) => {
+          writes.push(["create", variables.input]);
+          return {
+            issueCreate: {
+              success: true,
+              issue: { identifier: "ENG-10", url: "https://linear.app/acme/issue/ENG-10" },
+            },
+          };
+        },
       });
       const api = yield* tracker;
-      // A bare number is counted in the ref's own team, else in the issue's.
       yield* api.update({
         ...target,
         key: "ENG-1",
@@ -630,6 +653,23 @@ describe("LinearIssueTracker", () => {
       expect(writes).toEqual([
         ["update", { parentId: "ENG-9" }],
         ["update", { parentId: null }],
+      ]);
+
+      writes.length = 0;
+      yield* api.create({
+        ...target,
+        title: "New",
+        body: "",
+        labels: [],
+        assignees: [],
+        relations: { parent: { key: "1" }, blockedBy: [{ key: "ENG-2" }] },
+      });
+      expect(writes).toEqual([
+        [
+          "create",
+          { teamId: "team_eng", title: "New", description: "", labelIds: [], parentId: "ENG-1" },
+        ],
+        ["link", { issueId: "ENG-2", relatedIssueId: "ENG-10", type: "blocks" }],
       ]);
     }),
   );

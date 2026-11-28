@@ -313,24 +313,31 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
     });
 
     /** A ref's bare number counts in its own project, else in the issue's being written. */
+    const relationKey = (
+      operation: string,
+      scope: string,
+      ref: IssueRelationRef,
+    ): Effect.Effect<string, IssueTrackerError> => {
+      const trimmed = ref.key.trim();
+      const key = (
+        /^\d+$/u.test(trimmed) ? `${ref.scope ?? scope}-${trimmed}` : trimmed
+      ).toUpperCase();
+      return /^[A-Z][A-Z0-9_]*-[1-9]\d*$/u.test(key)
+        ? Effect.succeed(key)
+        : Effect.fail(JiraApi.fail(operation, "failed", `"${ref.key}" is not a Jira issue key.`));
+    };
+
     const relationKeys = (
       operation: string,
       scope: string,
       refs: ReadonlyArray<IssueRelationRef>,
-    ) =>
-      Effect.forEach(refs, (ref) => {
-        const key = ref.key.trim();
-        return requireKey(operation, /^\d+$/u.test(key) ? `${ref.scope ?? scope}-${key}` : key);
-      });
+    ) => Effect.forEach(refs, (ref) => relationKey(operation, scope, ref));
 
     const parentField = (operation: string, scope: string, parent: IssueRelationRef | null) =>
       parent === null
         ? Effect.succeed({ parent: null })
-        : relationKeys(operation, scope, [parent]).pipe(
-            Effect.map(([key]) => ({ parent: { key: key! } })),
-          );
+        : relationKey(operation, scope, parent).pipe(Effect.map((key) => ({ parent: { key } })));
 
-    /** Makes the issue's blockers exactly `wanted`, touching only the links that differ. */
     const writeBlockers = Effect.fn("JiraIssueTracker.writeBlockers")(function* (
       key: string,
       current: ReadonlyArray<JiraApi.JiraIssueLink>,
@@ -478,7 +485,9 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
             jira.origin,
             jira.getIssue(key),
             // Subtasks and an epic's issues alike name it as their parent.
-            jira.search({ jql: `parent = ${quoted(key)} ORDER BY created ASC`, limit: 50 }),
+            jira
+              .search({ jql: `parent = ${quoted(key)} ORDER BY created ASC`, limit: 50 })
+              .pipe(Effect.orElseSucceed(() => ({ issues: [] }))),
             jira.getComments({ key, startAt: 0, limit: COMMENTS_PAGE }),
             jira
               .permissions(key, [
@@ -609,7 +618,6 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
               )),
           ...(parent === undefined ? {} : yield* parentField("update", input.scope, parent)),
         };
-        // A blockers-only write has no issue field to send.
         if (Object.keys(fields).length > 0) yield* jira.updateIssue(key, fields);
         if (blockers !== undefined && current !== null) {
           yield* writeBlockers(key, blockLinks(current), blockers);

@@ -239,7 +239,6 @@ export class JiraApi extends Context.Service<
       fields: Record<string, unknown>,
     ) => Effect.Effect<void, IssueTrackerError>;
     readonly transition: (key: string, id: string) => Effect.Effect<void, IssueTrackerError>;
-    /** Links the two with the site's "Blocks" link type. */
     readonly createBlockLink: (input: {
       readonly blocker: string;
       readonly blocked: string;

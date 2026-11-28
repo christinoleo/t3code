@@ -49,7 +49,6 @@ const issue = (key: string, fields: Record<string, unknown> = {}, extra = {}) =>
   ...extra,
 });
 
-/** Another issue as a parent or a link names it. */
 const related = (key: string, state = IN_PROGRESS) => ({
   id: `id_${key}`,
   key,
@@ -408,7 +407,6 @@ describe("JiraIssueTracker", () => {
             issuelinks: [
               blocks("keep", "inwardIssue", "ENG-2"),
               blocks("drop", "inwardIssue", "ENG-3"),
-              // An issue this one blocks is not one of its blockers.
               blocks("theirs", "outwardIssue", "ENG-5"),
             ],
           }),
@@ -420,7 +418,6 @@ describe("JiraIssueTracker", () => {
       const api = yield* tracker;
       const writes = () =>
         requests.filter((seen) => seen.method !== "GET").map((seen) => [seen.method, seen.body]);
-      // A bare number is counted in the ref's own project, else in the issue's.
       yield* api.update({
         ...target,
         key: "ENG-1",
@@ -453,6 +450,11 @@ describe("JiraIssueTracker", () => {
         ["PUT", { fields: { parent: { key: "ENG-9" } } }],
         ["PUT", { fields: { parent: null } }],
       ]);
+
+      const malformed = yield* api
+        .update({ ...target, key: "ENG-1", relations: { parent: { key: "next sprint" } } })
+        .pipe(Effect.flip);
+      expect(malformed.detail).toBe('"next sprint" is not a Jira issue key.');
     }),
   );
 
@@ -509,6 +511,7 @@ describe("JiraIssueTracker", () => {
         }),
         "GET /rest/api/3/user/assignable/search": () => [JULIUS, THEO],
         "POST /rest/api/3/issue": () => ({ id: "1", key: "ENG-9" }),
+        "POST /rest/api/3/issueLink": () => new Response(null, { status: 201 }),
       });
       const api = yield* tracker;
       const created = yield* api.create({
@@ -517,6 +520,7 @@ describe("JiraIssueTracker", () => {
         body: "Hello",
         labels: ["bug"],
         assignees: ["theo@acme.test"],
+        relations: { parent: { key: "1" }, blockedBy: [{ key: "ENG-2" }] },
       });
       expect(created).toEqual({
         key: "ENG-9",
@@ -524,6 +528,11 @@ describe("JiraIssueTracker", () => {
         url: "https://acme.atlassian.net/browse/ENG-9",
       });
       expect(requests.at(-1)?.body).toEqual({
+        type: { name: "Blocks" },
+        inwardIssue: { key: "ENG-2" },
+        outwardIssue: { key: "ENG-9" },
+      });
+      expect(requests.at(-2)?.body).toEqual({
         fields: {
           project: { key: "ENG" },
           issuetype: { id: "3" },
@@ -535,6 +544,7 @@ describe("JiraIssueTracker", () => {
           },
           labels: ["bug"],
           assignee: { accountId: "acc_theo" },
+          parent: { key: "ENG-1" },
         },
       });
     }),

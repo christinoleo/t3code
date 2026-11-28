@@ -447,7 +447,6 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
         ? Effect.succeed(null)
         : relationIdentifiers(operation, scope, [parent]).pipe(Effect.map(([id]) => id!));
 
-    /** Makes the issue's blockers exactly `wanted`, touching only the links that differ. */
     const writeBlockers = Effect.fn("LinearIssueTracker.writeBlockers")(function* (
       identifier: string,
       current: ReadonlyArray<{ readonly id: string; readonly blocker: string }>,
@@ -663,7 +662,6 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, LinearApi.Lin
             ? {}
             : { parentId: yield* parentId("update", input.scope, parent) }),
         };
-        // A blockers-only write has no issue field to send.
         if (Object.keys(fields).length > 0) yield* linear.updateIssue(identifier, fields);
         if (blockers !== undefined) {
           const current = issue.inverseRelations.nodes
