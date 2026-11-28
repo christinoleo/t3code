@@ -13360,5 +13360,9 @@
   "5807c08e225c6b3d": "Ladda ned",
   "0d50b5bfe7151ece": "Det gick inte att ladda ned filen",
   "eb1fd384ad5919dd": "Intern anteckning",
-  "b45f0b467e9406d0": "Svara kunden"
+  "b45f0b467e9406d0": "Svara kunden",
+  "7374c391a196ec55": "Det gick inte att återställa mappen",
+  "3fa9e57edafff826": "Tog bort {count, plural, one {{count} mapp} other {{count} mappar}}",
+  "6a78eb543f2cb337": "Återställde {count, plural, one {{count} mapp} other {{count} mappar}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {Mapp borttagen,} other {Tog bort {count} mappar,}}"
 }

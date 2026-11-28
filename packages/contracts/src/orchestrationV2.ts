@@ -4585,6 +4585,8 @@ export type OrchestrationV2RenameThreadTagInput = typeof OrchestrationV2RenameTh
 export const OrchestrationV2RenameThreadTagResult = Schema.Struct({
   /** Threads whose tags the rename changed. */
   threadCount: NonNegativeInt,
+  /** Those threads. Older servers omit it. */
+  threadIds: Schema.optional(Schema.Array(ThreadId)),
 });
 export type OrchestrationV2RenameThreadTagResult = typeof OrchestrationV2RenameThreadTagResult.Type;
 

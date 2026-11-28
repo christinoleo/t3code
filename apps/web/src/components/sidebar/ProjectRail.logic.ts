@@ -1,5 +1,6 @@
 import type { ThreadFolderTagChange } from "@t3tools/contracts";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { arrayElementsEqual } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 import {
@@ -227,6 +228,16 @@ export function railKeysAfterFolderEdit(
     }
   }
   return next;
+}
+
+export function railKeysAfterFolderUndo(
+  current: readonly string[],
+  afterDelete: readonly string[],
+  beforeDelete: readonly string[],
+): readonly string[] | null {
+  return arrayElementsEqual(current, afterDelete) && !arrayElementsEqual(afterDelete, beforeDelete)
+    ? beforeDelete
+    : null;
 }
 
 /** A failed server rename (`moved: null`) moved none of that environment's threads, loaded or not. */

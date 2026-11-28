@@ -13283,5 +13283,9 @@
   "5807c08e225c6b3d": "다운로드",
   "0d50b5bfe7151ece": "파일을 다운로드할 수 없습니다",
   "eb1fd384ad5919dd": "내부 메모",
-  "b45f0b467e9406d0": "고객에게 답변"
+  "b45f0b467e9406d0": "고객에게 답변",
+  "7374c391a196ec55": "폴더를 복원하지 못했습니다",
+  "3fa9e57edafff826": "{count, plural, other {폴더 {count}개}} 삭제함",
+  "6a78eb543f2cb337": "{count, plural, other {폴더 {count}개}} 삭제 실행 취소함",
+  "fa31841f29a7cc70": "{count, plural, =1 {폴더 삭제됨,} other {폴더 {count}개 삭제됨,}}"
 }

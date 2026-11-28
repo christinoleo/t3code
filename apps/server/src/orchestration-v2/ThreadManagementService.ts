@@ -1634,7 +1634,9 @@ const make = Effect.gen(function* () {
   )(
     function* ({ commandId, from, to }) {
       const threadIds = yield* orchestrator.listThreadIdsWithTag(from);
-      if (to === from || !Arr.isReadonlyArrayNonEmpty(threadIds)) return { threadCount: 0 };
+      if (to === from || !Arr.isReadonlyArrayNonEmpty(threadIds)) {
+        return { threadCount: 0, threadIds: [] };
+      }
       const { storedEvents } = yield* orchestrator.dispatch({
         type: "thread.tag.rename",
         commandId,
@@ -1642,10 +1644,10 @@ const make = Effect.gen(function* () {
         from,
         to,
       });
-      return {
-        threadCount: storedEvents.filter(({ event }) => event.type === "thread.tags-updated")
-          .length,
-      };
+      const changed = storedEvents.flatMap(({ event }) =>
+        event.type === "thread.tags-updated" ? [event.threadId] : [],
+      );
+      return { threadCount: changed.length, threadIds: changed };
     },
     (effect, input) =>
       effect.pipe(

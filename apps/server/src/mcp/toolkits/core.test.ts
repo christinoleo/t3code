@@ -1832,7 +1832,8 @@ const folderToolkit = (options: {
         },
         renameThreadTag: (input) => {
           options.renamed.push(input);
-          return Effect.succeed({ threadCount: options.threadCount ?? 3 });
+          const threadCount = options.threadCount ?? 1;
+          return Effect.succeed({ threadCount, threadIds: threadCount === 0 ? [] : [threadId] });
         },
       }),
     ),
@@ -1902,10 +1903,10 @@ it.effect("rename_folder and delete_folder change the folder environment-wide in
   return Effect.gen(function* () {
     const settings = yield* ServerSettings.ServerSettingsService;
     const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
-    expect(result.structuredContent).toEqual({ threadCount: 3 });
+    expect(result.structuredContent).toEqual({ threadCount: 1, threadIds: [threadId] });
     expect((yield* settings.getSettings).folderIcons).toEqual({ Later: rocket });
     const removed = yield* organize({ action: "delete_folder", folder: "Later" });
-    expect(removed.isError).toBe(false);
+    expect(removed.structuredContent).toEqual({ threadCount: 1, threadIds: [threadId] });
     expect((yield* settings.getSettings).folderIcons).toEqual({});
     expect(renamed).toMatchObject([
       { from: "Inbox", to: "Later" },
@@ -1950,7 +1951,7 @@ it.effect("a folder rename still reports success when its icon cannot follow", (
   });
   return Effect.gen(function* () {
     const result = yield* organize({ action: "rename_folder", folder: "Inbox", to: "Later" });
-    expect(result.structuredContent).toEqual({ threadCount: 3 });
+    expect(result.structuredContent).toEqual({ threadCount: 1, threadIds: [threadId] });
   }).pipe(
     Effect.provide(folderToolkit({ tags: [], dispatched: [], renamed, settings: settingsDown })),
   );

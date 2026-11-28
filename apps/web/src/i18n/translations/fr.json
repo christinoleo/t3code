@@ -13353,5 +13353,9 @@
   "5807c08e225c6b3d": "Télécharger",
   "0d50b5bfe7151ece": "Impossible de télécharger le fichier",
   "eb1fd384ad5919dd": "Note interne",
-  "b45f0b467e9406d0": "Répondre au client"
+  "b45f0b467e9406d0": "Répondre au client",
+  "7374c391a196ec55": "Impossible de restaurer le dossier",
+  "3fa9e57edafff826": "{count, plural, one {{count} dossier supprimé} other {{count} dossiers supprimés}}",
+  "6a78eb543f2cb337": "Suppression annulée pour {count, plural, one {{count} dossier} other {{count} dossiers}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {Dossier supprimé,} other {{count} dossiers supprimés,}}"
 }

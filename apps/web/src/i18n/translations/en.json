@@ -13361,5 +13361,9 @@
   "5807c08e225c6b3d": "Download",
   "0d50b5bfe7151ece": "Could not download file",
   "eb1fd384ad5919dd": "Internal note",
-  "b45f0b467e9406d0": "Reply to customer"
+  "b45f0b467e9406d0": "Reply to customer",
+  "7374c391a196ec55": "Failed to restore the folder",
+  "3fa9e57edafff826": "Deleted {count, plural, one {{count} folder} other {{count} folders}}",
+  "6a78eb543f2cb337": "Undid delete of {count, plural, one {{count} folder} other {{count} folders}}",
+  "fa31841f29a7cc70": "{count, plural, =1 {Folder deleted,} other {Deleted {count} folders,}}"
 }
