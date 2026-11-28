@@ -819,6 +819,7 @@ interface FakeIssue {
   }>;
   readonly comments: Array<{ readonly body: string; readonly createdAt: string }>;
   blockedBy: Array<string>;
+  readonly refusesLabels?: boolean;
 }
 
 const REPO = { tracker: "github", host: "github.com", scope: "me/alpha" } as const;
@@ -854,7 +855,8 @@ const fakeTracker = (issues: ReadonlyArray<FakeIssue> = []) => {
             entries: issues
               .filter(
                 (issue) =>
-                  issue.open && (input.labels ?? []).every((label) => issue.labels.includes(label)),
+                  (input.state === "all" || issue.open === (input.state === "open")) &&
+                  (input.labels ?? []).every((label) => issue.labels.includes(label)),
               )
               .map(summary),
           }) as never,
@@ -878,6 +880,7 @@ const fakeTracker = (issues: ReadonlyArray<FakeIssue> = []) => {
             url: `${issueUrl(issue.key)}#comment-${index}`,
             ...comment,
           })),
+          writable: true,
           capabilities: { labels: true, comment: true, relations: true },
           relations: {
             parent: null,
@@ -890,15 +893,20 @@ const fakeTracker = (issues: ReadonlyArray<FakeIssue> = []) => {
     comment: (input) =>
       Effect.sync(() => {
         posted.push({ key: input.key, body: input.body });
-        find(input.key).comments.push({ body: input.body, createdAt: later() });
+        const issue = find(input.key);
+        issue.updatedAt = later();
+        issue.comments.push({ body: input.body, createdAt: issue.updatedAt });
       }),
     update: (input) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         const issue = find(input.key);
+        if (issue.refusesLabels === true) return Effect.fail("no triage access" as never);
+        issue.updatedAt = later();
         if (input.labels !== undefined) issue.labels = [...input.labels];
         if (input.relations?.blockedBy !== undefined) {
           issue.blockedBy = input.relations.blockedBy.map((ref) => ref.key);
         }
+        return Effect.void;
       }),
   };
   return { issues: fake, reads, posted, later };
@@ -1007,17 +1015,24 @@ it.effect(
           expect(blocked.blockedBy).toEqual(["99", "5"]);
 
           blocker.open = false;
+          blocker.updatedAt = github.later();
           yield* tick(1);
           expect((yield* tasks.get(first.id)).state).toBe("dropped");
           expect(blocker.labels).toEqual(["factory/dropped"]);
 
           blocker.open = true;
+          blocker.updatedAt = github.later();
           yield* tick(2);
           expect(yield* tasks.get(first.id)).toMatchObject({ state: "ready", generation: 1 });
 
           yield* tasks.transition(first.id, "dropped", PERSON, "Not now.");
           yield* tick(3);
           expect((yield* tasks.get(first.id)).state).toBe("dropped");
+
+          yield* tick(4);
+          const readsBefore = github.reads.length;
+          yield* tick(5);
+          expect(github.reads.length).toBe(readsBefore);
         }),
       );
 
@@ -1031,11 +1046,11 @@ it.effect(
     }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
-it.effect("a comment on a mirrored issue answers its task's Needs-you question", () =>
+it.effect("an issue comment answers Needs you, even on an issue that refuses labels", () =>
   Effect.gen(function* () {
     const tasks = yield* FactoryTasks.FactoryTasks;
     const settings = yield* Ref.make(ON_AT_NINE);
-    const mirrored = issue("7");
+    const mirrored = issue("7", { refusesLabels: true });
     const github = fakeTracker([mirrored]);
     yield* tasks.create(
       { scope: ProjectId.make("alpha"), title: "Ship it", body: "", external: mirroring("7") },
@@ -1059,7 +1074,8 @@ it.effect("a comment on a mirrored issue answers its task's Needs-you question",
         yield* tick(1);
         expect(github.posted.at(-1)?.body).toContain("Reply here to answer.");
 
-        mirrored.comments.push({ body: "Keep the old API.", createdAt: github.later() });
+        mirrored.updatedAt = github.later();
+        mirrored.comments.push({ body: "Keep the old API.", createdAt: mirrored.updatedAt });
         yield* tick(2);
         yield* Deferred.await(resumed);
       }),

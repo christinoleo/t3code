@@ -23,7 +23,12 @@ export type MirrorIssues = Pick<IssueService["Service"], "list" | "detail" | "co
 const FACTORY_AUTHOR_MARK = "<!-- t3-factory -->";
 const STATE_LABEL_PREFIX = "factory/";
 
-const Seen = Schema.Struct({ wasOpen: Schema.Boolean, commentsAfter: Schema.String });
+const Seen = Schema.Struct({
+  wasOpen: Schema.Boolean,
+  commentsAfter: Schema.String,
+  updatedAt: Schema.optional(Schema.String),
+});
+const LISTED = 100;
 const seenOf = (task: Task) => store.entry(`factory/mirror/${task.id}`, Seen);
 const judgedOf = (scope: string, issue: IssueSummary) =>
   store.entry(
@@ -72,7 +77,7 @@ export const intake = Effect.fn("TrackerMirror.intake")(function* (
     projectId: project.id,
     state: "open",
     labels: [label],
-    limit: 100,
+    limit: LISTED,
     sort: "updated",
   });
   const mirrored = yield* mirroredTasks(tasks, project.scope);
@@ -90,9 +95,10 @@ export const intake = Effect.fn("TrackerMirror.intake")(function* (
         scope: issue.scope,
         key: issue.key,
       };
-      const detail = yield* issues.detail(ref);
+      // The cache may predate the label the listing just showed.
+      const detail = yield* issues.detail({ ...ref, refresh: true });
       const labelled = detail.events.findLast(
-        (event) => event.kind === "labeled" && event.detail === label,
+        (event) => event.kind === "labeled" && event.detail?.toLowerCase() === label.toLowerCase(),
       );
       if (labelled !== undefined && time(labelled.createdAt) >= time(since)) {
         const task = yield* tasks.create(
@@ -104,7 +110,11 @@ export const intake = Effect.fn("TrackerMirror.intake")(function* (
           },
           { kind: "tracker", url: detail.url },
         );
-        yield* seenOf(task).set({ wasOpen: true, commentsAfter: latestComment(detail) });
+        yield* seenOf(task).set({
+          wasOpen: true,
+          commentsAfter: latestComment(detail),
+          updatedAt: detail.updatedAt,
+        });
       }
       yield* judged.set(issue.updatedAt);
     }).pipe(logFailureAndContinue("file an issue", { issue: issue.url }));
@@ -116,16 +126,39 @@ export const reconcile = Effect.fn("TrackerMirror.reconcile")(function* (
   issues: MirrorIssues,
   project: FactoryProject,
 ) {
-  const mirrored = yield* mirroredTasks(tasks, project.scope);
-  for (const task of mirrored.filter(trackerCanMove)) {
+  const watched = (yield* mirroredTasks(tasks, project.scope)).filter(trackerCanMove);
+  if (watched.length === 0) return;
+  const listed = yield* issues.list({
+    projectId: project.id,
+    state: "all",
+    limit: LISTED,
+    sort: "updated",
+  });
+  // Dropped tasks pile up, so only an issue the listing shows as changed gets a full read.
+  const unchanged = (ref: IssueRef, seenAt: string | undefined) => {
+    if (seenAt === undefined) return false;
+    const inScope = listed.entries.filter(
+      (entry) => sameTracker(entry, ref) && entry.scope === ref.scope,
+    );
+    const found = inScope.find((entry) => entry.key === ref.key);
+    if (found !== undefined) return found.updatedAt === seenAt;
+    // Missing from a full page means a hundred issues changed after it, all later than `seenAt`
+    // if it changed too.
+    return (
+      inScope.length >= LISTED &&
+      Math.min(...inScope.map((entry) => time(entry.updatedAt))) <= time(seenAt)
+    );
+  };
+  for (const task of watched) {
     yield* Effect.gen(function* () {
-      const detail = yield* issues.detail(task.external.ref);
-      const by = { kind: "tracker", url: task.external.url } as const;
       const seenEntry = seenOf(task);
-      const seen = Option.getOrElse(yield* seenEntry.get, () => ({
+      const seen: typeof Seen.Type = Option.getOrElse(yield* seenEntry.get, () => ({
         wasOpen: true,
         commentsAfter: task.createdAt,
       }));
+      if (unchanged(task.external.ref, seen.updatedAt)) return;
+      const detail = yield* issues.detail(task.external.ref);
+      const by = { kind: "tracker", url: task.external.url } as const;
       const open = detail.state.category === "open";
       let state = task.state;
       if (seen.wasOpen && !open && isOpen(state)) {
@@ -146,6 +179,7 @@ export const reconcile = Effect.fn("TrackerMirror.reconcile")(function* (
       yield* seenEntry.set({
         wasOpen: open,
         commentsAfter: fresh.at(-1)?.createdAt ?? seen.commentsAfter,
+        updatedAt: detail.updatedAt,
       });
     }).pipe(logFailureAndContinue("read a mirrored issue", { task: task.id }));
   }
@@ -177,18 +211,13 @@ const relationsToWrite = Effect.fnUntraced(function* (
   const current = detail.relations;
   if (current === undefined || detail.capabilities.relations !== true) return undefined;
   const ref = task.external.ref;
-  const refOf = (related: Task): IssueRelationRef | null => {
-    const external = mirrored.find((found) => found.id === related.id)?.external.ref;
-    return external === undefined || !sameTracker(external, ref)
+  const refOf = (related: Task): IssueRelationRef | null =>
+    related.external === null || !sameTracker(related.external.ref, ref)
       ? null
-      : { scope: external.scope, key: external.key };
-  };
+      : { scope: related.external.ref.scope, key: related.external.ref.key };
   const isTask = (target: IssueRelationRef) =>
-    mirrored.some(
-      (found) =>
-        sameTracker(found.external.ref, ref) &&
-        found.external.ref.scope === target.scope &&
-        found.external.ref.key === target.key,
+    mirrored.some((found) =>
+      sameIssue(found.external.ref, { ...ref, scope: target.scope ?? ref.scope, key: target.key }),
     );
   const keyOf = (target: IssueRelationRef) => `${target.scope ?? ref.scope} ${target.key}`;
   const stored = yield* tasks.relations(task.id);
@@ -234,24 +263,37 @@ export const send = Effect.fn("TrackerMirror.send")(function* (
         ...shown.filter((name) => !name.startsWith(STATE_LABEL_PREFIX)),
         `${STATE_LABEL_PREFIX}${task.state}`,
       ];
+      // An upstream issue of a fork is read-only, so its task is mirrored in only.
+      const writable = detail.writable;
       const relabel =
+        writable &&
         detail.capabilities.labels &&
         (labels.length !== shown.length || labels.some((name) => !shown.includes(name)));
-      const relations = yield* relationsToWrite(tasks, { ...task, external }, detail, mirrored);
-      if (relabel || relations !== undefined) {
-        yield* issues.update({
-          ...external.ref,
-          ...(relabel ? { labels } : {}),
-          ...(relations === undefined ? {} : { relations }),
-        });
-      }
+      const relations = writable
+        ? yield* relationsToWrite(tasks, { ...task, external }, detail, mirrored)
+        : undefined;
+      // A refused label or link must not hold back the comments; it is retried next tick.
+      const updated =
+        !relabel && relations === undefined
+          ? true
+          : yield* issues
+              .update({
+                ...external.ref,
+                ...(relabel ? { labels } : {}),
+                ...(relations === undefined ? {} : { relations }),
+              })
+              .pipe(
+                Effect.as(true),
+                logFailureAndContinue("label or link an issue", { task: task.id }),
+                Effect.map((done) => done === true),
+              );
       for (const entry of task.newEntries) {
-        const body = detail.capabilities.comment ? commentFor(task, entry) : null;
+        const body = writable && detail.capabilities.comment ? commentFor(task, entry) : null;
         if (body !== null)
           yield* issues.comment({ ...external.ref, body: `${FACTORY_AUTHOR_MARK}\n${body}` });
         yield* tasks.markMirrored(task.id, { entryId: entry.id });
       }
-      yield* tasks.markMirrored(task.id, { revision: task.revision });
+      if (updated) yield* tasks.markMirrored(task.id, { revision: task.revision });
     }).pipe(logFailureAndContinue("mirror a task to its issue", { task: task.id }));
   }
 });

@@ -692,7 +692,7 @@ export const makeFactoryWorkflows = (deps: FactoryDeps) => {
   const task = taskWorkflow(deps);
   const tick = workflow(
     "factory",
-    { version: 1, payload: Tick, triggers: [every("1 minute")] },
+    { version: 1, payload: Tick, triggers: [every("1 minute")], concurrency: 1 },
     Effect.fn("factory.tick")(function* () {
       const projects = yield* step("projects", { returns: Projects }, deps.enabledProjects);
       const mirror = (name: string, sync: typeof TrackerMirror.intake, project: FactoryProject) =>
