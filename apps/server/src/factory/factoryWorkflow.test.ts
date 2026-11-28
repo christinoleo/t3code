@@ -583,6 +583,8 @@ it.effect(
       const opened = { outcome: "pull-request", url: PULL_REQUEST, decisions: [] };
       const agents = scripted((step) => {
         if (step === "fix/1") ci = "success";
+        if (step === "fix/2")
+          return { outcome: "needs-you", question: "Which name?", decisions: [] };
         if (step === "review/1")
           return { outcome: "changes", requests: "Rename it.", decisions: [] };
         return kindOf(step) === "review" ? { outcome: "approve", decisions: [] } : opened;
@@ -609,8 +611,8 @@ it.effect(
             }),
         },
       });
-      let mainChecks = 0;
-      const baseTouchedSinceFork = () => Effect.sync(() => ++mainChecks === 1);
+      const baseTouchedSinceFork = () =>
+        Effect.sync(() => !started.some((input) => input.origin.step === "review/3"));
 
       yield* runFactory(
         depsOver(tasks, settings, [], baseTouchedSinceFork),
@@ -619,7 +621,12 @@ it.effect(
           yield* startedBy(yield* tickAt(0));
           const run = yield* taskRun;
           yield* waitAsked(run.runId, 1);
-          yield* workflows.answer(run.runId, "needs-you/1", { choice: "retry" });
+          yield* workflows.answer(run.runId, "needs-you/1", {
+            choice: "retry",
+            reason: "Call it run.",
+          });
+          yield* waitAsked(run.runId, 2);
+          yield* workflows.answer(run.runId, "needs-you/2", { choice: "retry" });
           yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
         }),
         { agents, forge },
@@ -630,11 +637,14 @@ it.effect(
         "fix/1",
         "review/1",
         "fix/2",
+        "fix/3",
         "review/2",
         "review/3",
       ]);
       expect(promptOf(started, "fix/1")).toContain(`Fix: The checks on ${PULL_REQUEST} fail.`);
       expect(promptOf(started, "fix/2")).toContain("Fix: Rename it.");
+      expect(promptOf(started, "fix/3")).toContain("Fix: Rename it.");
+      expect(promptOf(started, "fix/3")).toContain("Leo's answer: Call it run.");
       expect(promptOf(started, "review/3")).toContain("Main changed: ");
       const { entries } = yield* tasks.timeline(task.id);
       expect(statesOf(entries)).toEqual([
@@ -643,13 +653,15 @@ it.effect(
         "reviewing>building",
         "building>reviewing",
         "reviewing>building",
+        "building>needs-you",
+        "needs-you>building",
         "building>reviewing",
         "reviewing>needs-you",
         "needs-you>reviewing",
         "reviewing>done",
       ]);
       expect(
-        entries.find((entry) => entry.type === "state" && entry.to === "needs-you"),
+        entries.findLast((entry) => entry.type === "state" && entry.to === "needs-you"),
       ).toMatchObject({ reason: expect.stringContaining("past 2 fix rounds") });
     }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

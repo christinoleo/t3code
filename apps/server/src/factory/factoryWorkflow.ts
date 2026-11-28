@@ -283,7 +283,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
             );
             if (judged._tag === "done") return tried.value;
             if (judged._tag === "needs-you") {
-              facts = yield* needsYou(detail, pullRequest);
+              facts = { ...given, ...(yield* needsYou(detail, pullRequest)) };
               agentFailures = 0;
               infraStreak = 0;
               continue;
@@ -298,12 +298,15 @@ const taskWorkflow = (deps: FactoryDeps) =>
             facts = { ...given, "Last attempt": detail };
             continue;
           }
-          facts = yield* needsYou(
-            infra
-              ? `The ${kind} could not run ${infraStreak} times in a row: ${detail}`
-              : `The ${kind} failed ${agentFailures} times: ${detail}`,
-            pullRequest,
-          );
+          facts = {
+            ...given,
+            ...(yield* needsYou(
+              infra
+                ? `The ${kind} could not run ${infraStreak} times in a row: ${detail}`
+                : `The ${kind} failed ${agentFailures} times: ${detail}`,
+              pullRequest,
+            )),
+          };
           agentFailures = 0;
           infraStreak = 0;
         }
@@ -402,7 +405,8 @@ const taskWorkflow = (deps: FactoryDeps) =>
           pullRequest?.url,
         );
         facts = { ...facts, ...answer };
-        rounds = 0;
+        // The round that asked runs on Leo's answer, so it is the first of the fresh count.
+        rounds = 1;
       });
       const fix = Effect.fnUntraced(function* (url: string, requests: string) {
         yield* spendRound(requests);
