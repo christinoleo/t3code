@@ -103,6 +103,7 @@ export interface TaskDraft {
   readonly labels?: ReadonlyArray<string> | undefined;
   readonly parent?: TaskId | undefined;
   readonly blockedBy?: ReadonlyArray<TaskId> | undefined;
+  readonly external?: ExternalIssue | undefined;
 }
 
 /**
@@ -221,8 +222,7 @@ export class FactoryTasks extends Context.Service<
     >;
     readonly markMirrored: (
       id: TaskId,
-      revision: number,
-      entryId: string | null,
+      upTo: { readonly revision: number } | { readonly entryId: string },
     ) => Effect.Effect<void, TaskStoreError>;
   }
 >()("t3/factory/FactoryTasks") {}
@@ -252,6 +252,8 @@ const TaskRow = Schema.Struct({
   comment_count: Schema.Int,
 });
 const decodeTaskRow = Schema.decodeUnknownSync(TaskRow);
+const encodeExternal = Schema.encodeSync(Schema.fromJsonString(ExternalIssue));
+const NEVER_MIRRORED = -1;
 
 const EntryRow = Schema.Struct({
   id: Schema.Int,
@@ -289,11 +291,6 @@ export const shownLabels = (task: Task) => [
   ...(task.blocked ? [TASK_LABEL.blocked] : []),
   ...task.labels,
 ];
-
-const notImplemented = (operation: string) =>
-  Effect.fn(`FactoryTasks.${operation}`)(function* (..._: ReadonlyArray<unknown>) {
-    return yield* Effect.die(new Error(`FactoryTasks.${operation} is not implemented yet.`));
-  });
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -517,10 +514,12 @@ const make = Effect.gen(function* () {
           const [row] = yield* sql<{ readonly id: number }>`
             INSERT INTO factory_tasks (
               scope, number, kind, state, title, body, labels_json, parent_id,
-              author_json, created_at, updated_at
+              external_json, mirrored_revision, author_json, created_at, updated_at
             ) VALUES (
               ${draft.scope}, ${next!.number}, ${kind}, 'ready', ${draft.title}, ${draft.body},
-              ${encodeJson(labels.free)}, ${draft.parent ?? null}, ${encodeJson(by)},
+              ${encodeJson(labels.free)}, ${draft.parent ?? null},
+              ${draft.external === undefined ? null : encodeExternal(draft.external)},
+              ${draft.external === undefined ? 0 : NEVER_MIRRORED}, ${encodeJson(by)},
               ${at}, ${at}
             )
             RETURNING id
@@ -682,6 +681,41 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => rows.map(toTask)),
     );
 
+  const unmirrored: FactoryTasks["Service"]["unmirrored"] = Effect.fn("FactoryTasks.unmirrored")(
+    function* (scope) {
+      const rows = yield* sql`
+        ${selectTasks} WHERE t.scope = ${scope} AND t.external_json IS NOT NULL
+          AND t.revision > t.mirrored_revision
+        ORDER BY t.id
+      `.pipe(failed("unmirrored"));
+      return yield* Effect.forEach(rows, (row) => {
+        const task = toTask(row);
+        return sql`
+          SELECT e.id, e.at, e.actor_json, e.type, e.payload_json FROM factory_task_entries e
+          JOIN factory_tasks t ON t.id = e.task_id
+          WHERE e.task_id = ${task.id} AND e.id > COALESCE(t.mirrored_entry_id, 0)
+          ORDER BY e.id
+        `.pipe(
+          failed("unmirrored"),
+          Effect.map((entries) => ({ ...task, newEntries: entries.map(toEntry) })),
+        );
+      });
+    },
+  );
+
+  const markMirrored: FactoryTasks["Service"]["markMirrored"] = (id, upTo) =>
+    ("revision" in upTo
+      ? sql`
+          UPDATE factory_tasks SET mirrored_revision = MAX(mirrored_revision, ${upTo.revision})
+          WHERE id = ${id}
+        `
+      : sql`
+          UPDATE factory_tasks
+          SET mirrored_entry_id = MAX(COALESCE(mirrored_entry_id, 0), ${Number(upTo.entryId)})
+          WHERE id = ${id}
+        `
+    ).pipe(failed("markMirrored"), Effect.asVoid);
+
   return FactoryTasks.of({
     create,
     get: find,
@@ -694,8 +728,8 @@ const make = Effect.gen(function* () {
     transition,
     record,
     dispatchable,
-    unmirrored: notImplemented("unmirrored"),
-    markMirrored: notImplemented("markMirrored"),
+    unmirrored,
+    markMirrored,
   });
 });
 

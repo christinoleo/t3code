@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   type ExecutionEnvironmentDescriptor,
   factoryProjectSettingsOf,
+  IssueTrackerKind,
   ProjectId,
   ServerSettings,
 } from "@t3tools/contracts";
@@ -23,6 +24,7 @@ import { factoryEngine, runFactory } from "./factory.testkit.ts";
 import type { FactoryDeps } from "./factoryWorkflow.ts";
 import { enabledProjects } from "./FactorySettings.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
+import type { MirrorIssues } from "./TrackerMirror.ts";
 
 const decodeSettings = Schema.decodeSync(ServerSettings);
 // The engine's clock runs as fast as the test lets it, so a busy machine passes hours between
@@ -56,8 +58,10 @@ const depsOver = (
   settings: Ref.Ref<ServerSettings>,
   settled: Array<AgentThread> = [],
   baseTouchedSinceFork: FactoryDeps["baseTouchedSinceFork"] = () => Effect.succeed(false),
+  issues: MirrorIssues = fakeTracker().issues,
 ): FactoryDeps => ({
   tasks,
+  issues,
   enabledProjects: Effect.map(Ref.get(settings), enabledProjects),
   projectSettings: (project) =>
     Effect.map(Ref.get(settings), (all) => factoryProjectSettingsOf(all, project)),
@@ -801,4 +805,289 @@ it.effect(
       expect(entries.filter((entry) => entry.type === "comment")).toHaveLength(1);
       expect(settled.map((thread) => thread.threadId)).toEqual(["thread-session/1"]);
     }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+interface FakeIssue {
+  readonly key: string;
+  open: boolean;
+  labels: Array<string>;
+  updatedAt: string;
+  readonly events: ReadonlyArray<{
+    readonly kind: "labeled";
+    readonly detail: string;
+    readonly createdAt: string;
+  }>;
+  readonly comments: Array<{ readonly body: string; readonly createdAt: string }>;
+  blockedBy: Array<string>;
+  readonly refusesLabels?: boolean;
+}
+
+const REPO = { tracker: "github", host: "github.com", scope: "me/alpha" } as const;
+const issueUrl = (key: string) => `https://github.com/me/alpha/issues/${key}`;
+
+const fakeTracker = (issues: ReadonlyArray<FakeIssue> = []) => {
+  const reads: Array<string> = [];
+  const posted: Array<{ readonly key: string; readonly body: string }> = [];
+  let seconds = 0;
+  const later = () => `2026-11-28T12:00:${String(++seconds).padStart(2, "0")}.000Z`;
+  const find = (key: string) => issues.find((issue) => issue.key === key)!;
+  const target = (key: string) => ({
+    scope: REPO.scope,
+    key,
+    displayKey: `#${key}`,
+    title: `Issue ${key}`,
+    url: issueUrl(key),
+    state: { category: "open", name: "Open" },
+  });
+  const summary = (issue: FakeIssue) => ({
+    ...REPO,
+    key: issue.key,
+    displayKey: `#${issue.key}`,
+    title: `Issue ${issue.key}`,
+    url: issueUrl(issue.key),
+    updatedAt: issue.updatedAt,
+  });
+  const fake: MirrorIssues = {
+    list: (input) =>
+      Effect.sync(
+        () =>
+          ({
+            entries: issues
+              .filter(
+                (issue) =>
+                  (input.state === "all" || issue.open === (input.state === "open")) &&
+                  (input.labels ?? []).every((label) => issue.labels.includes(label)),
+              )
+              .map(summary),
+          }) as never,
+      ),
+    detail: (input) =>
+      Effect.sync(() => {
+        reads.push(input.key);
+        const issue = find(input.key);
+        return {
+          ...summary(issue),
+          body: `Body of ${issue.key}`,
+          createdAt: "2026-11-28T08:00:00.000Z",
+          state: issue.open
+            ? { category: "open", name: "Open" }
+            : { category: "closed", name: "Closed" },
+          labels: issue.labels.map((name) => ({ name, color: null })),
+          events: issue.events,
+          comments: issue.comments.map((comment, index) => ({
+            id: `${issue.key}-${index}`,
+            author: null,
+            url: `${issueUrl(issue.key)}#comment-${index}`,
+            ...comment,
+          })),
+          writable: true,
+          capabilities: { labels: true, comment: true, relations: true },
+          relations: {
+            parent: null,
+            children: [],
+            blockedBy: issue.blockedBy.map(target),
+            blocking: [],
+          },
+        } as never;
+      }),
+    comment: (input) =>
+      Effect.sync(() => {
+        posted.push({ key: input.key, body: input.body });
+        const issue = find(input.key);
+        issue.updatedAt = later();
+        issue.comments.push({ body: input.body, createdAt: issue.updatedAt });
+      }),
+    update: (input) =>
+      Effect.suspend(() => {
+        const issue = find(input.key);
+        if (issue.refusesLabels === true) return Effect.fail("no triage access" as never);
+        issue.updatedAt = later();
+        if (input.labels !== undefined) issue.labels = [...input.labels];
+        if (input.relations?.blockedBy !== undefined) {
+          issue.blockedBy = input.relations.blockedBy.map((ref) => ref.key);
+        }
+        return Effect.void;
+      }),
+  };
+  return { issues: fake, reads, posted, later };
+};
+
+const issue = (key: string, fields: Partial<FakeIssue> = {}): FakeIssue => ({
+  key,
+  open: true,
+  labels: [],
+  updatedAt: "2026-11-28T09:00:00.000Z",
+  events: [],
+  comments: [],
+  blockedBy: [],
+  ...fields,
+});
+const labelledAt = (createdAt: string) => ({
+  labels: ["ready-for-agent"],
+  updatedAt: createdAt,
+  events: [{ kind: "labeled" as const, detail: "ready-for-agent", createdAt }],
+});
+const mirroring = (key: string) => ({
+  ref: {
+    projectId: ProjectId.make("alpha"),
+    ...REPO,
+    tracker: IssueTrackerKind.make("github"),
+    key,
+  },
+  url: issueUrl(key),
+});
+const ON_AT_NINE = decodeSettings({
+  factory: {
+    projects: { alpha: { enabled: true, enabledAt: "2026-11-28T09:00:00.000Z", budgets: PATIENT } },
+  },
+});
+const tick = (minute: number) =>
+  Effect.flatMap(tickAt(minute), (run) =>
+    Effect.flatMap(Workflows.Workflows, (workflows) =>
+      workflows.waitFor(run.runId, (found) => found.status === "skipped"),
+    ),
+  );
+
+it.effect("tracker intake files each issue labelled after the factory was turned on, once", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(ON_AT_NINE);
+    const github = fakeTracker([
+      issue("1", {
+        ...labelledAt("2026-11-28T08:00:00.000Z"),
+        updatedAt: "2026-11-28T09:30:00.000Z",
+      }),
+      issue("2", labelledAt("2026-11-28T09:10:00.000Z")),
+      issue("3", labelledAt("2026-11-28T08:30:00.000Z")),
+      issue("4", { updatedAt: "2026-11-28T09:40:00.000Z" }),
+    ]);
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, github.issues),
+      Effect.andThen(tick(0), tick(1)),
+      { agents: scripted(() => "never") },
+    );
+
+    const { items } = yield* tasks.list({ scope: "alpha", state: "all", limit: 10 });
+    expect(items.map((task) => [task.title, task.body, task.external])).toEqual([
+      ["Issue 2", "Body of 2", mirroring("2")],
+    ]);
+    expect(github.reads.filter((key) => key === "1")).toEqual(["1"]);
+    expect(github.reads).not.toContain("3");
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect(
+  "closing a mirrored issue drops its task and reopening revives it, while the issue follows the store",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(ON_AT_NINE);
+      const blocker = issue("5");
+      const blocked = issue("6", { labels: ["bug", "factory/building"], blockedBy: ["99"] });
+      const github = fakeTracker([blocker, blocked]);
+      const talk = (key: string, blockedBy: ReadonlyArray<FactoryTasks.TaskId> = []) =>
+        tasks.create(
+          {
+            scope: ProjectId.make("alpha"),
+            kind: "map",
+            title: `Talk ${key}`,
+            body: "",
+            blockedBy,
+            external: mirroring(key),
+          },
+          PERSON,
+        );
+      const first = yield* talk("5");
+      yield* talk("6", [first.id]);
+      yield* tasks.record(first.id, {
+        type: "decision",
+        by: { kind: "agent", threadId: "thread-1" },
+        decision: decided("Kept the API"),
+      });
+
+      yield* runFactory(
+        depsOver(tasks, settings, [], undefined, github.issues),
+        Effect.gen(function* () {
+          yield* tick(0);
+          expect(blocker.labels).toEqual(["factory/ready"]);
+          expect(blocked.labels).toEqual(["bug", "factory/ready"]);
+          expect(blocked.blockedBy).toEqual(["99", "5"]);
+
+          blocker.open = false;
+          blocker.updatedAt = github.later();
+          yield* tick(1);
+          expect((yield* tasks.get(first.id)).state).toBe("dropped");
+          expect(blocker.labels).toEqual(["factory/dropped"]);
+
+          blocker.open = true;
+          blocker.updatedAt = github.later();
+          yield* tick(2);
+          expect(yield* tasks.get(first.id)).toMatchObject({ state: "ready", generation: 1 });
+
+          yield* tasks.transition(first.id, "dropped", PERSON, "Not now.");
+          yield* tick(3);
+          expect((yield* tasks.get(first.id)).state).toBe("dropped");
+
+          yield* tick(4);
+          const readsBefore = github.reads.length;
+          yield* tick(5);
+          expect(github.reads.length).toBe(readsBefore);
+        }),
+      );
+
+      expect(github.posted).toEqual([
+        { key: "5", body: expect.stringContaining("**Decided:** Kept the API") },
+        { key: "5", body: expect.stringContaining("**T3-1** is now Dropped.\n\nNot now.") },
+        { key: "6", body: expect.stringContaining("Talk 5 (T3-1) was dropped") },
+      ]);
+      const { entries } = yield* tasks.timeline(first.id);
+      expect(entries.filter((entry) => entry.type === "comment")).toEqual([]);
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+);
+
+it.effect("an issue comment answers Needs you, even on an issue that refuses labels", () =>
+  Effect.gen(function* () {
+    const tasks = yield* FactoryTasks.FactoryTasks;
+    const settings = yield* Ref.make(ON_AT_NINE);
+    const mirrored = issue("7", { refusesLabels: true });
+    const github = fakeTracker([mirrored]);
+    yield* tasks.create(
+      { scope: ProjectId.make("alpha"), title: "Ship it", body: "", external: mirroring("7") },
+      PERSON,
+    );
+    const started: Array<Started> = [];
+    const resumed = yield* Deferred.make<void>();
+    const agents = scripted((step) => {
+      if (step === "build/1")
+        return { outcome: "needs-you", question: "Which API?", decisions: [] };
+      Deferred.doneUnsafe(resumed, Effect.void);
+      return "never";
+    }, started);
+
+    yield* runFactory(
+      depsOver(tasks, settings, [], undefined, github.issues),
+      Effect.gen(function* () {
+        yield* tick(0);
+        const run = yield* taskRun;
+        yield* waitAsked(run.runId, 1);
+        yield* tick(1);
+        expect(github.posted.at(-1)?.body).toContain("Reply here to answer.");
+
+        mirrored.updatedAt = github.later();
+        mirrored.comments.push({ body: "Keep the old API.", createdAt: mirrored.updatedAt });
+        yield* tick(2);
+        yield* Deferred.await(resumed);
+      }),
+      { agents },
+    );
+
+    const { entries } = yield* tasks.timeline((yield* tasks.byKey("alpha", 1)).id);
+    expect(statesOf(entries)).toEqual([
+      "ready>building",
+      "building>needs-you",
+      "needs-you>building",
+    ]);
+    expect(promptOf(started, "build/2")).toContain("Leo's answer: Keep the old API.");
+  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );

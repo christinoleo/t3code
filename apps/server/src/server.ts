@@ -659,6 +659,8 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
       Layer.provide(RuntimeLayer.layerProjectService),
     ),
   ),
+  // FactoryWorkflows needs IssueService (fork).
+  Layer.provide(layerIssueService.pipe(Layer.provide(RuntimeLayer.layerProjectService))),
   Layer.provide(UsageLimitSources.layerResetFallback),
   Layer.provide(layerTaskFolders),
   Layer.provide(layerScheduledTaskWebhookOrigin),
