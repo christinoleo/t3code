@@ -13378,5 +13378,7 @@
   "7374c391a196ec55": "Failed to restore the folder",
   "3fa9e57edafff826": "Deleted {count, plural, one {{count} folder} other {{count} folders}}",
   "6a78eb543f2cb337": "Undid delete of {count, plural, one {{count} folder} other {{count} folders}}",
-  "fa31841f29a7cc70": "{count, plural, =1 {Folder deleted,} other {Deleted {count} folders,}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {Folder deleted,} other {Deleted {count} folders,}}",
+  "cfecdd8ffc11d832": "Folder not applied",
+  "592b4c8f71f70441": "The folder name {folder} is not valid, so the new thread starts outside it."
 }

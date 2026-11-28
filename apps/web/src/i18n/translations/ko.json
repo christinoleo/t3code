@@ -13300,5 +13300,7 @@
   "7374c391a196ec55": "폴더를 복원하지 못했습니다",
   "3fa9e57edafff826": "{count, plural, other {폴더 {count}개}} 삭제함",
   "6a78eb543f2cb337": "{count, plural, other {폴더 {count}개}} 삭제 실행 취소함",
-  "fa31841f29a7cc70": "{count, plural, =1 {폴더 삭제됨,} other {폴더 {count}개 삭제됨,}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {폴더 삭제됨,} other {폴더 {count}개 삭제됨,}}",
+  "cfecdd8ffc11d832": "폴더가 적용되지 않음",
+  "592b4c8f71f70441": "폴더 이름 {folder}이(가) 유효하지 않아 새 스레드가 폴더 밖에서 시작됩니다."
 }

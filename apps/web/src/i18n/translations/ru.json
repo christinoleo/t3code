@@ -13368,5 +13368,7 @@
   "7374c391a196ec55": "Не удалось восстановить папку",
   "3fa9e57edafff826": "Удалено: {count, plural, one {{count} папка} few {{count} папки} many {{count} папок} other {{count} папки}}",
   "6a78eb543f2cb337": "Удаление отменено: {count, plural, one {{count} папка} few {{count} папки} many {{count} папок} other {{count} папки}}",
-  "fa31841f29a7cc70": "{count, plural, =1 {Папка удалена,} one {Удалено папок: {count},} few {Удалено папок: {count},} many {Удалено папок: {count},} other {Удалено папок: {count},}}"
+  "fa31841f29a7cc70": "{count, plural, =1 {Папка удалена,} one {Удалено папок: {count},} few {Удалено папок: {count},} many {Удалено папок: {count},} other {Удалено папок: {count},}}",
+  "cfecdd8ffc11d832": "Папка не применена",
+  "592b4c8f71f70441": "Имя папки {folder} недопустимо, поэтому новый тред создаётся вне её."
 }

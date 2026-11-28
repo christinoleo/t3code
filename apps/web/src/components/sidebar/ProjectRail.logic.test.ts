@@ -356,11 +356,21 @@ describe("thread row folders", () => {
 
 describe("new thread in a folder scope", () => {
   it("creates the thread in the folder only when it is the whole scope", () => {
-    expect(newThreadCreateTags(["tag:ops"])).toEqual({ tags: ["ops"] });
-    expect(newThreadCreateTags([])).toEqual({});
-    expect(newThreadCreateTags(["group:a"])).toEqual({});
-    expect(newThreadCreateTags(["tag:ops", "group:a"])).toEqual({});
-    expect(newThreadCreateTags(["tag:ops", "tag:infra"])).toEqual({});
+    const none = { create: {}, unusableFolder: null };
+    expect(newThreadCreateTags(["tag:ops"])).toEqual({
+      create: { tags: ["ops"] },
+      unusableFolder: null,
+    });
+    expect(newThreadCreateTags([])).toEqual(none);
+    expect(newThreadCreateTags(["group:a"])).toEqual(none);
+    expect(newThreadCreateTags(["tag:ops", "group:a"])).toEqual(none);
+    expect(newThreadCreateTags(["tag:ops", "tag:infra"])).toEqual(none);
+  });
+
+  it("leaves out a stored folder name the launch input would reject or trim", () => {
+    for (const tag of ["x".repeat(65), "line\nbreak", "tab\tbed", " ops", `${"x".repeat(64)} `]) {
+      expect(newThreadCreateTags([`tag:${tag}`])).toEqual({ create: {}, unusableFolder: tag });
+    }
   });
 });
 
