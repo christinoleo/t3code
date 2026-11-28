@@ -12,6 +12,9 @@ import {
   type IssueComment,
   type IssueEvent,
   type IssueInvolvement,
+  type IssueRelationRef,
+  type IssueRelationTarget,
+  type IssueRelations,
   type IssueState,
   type IssueViewerPermissions,
   type StandaloneIssueTrackerDescriptor,
@@ -64,6 +67,7 @@ const CAPABILITIES: IssueCapabilities = {
   events: true,
   search: true,
   internalComments: true,
+  relations: true,
 };
 
 const EVERYTHING: IssueViewerPermissions = {
@@ -129,6 +133,39 @@ function toSummary(
     assignees: fields.assignee == null ? [] : [toActor(fields.assignee)],
     labels: (fields.labels ?? []).map((name) => ({ name, color: null })),
     commentCount,
+  };
+}
+
+function toRelationTarget(issue: JiraApi.JiraRelatedIssue, origin: string): IssueRelationTarget {
+  return {
+    scope: issue.key.slice(0, issue.key.lastIndexOf("-")),
+    key: issue.key,
+    displayKey: issue.key,
+    title: issue.fields.summary,
+    url: `${origin}/browse/${issue.key}`,
+    state: toState(issue.fields.status),
+  };
+}
+
+/** Only the "Blocks" link type has a place; relates-to, duplicates and clones are not shown. */
+const blockLinks = (issue: JiraApi.JiraIssue) =>
+  (issue.fields.issuelinks ?? []).filter((link) => link.type.name === "Blocks");
+
+function toRelations(
+  issue: JiraApi.JiraIssue,
+  children: ReadonlyArray<JiraApi.JiraIssue>,
+  origin: string,
+): IssueRelations {
+  const links = blockLinks(issue);
+  return {
+    parent: issue.fields.parent == null ? null : toRelationTarget(issue.fields.parent, origin),
+    children: children.map((child) => toRelationTarget(child, origin)),
+    blockedBy: links.flatMap((link) =>
+      link.inwardIssue === undefined ? [] : [toRelationTarget(link.inwardIssue, origin)],
+    ),
+    blocking: links.flatMap((link) =>
+      link.outwardIssue === undefined ? [] : [toRelationTarget(link.outwardIssue, origin)],
+    ),
   };
 }
 
@@ -275,6 +312,47 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
       return key;
     });
 
+    /** A ref's bare number counts in its own project, else in the issue's being written. */
+    const relationKeys = (
+      operation: string,
+      scope: string,
+      refs: ReadonlyArray<IssueRelationRef>,
+    ) =>
+      Effect.forEach(refs, (ref) => {
+        const key = ref.key.trim();
+        return requireKey(operation, /^\d+$/u.test(key) ? `${ref.scope ?? scope}-${key}` : key);
+      });
+
+    const parentField = (operation: string, scope: string, parent: IssueRelationRef | null) =>
+      parent === null
+        ? Effect.succeed({ parent: null })
+        : relationKeys(operation, scope, [parent]).pipe(
+            Effect.map(([key]) => ({ parent: { key: key! } })),
+          );
+
+    /** Makes the issue's blockers exactly `wanted`, touching only the links that differ. */
+    const writeBlockers = Effect.fn("JiraIssueTracker.writeBlockers")(function* (
+      key: string,
+      current: ReadonlyArray<JiraApi.JiraIssueLink>,
+      wanted: ReadonlyArray<string>,
+    ) {
+      const keep = new Set(wanted);
+      const blockers = current.flatMap((link) =>
+        link.inwardIssue === undefined ? [] : [{ id: link.id, key: link.inwardIssue.key }],
+      );
+      const have = new Set(blockers.map((link) => link.key));
+      yield* Effect.forEach(
+        blockers.filter((link) => !keep.has(link.key)),
+        (link) => jira.deleteLink(link.id),
+        { discard: true },
+      );
+      yield* Effect.forEach(
+        [...keep].filter((blocker) => !have.has(blocker)),
+        (blocker) => jira.createBlockLink({ blocker, blocked: key }),
+        { discard: true },
+      );
+    });
+
     const assignableBeyondPages = Effect.fn("JiraIssueTracker.assignableBeyondPages")(function* (
       project: string,
       named: string,
@@ -395,10 +473,12 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
 
       getIssue: Effect.fn("JiraIssueTracker.getIssue")(function* (input) {
         const key = yield* requireKey("getIssue", input.key);
-        const [origin, issue, page, allowed, me] = yield* Effect.all(
+        const [origin, issue, children, page, allowed, me] = yield* Effect.all(
           [
             jira.origin,
             jira.getIssue(key),
+            // Subtasks and an epic's issues alike name it as their parent.
+            jira.search({ jql: `parent = ${quoted(key)} ORDER BY created ASC`, limit: 50 }),
             jira.getComments({ key, startAt: 0, limit: COMMENTS_PAGE }),
             jira
               .permissions(key, [
@@ -410,7 +490,7 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
               .pipe(Effect.orElseSucceed(() => null)),
             jira.myself().pipe(Effect.orElseSucceed(() => null)),
           ],
-          { concurrency: 5 },
+          { concurrency: 6 },
         );
         const summary = toSummary(issue, origin, page.total);
         return {
@@ -435,6 +515,7 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
           commentsCursor: page.total > page.comments.length ? String(page.comments.length) : null,
           events: toEvents(issue.changelog?.histories ?? []),
           linkedPullRequests: [],
+          relations: toRelations(issue, children.issues, origin),
         };
       }),
 
@@ -454,11 +535,14 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
 
       create: Effect.fn("JiraIssueTracker.create")(function* (input) {
         const project = projectKey(input.scope);
-        const [origin, types, labels, assignee] = yield* Effect.all([
+        const parent = input.relations?.parent;
+        const [origin, types, labels, assignee, parentFields, blockers] = yield* Effect.all([
           jira.origin,
           jira.issueTypes(project),
           labelNames("create", input.labels),
           accountId("create", input.scope, input.assignees),
+          parent == null ? Effect.succeed({}) : parentField("create", input.scope, parent),
+          relationKeys("create", input.scope, input.relations?.blockedBy ?? []),
         ]);
         // Jira files nothing without a type; a Task is the one nearly every project has.
         const type =
@@ -478,7 +562,9 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
           ...(input.body.trim().length === 0 ? {} : { description: markdownToAdf(input.body) }),
           ...(labels.length === 0 ? {} : { labels }),
           ...(assignee === null ? {} : { assignee: { accountId: assignee } }),
+          ...parentFields,
         });
+        yield* writeBlockers(created.key, [], blockers);
         return {
           key: created.key,
           displayKey: created.key,
@@ -493,8 +579,15 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
 
       update: Effect.fn("JiraIssueTracker.update")(function* (input) {
         const key = yield* requireProjectKey("update", input);
-        if (input.body !== undefined) {
-          const current = yield* jira.getIssue(key);
+        const parent = input.relations?.parent;
+        const blockedBy = input.relations?.blockedBy;
+        const blockers =
+          blockedBy === undefined
+            ? undefined
+            : yield* relationKeys("update", input.scope, blockedBy);
+        const current =
+          input.body !== undefined || blockers !== undefined ? yield* jira.getIssue(key) : null;
+        if (input.body !== undefined && current !== null) {
           if (hasUnwritableContent(current.fields.description)) {
             return yield* JiraApi.fail(
               "update",
@@ -503,7 +596,7 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
             );
           }
         }
-        yield* jira.updateIssue(key, {
+        const fields = {
           ...(input.title === undefined ? {} : { summary: input.title }),
           ...(input.body === undefined ? {} : { description: markdownToAdf(input.body) }),
           ...(input.labels === undefined
@@ -514,7 +607,13 @@ export const make: Effect.Effect<StandaloneIssueTrackerApi, never, JiraApi.JiraA
             : yield* accountId("update", input.scope, input.assignees).pipe(
                 Effect.map((id) => ({ assignee: id === null ? null : { accountId: id } })),
               )),
-        });
+          ...(parent === undefined ? {} : yield* parentField("update", input.scope, parent)),
+        };
+        // A blockers-only write has no issue field to send.
+        if (Object.keys(fields).length > 0) yield* jira.updateIssue(key, fields);
+        if (blockers !== undefined && current !== null) {
+          yield* writeBlockers(key, blockLinks(current), blockers);
+        }
       }),
 
       setState: Effect.fn("JiraIssueTracker.setState")(function* (input) {

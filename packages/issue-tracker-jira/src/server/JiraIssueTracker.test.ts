@@ -49,6 +49,19 @@ const issue = (key: string, fields: Record<string, unknown> = {}, extra = {}) =>
   ...extra,
 });
 
+/** Another issue as a parent or a link names it. */
+const related = (key: string, state = IN_PROGRESS) => ({
+  id: `id_${key}`,
+  key,
+  fields: { summary: `Issue ${key}`, status: state },
+});
+
+const blocks = (id: string, side: "inwardIssue" | "outwardIssue", key: string) => ({
+  id,
+  type: { name: "Blocks", inward: "is blocked by", outward: "blocks" },
+  [side]: related(key),
+});
+
 interface Seen {
   readonly method: string;
   readonly url: string;
@@ -287,6 +300,7 @@ describe("JiraIssueTracker", () => {
             ],
           };
         },
+        "POST /rest/api/3/search/jql": () => ({ issues: [] }),
         "GET /rest/api/3/mypermissions": ({ query }) => {
           expect(query.get("issueKey")).toBe("ENG-7");
           return {
@@ -336,6 +350,108 @@ describe("JiraIssueTracker", () => {
         ["unassigned", "Julius"],
         ["assigned", "Theo"],
         ["renamed", "Issue ENG-7"],
+      ]);
+    }),
+  );
+
+  it.effect("reads the parent, the children and only Blocks links, each from its side", () =>
+    Effect.gen(function* () {
+      const { tracker } = fakeJira({
+        "GET /rest/api/3/myself": () => JULIUS,
+        "GET /rest/api/3/issue/ENG-7": ({ query }) => {
+          expect(query.get("fields")).toContain("issuelinks");
+          return issue("ENG-7", {
+            parent: related("ENG-1"),
+            issuelinks: [
+              blocks("l1", "inwardIssue", "OPS-3"),
+              blocks("l2", "outwardIssue", "ENG-9"),
+              {
+                id: "l3",
+                type: { name: "Relates", inward: "relates to", outward: "relates to" },
+                inwardIssue: related("ENG-4"),
+              },
+            ],
+          });
+        },
+        "POST /rest/api/3/search/jql": ({ body }) => {
+          expect((body as { jql: string }).jql).toBe('parent = "ENG-7" ORDER BY created ASC');
+          return { issues: [issue("ENG-8", { status: DONE })] };
+        },
+        "GET /rest/api/3/issue/ENG-7/comment": () => ({ total: 0, comments: [] }),
+        "GET /rest/api/3/mypermissions": () => ({ permissions: {} }),
+      });
+      const api = yield* tracker;
+      const { relations } = yield* api.getIssue({ ...target, key: "ENG-7" });
+      expect(relations?.parent).toEqual({
+        scope: "ENG",
+        key: "ENG-1",
+        displayKey: "ENG-1",
+        title: "Issue ENG-1",
+        url: "https://acme.atlassian.net/browse/ENG-1",
+        state: { category: "open", name: "In Progress" },
+      });
+      expect(relations?.children.map((child) => [child.key, child.state.category])).toEqual([
+        ["ENG-8", "closed"],
+      ]);
+      expect(relations?.blockedBy.map((entry) => [entry.scope, entry.key])).toEqual([
+        ["OPS", "OPS-3"],
+      ]);
+      expect(relations?.blocking.map((entry) => entry.key)).toEqual(["ENG-9"]);
+    }),
+  );
+
+  it.effect("writes blockers as a change to the Blocks links, and a parent by key", () =>
+    Effect.gen(function* () {
+      const { tracker, requests } = fakeJira({
+        "GET /rest/api/3/issue/ENG-1": () =>
+          issue("ENG-1", {
+            issuelinks: [
+              blocks("keep", "inwardIssue", "ENG-2"),
+              blocks("drop", "inwardIssue", "ENG-3"),
+              // An issue this one blocks is not one of its blockers.
+              blocks("theirs", "outwardIssue", "ENG-5"),
+            ],
+          }),
+        // Jira answers a new link with 201 and no body.
+        "POST /rest/api/3/issueLink": () => new Response(null, { status: 201 }),
+        "DELETE /rest/api/3/issueLink/drop": () => undefined,
+        "PUT /rest/api/3/issue/ENG-1": () => undefined,
+      });
+      const api = yield* tracker;
+      const writes = () =>
+        requests.filter((seen) => seen.method !== "GET").map((seen) => [seen.method, seen.body]);
+      // A bare number is counted in the ref's own project, else in the issue's.
+      yield* api.update({
+        ...target,
+        key: "ENG-1",
+        relations: { blockedBy: [{ key: "ENG-2" }, { key: "4" }, { scope: "OPS", key: "6" }] },
+      });
+      expect(writes()).toEqual([
+        ["DELETE", null],
+        [
+          "POST",
+          {
+            type: { name: "Blocks" },
+            inwardIssue: { key: "ENG-4" },
+            outwardIssue: { key: "ENG-1" },
+          },
+        ],
+        [
+          "POST",
+          {
+            type: { name: "Blocks" },
+            inwardIssue: { key: "OPS-6" },
+            outwardIssue: { key: "ENG-1" },
+          },
+        ],
+      ]);
+
+      requests.length = 0;
+      yield* api.update({ ...target, key: "ENG-1", relations: { parent: { key: "ENG-9" } } });
+      yield* api.update({ ...target, key: "ENG-1", relations: { parent: null } });
+      expect(writes()).toEqual([
+        ["PUT", { fields: { parent: { key: "ENG-9" } } }],
+        ["PUT", { fields: { parent: null } }],
       ]);
     }),
   );

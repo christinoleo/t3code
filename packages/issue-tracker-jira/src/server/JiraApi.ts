@@ -62,6 +62,22 @@ const IssueProject = Schema.Struct({
   projectTypeKey: Schema.optional(Schema.String),
 });
 
+/** Another issue as a field of this one names it: a parent, or the far end of a link. */
+const RelatedIssue = Schema.Struct({
+  key: Schema.String,
+  fields: Schema.Struct({ summary: Schema.String, status: Status }),
+});
+export type JiraRelatedIssue = typeof RelatedIssue.Type;
+
+/** Only one of the two issues is present: the other is the issue the link was read from. */
+const IssueLink = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Struct({ name: Schema.String }),
+  inwardIssue: Schema.optional(RelatedIssue),
+  outwardIssue: Schema.optional(RelatedIssue),
+});
+export type JiraIssueLink = typeof IssueLink.Type;
+
 const Issue = Schema.Struct({
   id: Schema.String,
   key: Schema.String,
@@ -76,6 +92,8 @@ const Issue = Schema.Struct({
     updated: Schema.String,
     resolutiondate: Schema.optional(Schema.NullOr(Schema.String)),
     description: Schema.optional(Schema.Unknown),
+    parent: Schema.optional(Schema.NullOr(RelatedIssue)),
+    issuelinks: Schema.optional(Schema.NullOr(Schema.Array(IssueLink))),
   }),
   transitions: Schema.optional(Schema.Array(Transition)),
   changelog: Schema.optional(Schema.Struct({ histories: Schema.Array(History) })),
@@ -221,6 +239,12 @@ export class JiraApi extends Context.Service<
       fields: Record<string, unknown>,
     ) => Effect.Effect<void, IssueTrackerError>;
     readonly transition: (key: string, id: string) => Effect.Effect<void, IssueTrackerError>;
+    /** Links the two with the site's "Blocks" link type. */
+    readonly createBlockLink: (input: {
+      readonly blocker: string;
+      readonly blocked: string;
+    }) => Effect.Effect<void, IssueTrackerError>;
+    readonly deleteLink: (id: string) => Effect.Effect<void, IssueTrackerError>;
     /** On a Service Management issue the comment is an internal note unless `audience` is public. */
     readonly addComment: (
       key: string,
@@ -297,7 +321,7 @@ export const make = Effect.gen(function* () {
     operation: string,
     schema: S,
     request: {
-      readonly method: "GET" | "POST" | "PUT";
+      readonly method: "GET" | "POST" | "PUT" | "DELETE";
       readonly path: string;
       readonly query?: Query;
       readonly body?: unknown;
@@ -328,8 +352,8 @@ export const make = Effect.gen(function* () {
       if (response.status < 200 || response.status >= 300) {
         return yield* refusal(operation, response);
       }
-      // A write answers 204 with no body; `Schema.Void` reads nothing.
-      if (response.status === 204) return undefined as S["Type"];
+      // A write answers 204, or 201 for a link, with no body; `Schema.Void` reads nothing.
+      if (response.status === 204 || Object.is(schema, Schema.Void)) return undefined as S["Type"];
       return yield* HttpClientResponse.schemaBodyJson(schema)(response).pipe(
         Effect.mapError((cause) =>
           fail(operation, "failed", "Jira returned an unexpected body.", { cause }),
@@ -406,7 +430,7 @@ export const make = Effect.gen(function* () {
       method: "GET",
       path: `/rest/api/3/issue/${encodeURIComponent(key)}`,
       query: {
-        fields: [...ISSUE_FIELDS, "description"].join(","),
+        fields: [...ISSUE_FIELDS, "description", "parent", "issuelinks"].join(","),
         expand: "transitions,changelog",
       },
     });
@@ -484,6 +508,24 @@ export const make = Effect.gen(function* () {
       body: { transition: { id } },
     });
 
+  // Jira makes the inward issue the link's source, so it is the one that "blocks" the other.
+  const createBlockLink: JiraApi["Service"]["createBlockLink"] = (input) =>
+    send("createBlockLink", Schema.Void, {
+      method: "POST",
+      path: "/rest/api/3/issueLink",
+      body: {
+        type: { name: "Blocks" },
+        inwardIssue: { key: input.blocker },
+        outwardIssue: { key: input.blocked },
+      },
+    });
+
+  const deleteLink: JiraApi["Service"]["deleteLink"] = (id) =>
+    send("deleteLink", Schema.Void, {
+      method: "DELETE",
+      path: `/rest/api/3/issueLink/${encodeURIComponent(id)}`,
+    });
+
   const addComment: JiraApi["Service"]["addComment"] = Effect.fn("JiraApi.addComment")(
     function* (key, body, audience) {
       const issue = yield* send(
@@ -558,6 +600,8 @@ export const make = Effect.gen(function* () {
     createIssue,
     updateIssue,
     transition,
+    createBlockLink,
+    deleteLink,
     addComment,
     labels,
     assignable,

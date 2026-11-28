@@ -37,6 +37,17 @@ export const CyclePeriod = Schema.Literals(["after", "before", "during"])
 export type CyclePeriod = typeof CyclePeriod.Type
 
 /**
+ * The type of the issue relation.
+ *
+ * - `blocks`
+ * - `duplicate`
+ * - `related`
+ * - `similar`
+ */
+export const IssueRelationType = Schema.Literals(["blocks", "duplicate", "related", "similar"])
+export type IssueRelationType = typeof IssueRelationType.Type
+
+/**
  * By which field should the pagination order by
  *
  * - `createdAt`
@@ -5335,6 +5346,19 @@ export interface CommentFilterEncoded {
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
   readonly user?: UserFilterEncoded | null | undefined
 }
+
+/** Input for creating a new issue relation between two issues. Both the source issue and related issue must be specified along with the relationship type. */
+export const IssueRelationCreateInput = Schema.Struct({
+  /** The identifier in UUID v4 format. If none is provided, the backend will generate one. */
+  id: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The identifier of the issue that is related to another issue. Can be a UUID or issue identifier (e.g., 'LIN-123'). */
+  issueId: Schema.String,
+  /** The identifier of the related issue. Can be a UUID or issue identifier (e.g., 'LIN-123'). */
+  relatedIssueId: Schema.String,
+  /** The type of relation of the issue to the related issue. */
+  type: IssueRelationType
+})
+export interface IssueRelationCreateInput extends Schema.Struct.Type<typeof IssueRelationCreateInput.fields> {}
 
 /** Input for updating an existing issue. All fields are optional; only provided fields will be updated. Setting a field to null (where supported) will clear the value. */
 export const IssueUpdateInput = Schema.Struct({

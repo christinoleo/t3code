@@ -86,6 +86,19 @@ fragment LinearIssue on Issue {
   }
 }
 
+fragment LinearRelatedIssue on Issue {
+  id
+  identifier
+  title
+  url
+  state {
+    ...LinearWorkflowState
+  }
+  team {
+    key
+  }
+}
+
 fragment LinearPageInfo on PageInfo {
   hasNextPage
   endCursor
@@ -139,6 +152,32 @@ query T3Issue($id: String!, $comments: Int!) {
     }
     reactions {
       ...LinearReaction
+    }
+    parent {
+      ...LinearRelatedIssue
+    }
+    children(first: 50) {
+      nodes {
+        ...LinearRelatedIssue
+      }
+    }
+    relations(first: 50) {
+      nodes {
+        id
+        type
+        relatedIssue {
+          ...LinearRelatedIssue
+        }
+      }
+    }
+    inverseRelations(first: 50) {
+      nodes {
+        id
+        type
+        issue {
+          ...LinearRelatedIssue
+        }
+      }
     }
     attachments(first: 50) {
       nodes {
@@ -261,6 +300,18 @@ mutation T3IssueCreate($input: IssueCreateInput!) {
 
 mutation T3IssueUpdate($id: String!, $input: IssueUpdateInput!) {
   issueUpdate(id: $id, input: $input) {
+    success
+  }
+}
+
+mutation T3IssueRelationCreate($input: IssueRelationCreateInput!) {
+  issueRelationCreate(input: $input) {
+    success
+  }
+}
+
+mutation T3IssueRelationDelete($id: String!) {
+  issueRelationDelete(id: $id) {
     success
   }
 }

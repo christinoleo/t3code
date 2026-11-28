@@ -26,6 +26,7 @@ import type {
   CommentCreateInput,
   IssueCreateInput,
   IssueFilter,
+  IssueRelationCreateInput,
   IssueUpdateInput,
 } from "../../schema/linear.graphql.ts";
 import {
@@ -47,6 +48,7 @@ export type {
   LinearComment,
   LinearIssue,
   LinearReaction,
+  LinearRelatedIssue,
   LinearUser,
 } from "./LinearApi.graphql.ts";
 export type { LinearWorkflowState } from "./LinearApi.graphql.ts";
@@ -78,7 +80,7 @@ export interface LinearTemplate extends Omit<Template, "templateData"> {
 }
 
 type LinearTeamDetail = T3Team.Result["teams"]["nodes"][number];
-type LinearIssueDetail = NonNullable<T3Issue.Result["issue"]>;
+export type LinearIssueDetail = NonNullable<T3Issue.Result["issue"]>;
 
 /** The team with the workspace-wide labels that any of its issues may also carry. */
 export interface LinearTeamScope {
@@ -137,6 +139,10 @@ export class LinearApi extends Context.Service<
       identifier: string,
       input: IssueUpdateInput,
     ) => Effect.Effect<void, IssueTrackerError>;
+    readonly createRelation: (
+      input: IssueRelationCreateInput,
+    ) => Effect.Effect<void, IssueTrackerError>;
+    readonly deleteRelation: (id: string) => Effect.Effect<void, IssueTrackerError>;
     readonly createComment: (input: CommentCreateInput) => Effect.Effect<void, IssueTrackerError>;
     readonly createReaction: (input: {
       readonly issueId?: string | undefined;
@@ -384,6 +390,16 @@ export const make = Effect.gen(function* () {
       Effect.flatMap(({ issueUpdate }) => applied("updateIssue", issueUpdate)),
     );
 
+  const createRelation: LinearApi["Service"]["createRelation"] = (input) =>
+    call("createRelation", (linear) => linear.T3IssueRelationCreate({ input })).pipe(
+      Effect.flatMap(({ issueRelationCreate }) => applied("createRelation", issueRelationCreate)),
+    );
+
+  const deleteRelation: LinearApi["Service"]["deleteRelation"] = (id) =>
+    call("deleteRelation", (linear) => linear.T3IssueRelationDelete({ id })).pipe(
+      Effect.flatMap(({ issueRelationDelete }) => applied("deleteRelation", issueRelationDelete)),
+    );
+
   const createComment: LinearApi["Service"]["createComment"] = (input) =>
     call("createComment", (linear) => linear.T3CommentCreate({ input })).pipe(
       Effect.flatMap(({ commentCreate }) => applied("createComment", commentCreate)),
@@ -431,6 +447,8 @@ export const make = Effect.gen(function* () {
     getTeam,
     createIssue,
     updateIssue,
+    createRelation,
+    deleteRelation,
     createComment,
     createReaction,
     deleteReaction,
