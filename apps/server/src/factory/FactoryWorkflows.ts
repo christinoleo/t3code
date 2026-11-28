@@ -12,6 +12,7 @@ import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as PeerMcpClient from "../peer/PeerMcpClient.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
@@ -21,7 +22,8 @@ import type { AgentThread } from "../workflows/workflowAgent.ts";
 import * as FactoryTasks from "./FactoryTasks.ts";
 import { machines, settleLinked, stopOrphan } from "./FactoryPlacement.ts";
 import { enabledProjects } from "./FactorySettings.ts";
-import { makeFactoryWorkflows } from "./factoryWorkflow.ts";
+import { MAIN, makeFactoryWorkflows } from "./factoryWorkflow.ts";
+import { ciOnMain } from "./intake/ciOnMain.ts";
 import { externalIssues } from "./intake/externalIssues.ts";
 import { t3Feedback } from "./intake/t3Feedback.ts";
 
@@ -34,6 +36,7 @@ export const layer = Layer.effect(
     const projects = yield* ProjectService.ProjectService;
     const vcs = yield* GitVcsDriver.GitVcsDriver;
     const issues = yield* IssueService.IssueService;
+    const pullRequests = yield* PullRequestService.PullRequestService;
     const sql = yield* SqlClient.SqlClient;
     const gitFor = (operation: string) => (cwd: string, args: ReadonlyArray<string>) =>
       Effect.map(vcs.execute({ operation, cwd, args, timeoutMs: 120_000 }), (result) =>
@@ -71,6 +74,7 @@ export const layer = Layer.effect(
             return bindings.length > 1 ? bindings[0] : undefined;
           }),
         ),
+        ciOnMain(MAIN, pullRequests.failedBranchRuns),
       ],
       enabledProjects: Effect.map(settings.getSettings, enabledProjects),
       projectSettings: (project) =>

@@ -74,6 +74,7 @@ import {
   pullRequestChecksFromContexts,
   decodeWorkflowRunsJson,
   decodeUnfinishedWorkflowRunsJson,
+  decodeFinishedWorkflowRunsJson,
   type GitHubPullRequestCore,
   type GitHubPullRequestFileStat,
   type GitHubPullRequestWatchFingerprint,
@@ -138,6 +139,7 @@ import {
   type ProviderCheckReference,
   type ProviderCheckRerun,
   type ProviderListCursor,
+  type ProviderWorkflowRun,
 } from "@t3tools/source-control-core/server/PullRequestProvider";
 
 export class GitHubPullRequestReadError extends Schema.TaggedError<GitHubPullRequestReadError>()(
@@ -611,6 +613,13 @@ export class GitHubPullRequestApi extends Context.Service<
       readonly host: string;
       readonly headSha: string;
     }) => Effect.Effect<ReadonlyArray<GitHubWorkflowRunApproval>, GitHubPullRequestApiError>;
+
+    readonly listFailedBranchRuns: (input: {
+      readonly cwd: string;
+      readonly repository: string;
+      readonly host: string;
+      readonly branch: string;
+    }) => Effect.Effect<ReadonlyArray<ProviderWorkflowRun>, GitHubPullRequestApiError>;
 
     readonly getPullRequestStack: (input: {
       readonly cwd: string;
@@ -2252,6 +2261,17 @@ export const make = Effect.gen(function* () {
         });
       },
     ),
+
+    listFailedBranchRuns: Effect.fn("GitHubPullRequestApi.listFailedBranchRuns")(function (input) {
+      const { owner, name } = parseRepositorySelector(input.repository);
+      return revalidatedRestRead({
+        cwd: input.cwd,
+        host: input.host,
+        operation: "listFailedBranchRuns",
+        path: `repos/${owner}/${name}/actions/runs?branch=${encodeURIComponent(input.branch)}&status=failure&per_page=100`,
+        decode: decodeFinishedWorkflowRunsJson,
+      });
+    }),
 
     getPullRequestStack: Effect.fn("GitHubPullRequestApi.getPullRequestStack")(function (input) {
       const { owner, name } = parseRepositorySelector(input.repository);

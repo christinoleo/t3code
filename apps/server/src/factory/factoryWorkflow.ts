@@ -94,7 +94,7 @@ type Brief = typeof Brief.Type;
 
 type Facts = Readonly<Record<string, string>>;
 
-const MAIN = "main";
+export const MAIN = "main";
 const epicBranch = (key: string) => `epic/${key}`;
 const RETRO_CHECK = Duration.minutes(10);
 

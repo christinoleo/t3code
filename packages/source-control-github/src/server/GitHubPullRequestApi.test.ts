@@ -802,6 +802,49 @@ layer("GitHubPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect("lists a branch's failed workflow runs from GitHub's run listing", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockImplementation(() =>
+        Effect.succeed(
+          output(
+            encodeJson({
+              workflow_runs: [
+                {
+                  id: 9001,
+                  name: "CI",
+                  html_url: "https://github.com/octo/repo/actions/runs/9001",
+                  head_sha: "abc123",
+                  event: "push",
+                  updated_at: "2026-11-28T10:05:00Z",
+                },
+              ],
+            }),
+          ),
+        ),
+      );
+      const api = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      const runs = yield* api.listFailedBranchRuns({
+        cwd: "/repo",
+        host: "github.com",
+        repository: "octo/repo",
+        branch: "release/1",
+      });
+      expect(runs).toEqual([
+        {
+          id: "9001",
+          name: "CI",
+          url: "https://github.com/octo/repo/actions/runs/9001",
+          headSha: "abc123",
+          event: "push",
+          finishedAt: "2026-11-28T10:05:00Z",
+        },
+      ]);
+      expect(mockedExecute.mock.calls.map(([call]) => call.kind === "rest" && call.path)).toContain(
+        "repos/octo/repo/actions/runs?branch=release%2F1&status=failure&per_page=100",
+      );
+    }),
+  );
+
   it.effect("tails Actions job logs and re-runs a run's failed jobs together", () =>
     Effect.gen(function* () {
       const runOf: Record<string, number> = {

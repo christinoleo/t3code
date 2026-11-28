@@ -228,6 +228,16 @@ export interface ProviderCheckRerun {
   readonly detail: string | null;
 }
 
+export interface ProviderWorkflowRun {
+  readonly id: string;
+  readonly name: string;
+  readonly url: string | null;
+  readonly headSha: string;
+  /** What started it, such as `push`, `schedule` or `pull_request`. */
+  readonly event: string;
+  readonly finishedAt: string;
+}
+
 /** The job id of a GitHub Actions check run, from its run link or its job link. */
 export function gitHubActionsJobId(url: string | null): string | null {
   if (url === null) return null;
@@ -580,6 +590,11 @@ export interface PullRequestProviderApi {
       readonly tailLines: number;
     },
   ) => Effect.Effect<ReadonlyArray<ProviderCheckLog>, PullRequestProviderError>;
+
+  /** The branch's latest 100 workflow runs that finished failing, newest started first. */
+  readonly listFailedBranchRuns?: (
+    input: ProviderRepositoryRef & { readonly branch: string },
+  ) => Effect.Effect<ReadonlyArray<ProviderWorkflowRun>, PullRequestProviderError>;
 
   /** Re-runs the named checks' jobs. A check the host cannot re-run gets a `detail`. */
   readonly rerunChecks?: (
