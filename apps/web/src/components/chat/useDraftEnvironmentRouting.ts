@@ -6,6 +6,7 @@ import { useLogicalProjectEnvironments } from "../../hooks/useLogicalProjectEnvi
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import {
+  canProviderStartThreads,
   type EnvironmentId,
   type ProviderDriverKind,
   ProviderInstanceId,
@@ -155,10 +156,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
                         provider.instanceId,
                       )
                     : provider.enabled) &&
-                  provider.installed &&
-                  provider.status !== "error" &&
-                  provider.auth.status !== "unauthenticated" &&
-                  provider.availability !== "unavailable",
+                  canProviderStartThreads(provider),
               )
           );
         })

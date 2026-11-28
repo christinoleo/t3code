@@ -328,13 +328,13 @@ const layerWorkflowsProvided = WorkflowRuntime.layer.pipe(
       ThreadIssueService.layer.pipe(Layer.provide(layerOrchestratorProvided)),
     ).pipe(Layer.provideMerge(layerProjectService)),
   ),
-  // Layers memoize by reference, so these are the links Settings and agents use.
-  Layer.provide(PeerMcpClient.layer.pipe(Layer.provideMerge(PeerLinks.layer))),
   Layer.provide(
     FactoryWorkflows.layer.pipe(
       Layer.provide(Layer.merge(layerThreadManagementProvided, layerProjectService)),
     ),
   ),
+  // Layers memoize by reference, so these are the links Settings, agents and the factory use.
+  Layer.provide(PeerMcpClient.layer.pipe(Layer.provideMerge(PeerLinks.layer))),
 );
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(
   Layer.provide(layerThreadManagementProvided),

@@ -7,9 +7,12 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import * as IssueTrackerConnections from "../../../issue/IssueTrackerConnections.ts";
+import { MachineReport } from "../../../factory/FactoryPlacement.ts";
+import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
+import * as HostResources from "../../../resourceTelemetry/HostResources.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -38,4 +41,21 @@ const FactoryConfigureTool = Tool.make("factory_configure", {
   success: FactoryProjectSettings,
 }).annotate(Tool.Destructive, true);
 
-export const FactoryToolkit = Toolkit.make(FactoryConfigureTool);
+/** Fork-only (christinoleo/t3code#93). */
+const FactoryMachineTool = Tool.make("factory_machine", {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    HostResources.HostResources,
+    ProjectService.ProjectService,
+    ProviderRegistry.ProviderRegistry,
+  ],
+  description:
+    "This machine's load, its projects by repository, and which providers are ready, for a linked T3 server placing factory workers.",
+  parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
+  success: MachineReport,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
+
+export const FactoryToolkit = Toolkit.make(FactoryConfigureTool, FactoryMachineTool);
