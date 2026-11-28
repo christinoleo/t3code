@@ -63,7 +63,6 @@ export function useSidebarProjectGroups() {
   return sortSidebarV2ProjectGroups(unsortedGroups, threads, sortOrder, delegatedUnderParent);
 }
 
-/** The sidebar's shown scope, read at the moment of an action rather than subscribed to. */
 export function readShownSidebarProjectScopeKeys(): string[] {
   const settings = selectProjectGroupingSettings(getClientSettings());
   return shownSidebarProjectScopeKeys({
