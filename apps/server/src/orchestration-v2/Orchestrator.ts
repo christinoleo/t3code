@@ -16318,7 +16318,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const next = tagsAfterFolderMove(current, command.folder, command.keep);
         const unchanged =
           next.length === current.length && next.every((tag, index) => tag === current[index]);
-        if (thread !== null && unchanged) break;
+        if (thread !== null && thread.deletedAt === null && unchanged) break;
         yield* dispatchThreadMutation(command, events, effects);
         break;
       }

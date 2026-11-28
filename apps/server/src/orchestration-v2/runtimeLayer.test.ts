@@ -4183,6 +4183,14 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.deepEqual(yield* move("again", "Review"), { threadCount: 0 });
       assert.deepEqual(yield* move("home", null), { threadCount: 1 });
       assert.deepEqual(yield* tags, ["private"]);
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("runtime-layer-folder-move-delete"),
+        threadId,
+      });
+      const deleted = yield* move("deleted", null).pipe(Effect.flip);
+      assert.strictEqual(deleted._tag, "OrchestrationV2MoveThreadToFolderError");
     }).pipe(
       Effect.ensuring(
         ServerSettings.ServerSettingsService.pipe(

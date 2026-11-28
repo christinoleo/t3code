@@ -22,6 +22,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
+  OrchestrationV2MoveThreadToFolderError,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ThreadShell,
@@ -1834,7 +1835,18 @@ const folderToolkit = (options: {
         },
         moveThreadToFolder: (input) => {
           options.moved?.push(input);
-          return Effect.succeed({ threadCount: 1 });
+          return input.folder === "Gone"
+            ? Effect.fail(
+                new OrchestrationV2MoveThreadToFolderError({
+                  threadId: input.threadId,
+                  cause: new OrchestratorCommandRejectedError({
+                    commandId: input.commandId,
+                    commandType: "thread.tag.move",
+                    cause: `Thread ${input.threadId} is deleted.`,
+                  }),
+                }),
+              )
+            : Effect.succeed({ threadCount: 1 });
         },
       }),
     ),
@@ -1864,6 +1876,12 @@ it.effect(
         { threadId, folder: "Review" },
         { threadId, folder: null },
       ]);
+
+      const rejected = yield* organize({ action: "move_to_folder", folder: "Gone" });
+      expect(declaredFailure(rejected)).toMatchObject({
+        code: "orchestration_error",
+        message: `Thread ${threadId} is deleted.`,
+      });
 
       const missing = yield* organize({ action: "move_to_folder" });
       expect(declaredFailure(missing)).toMatchObject({
