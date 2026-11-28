@@ -45,6 +45,7 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  createThread,
   interruptThreadTurn,
   promoteQueuedRun,
   revertThreadCheckpoint,
@@ -311,46 +312,53 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
-  it.effect("tags a new thread after launch only on servers without create-time tags", () =>
+  it.effect("tags a new thread after creation only on servers without create-time tags", () =>
     Effect.gen(function* () {
-      const launchTagged = Effect.fn("launchTagged")(function* (advertiseThreadTagRename: boolean) {
+      const created = {
+        projectId: ProjectId.make("project-1"),
+        title: "Thread",
+        modelSelection: v2Projection.thread.modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        tags: ["ops"],
+      } as const;
+      const launch = startThreadTurn({
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-folder"),
+          role: "user",
+          text: "Hello",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: { createThread: { ...created, createdAt: "2026-06-20T00:00:00.000Z" } },
+      });
+      const create = createThread({ ...created, threadId: v2ThreadId });
+      const tagCommands = Effect.fn("tagCommands")(function* (
+        entry: typeof launch | typeof create,
+        advertiseThreadTagRename: boolean,
+      ) {
         const commands: OrchestrationV2Command[] = [];
         const supervisor = yield* makeSupervisor({
           commands,
           projects: [],
           advertiseThreadTagRename,
         });
-        yield* startThreadTurn({
-          threadId: v2ThreadId,
-          message: {
-            messageId: MessageId.make("message-folder"),
-            role: "user",
-            text: "Hello",
-            attachments: [],
-          },
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          bootstrap: {
-            createThread: {
-              projectId: ProjectId.make("project-1"),
-              title: "Thread",
-              modelSelection: v2Projection.thread.modelSelection,
-              runtimeMode: "full-access",
-              interactionMode: "default",
-              branch: null,
-              worktreePath: null,
-              createdAt: "2026-06-20T00:00:00.000Z",
-              tags: ["ops"],
-            },
-          },
-        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+        yield* entry.pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        );
         return commands.filter((command) => command.type === "thread.tag.set");
       });
 
-      expect(yield* launchTagged(false)).toMatchObject([
-        { type: "thread.tag.set", threadId: v2ThreadId, tag: "ops", tagged: true },
-      ]);
-      expect(yield* launchTagged(true)).toEqual([]);
+      for (const entry of [launch, create]) {
+        expect(yield* tagCommands(entry, false)).toMatchObject([
+          { type: "thread.tag.set", threadId: v2ThreadId, tag: "ops", tagged: true },
+        ]);
+        expect(yield* tagCommands(entry, true)).toEqual([]);
+      }
     }).pipe(Effect.provide(layerTestRandom)),
   );
 

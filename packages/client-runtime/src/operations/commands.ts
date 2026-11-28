@@ -527,17 +527,17 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
 });
 
 // Create-time tags shipped one commit after threadTagRename; servers without it drop the key.
-const tagWhereCreateDropsTags = Effect.fn("EnvironmentCommands.tagWhereCreateDropsTags")(function* (
-  threadId: ThreadId,
-  tags: ReadonlyArray<string> | undefined,
-) {
-  if (tags === undefined || tags.length === 0) return;
-  const config = yield* getInitialServerConfig();
-  if (config.environment.capabilities.threadTagRename === true) return;
-  for (const tag of tags) {
-    yield* setThreadTag({ threadId, tag, tagged: true }).pipe(Effect.ignore);
-  }
-});
+const tagWhereCreateDropsTags = Effect.fn("EnvironmentCommands.tagWhereCreateDropsTags")(
+  function* (threadId: ThreadId, tags: ReadonlyArray<string> | undefined) {
+    if (tags === undefined || tags.length === 0) return;
+    const config = yield* getInitialServerConfig();
+    if (config.environment.capabilities.threadTagRename === true) return;
+    for (const tag of tags) {
+      yield* setThreadTag({ threadId, tag, tagged: true });
+    }
+  },
+  (effect) => Effect.ignore(effect),
+);
 
 function simpleThreadCommand(
   type:
