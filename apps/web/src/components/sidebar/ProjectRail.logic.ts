@@ -280,6 +280,14 @@ export function threadFilterTarget(
   return { key: projectGroup.projectKey, label: projectGroup.displayName };
 }
 
+/** The folders a thread row names: its tags, less the folders the sidebar already shows. */
+export function threadRowFolders(
+  tags: ReadonlyArray<string> | undefined,
+  scopeKeys: readonly string[],
+): string[] {
+  return (tags ?? []).filter((tag) => !scopeKeys.includes(folderScopeKey(tag)));
+}
+
 /** A thread started while the sidebar shows exactly one folder, and nothing else, is born in it. */
 export function newThreadCreateTags(scopeKeys: readonly string[]): {
   readonly tags?: readonly [string];

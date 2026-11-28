@@ -42,7 +42,11 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
-import { useClientSettings } from "../../hooks/useSettings";
+import { useClientSettings, usePrimarySettings } from "../../hooks/useSettings";
+import { useUiStateStore } from "../../uiStateStore";
+import { useThreadSelectionStore } from "../../threadSelectionStore";
+import { FolderTileIcon } from "../sidebar/ProjectRail";
+import { threadFilterTarget } from "../sidebar/ProjectRail.logic";
 import { GuestShareIndicator } from "./GuestShareControls";
 import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
@@ -53,6 +57,7 @@ interface ChatHeaderProps {
   activeThreadLinkOrigin?: string | null | undefined;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
+  activeThreadTags?: ReadonlyArray<string> | undefined;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
@@ -78,6 +83,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadLinkOrigin,
   isServerThread,
   activeProject,
+  activeThreadTags,
   parentThreadLink,
   onOpenThread,
   rightPanelOpen,
@@ -88,6 +94,12 @@ export const ChatHeader = memo(function ChatHeader({
   const gt = useGT();
   const activeProjectName = activeProject?.isScratch ? gt("No project") : activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const sidebarScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
+  const setSidebarScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const folder = threadFilterTarget({ tags: activeThreadTags }, null, sidebarScopeKeys);
+  const folderIcon = usePrimarySettings((settings) =>
+    folder === null ? undefined : settings.folderIcons[folder.label],
+  );
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
@@ -159,6 +171,7 @@ export const ChatHeader = memo(function ChatHeader({
     parentThreadLink,
     interfaceFont,
     isRenamingTitle,
+    folder?.label,
   ]);
   const renameCommittedRef = useRef(false);
   const startRename = () => {
@@ -287,6 +300,42 @@ export const ChatHeader = memo(function ChatHeader({
                 <MiddleTruncate
                   data-slot="workspace-breadcrumb-text"
                   value={activeProjectName ?? ""}
+                  showTitle={false}
+                  variant="cap-aligned"
+                />
+              </SharedTooltipTrigger>
+            </WorkspaceBreadcrumbItem>
+            <WorkspaceBreadcrumbSeparator>
+              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+            </WorkspaceBreadcrumbSeparator>
+          </>
+        ) : null}
+        {folder ? (
+          <>
+            <WorkspaceBreadcrumbItem className="shrink">
+              <SharedTooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={gt("Show folder {folder}", { folder: folder.label })}
+                    onClick={() => {
+                      // A selection made under one scope can hold threads the folder hides.
+                      useThreadSelectionStore.getState().clearSelection();
+                      setSidebarScopeKeys([folder.key]);
+                    }}
+                    className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  />
+                }
+                label={
+                  <T>
+                    Show folder <Var>{folder.label}</Var>
+                  </T>
+                }
+              >
+                <FolderTileIcon tag={folder.label} icon={folderIcon} className="size-3.5" />
+                <MiddleTruncate
+                  data-slot="workspace-breadcrumb-text"
+                  value={folder.label}
                   showTitle={false}
                   variant="cap-aligned"
                 />

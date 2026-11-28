@@ -1870,6 +1870,15 @@
   "3a163697598a2390": "Connecter un environnement",
   "181677cda4d3fd0a": "Aucun environnement connecté ne peut ajouter de projet",
   "3a0bf3d17f31584e": "Nouveau fil dans {project}",
+  "0110798cd9ce1353": "Afficher le dossier {folder}",
+  "c2c05758bc02adbf": [
+    "Afficher le dossier ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "4b4b64cc95acb8da": "Nouveau fil dans...",
   "3f581e98c86df72a": "Nouveau fil sans projet",
   "e510d9a7b684fbfe": "Trier un ticket",

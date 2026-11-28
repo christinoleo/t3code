@@ -1870,6 +1870,15 @@
   "3a163697598a2390": "Conectar um ambiente",
   "181677cda4d3fd0a": "Nenhum ambiente conectado pode adicionar um projeto",
   "3a0bf3d17f31584e": "Nova thread em {project}",
+  "0110798cd9ce1353": "Mostrar pasta {folder}",
+  "c2c05758bc02adbf": [
+    "Mostrar pasta ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
   "4b4b64cc95acb8da": "Nova thread em...",
   "3f581e98c86df72a": "Nova thread sem projeto",
   "e510d9a7b684fbfe": "Fazer a triagem de um problema",

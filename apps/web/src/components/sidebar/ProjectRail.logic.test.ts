@@ -15,6 +15,7 @@ import {
   newThreadCreateTags,
   resolveProjectRailTileStates,
   threadFilterTarget,
+  threadRowFolders,
 } from "./ProjectRail.logic";
 
 const environmentId = EnvironmentId.make("environment-local");
@@ -341,6 +342,15 @@ describe("thread filter target", () => {
       key: "tag:ops",
       label: "ops",
     });
+  });
+});
+
+describe("thread row folders", () => {
+  it("names the folders a thread is in, except those the sidebar already shows", () => {
+    expect(threadRowFolders(undefined, [])).toEqual([]);
+    expect(threadRowFolders(["infra", "ops"], [])).toEqual(["infra", "ops"]);
+    expect(threadRowFolders(["infra", "ops"], ["tag:ops", "group:a"])).toEqual(["infra"]);
+    expect(threadRowFolders(["ops"], ["tag:ops"])).toEqual([]);
   });
 });
 
