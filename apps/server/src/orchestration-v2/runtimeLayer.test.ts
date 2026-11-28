@@ -4171,7 +4171,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           folder,
         });
 
-      // A rename landing after a client read the thread's tags must not survive the move.
+      // The move works from the tags at dispatch, not from a caller's earlier read.
       yield* threadManagement.renameThreadTag({
         commandId: CommandId.make("runtime-layer-folder-move-rename"),
         from: "Inbox",

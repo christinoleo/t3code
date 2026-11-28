@@ -49,8 +49,9 @@ export function folderTagChanges(
   folder: string | null,
   hiddenTags: ReadonlyArray<string> | null,
 ): ReadonlyArray<ThreadFolderTagChange> {
+  const next = tagsAfterFolderMove(currentTags, folder, hiddenTags ?? []);
   const removals = currentTags
-    .filter((tag) => tag !== folder && hiddenTags?.includes(tag) !== true)
+    .filter((tag) => !next.includes(tag))
     .map((tag) => ({ tag, tagged: false }));
   return folder === null || currentTags.includes(folder)
     ? removals

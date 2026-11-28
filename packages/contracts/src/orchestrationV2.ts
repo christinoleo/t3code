@@ -4611,7 +4611,7 @@ export class OrchestrationV2RenameThreadTagError extends Schema.TaggedError<Orch
   }
 }
 
-/** Files a thread in one folder, or none when `folder` is null. Tags the server hides by stay. */
+/** Files a thread in one folder, or none when `folder` is null. Tags in the server's active hidden-tag list stay. */
 export const OrchestrationV2MoveThreadToFolderInput = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,

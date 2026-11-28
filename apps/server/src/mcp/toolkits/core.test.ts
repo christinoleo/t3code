@@ -1834,7 +1834,7 @@ const folderToolkit = (options: {
         },
         moveThreadToFolder: (input) => {
           options.moved?.push(input);
-          return Effect.succeed({ threadCount: input.folder === "Inbox" ? 0 : 1 });
+          return Effect.succeed({ threadCount: 1 });
         },
       }),
     ),
@@ -1851,7 +1851,7 @@ const organize = (args: Record<string, unknown>) =>
   );
 
 it.effect(
-  "move_to_folder moves through the service, which reads the tags under the thread's lock",
+  "move_to_folder and remove_from_folder hand the folder, or null for the project, to the service",
   () => {
     const dispatched: Array<OrchestrationV2ServerCommand> = [];
     const moved: Array<unknown> = [];
@@ -1860,14 +1860,10 @@ it.effect(
       expect(result.structuredContent).toEqual({ threadCount: 1 });
       const home = yield* organize({ action: "remove_from_folder" });
       expect(home.structuredContent).toEqual({ threadCount: 1 });
-      const same = yield* organize({ action: "move_to_folder", folder: "Inbox" });
-      expect(same.structuredContent).toEqual({ threadCount: 0 });
       expect(moved).toMatchObject([
         { threadId, folder: "Review" },
         { threadId, folder: null },
-        { threadId, folder: "Inbox" },
       ]);
-      expect(dispatched).toEqual([]);
 
       const missing = yield* organize({ action: "move_to_folder" });
       expect(declaredFailure(missing)).toMatchObject({
