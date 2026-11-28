@@ -345,6 +345,17 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * Reads and writes under the writer's lock, so a write that raced this one is checked against
+   * the row it left, not overwritten from a stale read.
+   */
+  const locked = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
+    sql.withTransaction(effect).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(new TaskStoreError({ operation, cause })),
+      ),
+    );
+
   const append = (id: TaskId, at: string, by: Actor, type: TaskEntry["type"], payload: object) =>
     sql<{ readonly id: number }>`
       INSERT INTO factory_task_entries (task_id, at, actor_json, type, payload_json)
@@ -461,25 +472,24 @@ const make = Effect.gen(function* () {
 
   const update: FactoryTasks["Service"]["update"] = Effect.fn("FactoryTasks.update")(
     function* (id, patch, _by) {
-      const task = yield* find(id);
       const labels = patch.labels === undefined ? undefined : yield* splitLabels(patch.labels);
       const at = yield* now;
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
-              UPDATE factory_tasks SET
-                title = ${patch.title ?? task.title},
-                body = ${patch.body ?? task.body},
-                kind = ${labels?.kind ?? task.kind},
-                labels_json = ${encodeJson(labels?.free ?? task.labels)}
-              WHERE id = ${id}
-            `;
-            yield* touch(id, at);
-          }),
-        )
-        .pipe(failed("update"));
-      return yield* find(id);
+      return yield* locked(
+        "update",
+        Effect.gen(function* () {
+          const task = yield* find(id);
+          yield* sql`
+            UPDATE factory_tasks SET
+              title = ${patch.title ?? task.title},
+              body = ${patch.body ?? task.body},
+              kind = ${labels?.kind ?? task.kind},
+              labels_json = ${encodeJson(labels?.free ?? task.labels)}
+            WHERE id = ${id}
+          `.pipe(failed("update"));
+          yield* touch(id, at).pipe(failed("update"));
+          return yield* find(id);
+        }),
+      );
     },
   );
 
@@ -496,30 +506,31 @@ const make = Effect.gen(function* () {
 
   const transition: FactoryTasks["Service"]["transition"] = Effect.fn("FactoryTasks.transition")(
     function* (id, to, by, reason) {
-      const task = yield* find(id);
-      // Asked again for where it already is, the move is done: a retried step changes nothing.
-      if (task.state === to) return task;
-      const refused = refusal(task.state, to, by);
-      if (refused !== null) {
-        return yield* new TaskTransitionError({ task: String(id), detail: refused });
-      }
       const at = yield* now;
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
-              UPDATE factory_tasks SET
-                state = ${to},
-                generation = generation + ${revives(task.state, to) ? 1 : 0},
-                closed_at = ${isOpen(to) ? null : at}
-              WHERE id = ${id}
-            `;
-            yield* append(id, at, by, "state", { from: task.state, to, reason: reason ?? null });
-            yield* touch(id, at);
-          }),
-        )
-        .pipe(failed("transition"));
-      return yield* find(id);
+      return yield* locked(
+        "transition",
+        Effect.gen(function* () {
+          const task = yield* find(id);
+          // Asked again for where it already is, the move is done: a retried step changes nothing.
+          if (task.state === to) return task;
+          const refused = refusal(task.state, to, by);
+          if (refused !== null) {
+            return yield* new TaskTransitionError({ task: String(id), detail: refused });
+          }
+          yield* sql`
+            UPDATE factory_tasks SET
+              state = ${to},
+              generation = generation + ${revives(task.state, to) ? 1 : 0},
+              closed_at = ${isOpen(to) ? null : at}
+            WHERE id = ${id}
+          `.pipe(failed("transition"));
+          yield* append(id, at, by, "state", { from: task.state, to, reason: reason ?? null }).pipe(
+            failed("transition"),
+          );
+          yield* touch(id, at).pipe(failed("transition"));
+          return yield* find(id);
+        }),
+      );
     },
   );
 

@@ -1,6 +1,8 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import {
@@ -34,8 +36,7 @@ const shell = (id: string, title: string) =>
   }) satisfies OrchestrationProjectShell;
 const PROJECTS = [shell("alpha", "Alpha"), shell("beta", "Beta")];
 
-const services = Layer.mergeAll(
-  SqlitePersistence.layerMemory,
+const fakes = Layer.mergeAll(
   Layer.mock(ServerEnvironment.ServerEnvironment)({
     getEnvironmentId: Effect.succeed(ENVIRONMENT),
     getDescriptor: Effect.succeed({ label: "omarchy" } as ExecutionEnvironmentDescriptor),
@@ -46,7 +47,9 @@ const services = Layer.mergeAll(
       Effect.succeed(Option.fromNullishOr(PROJECTS.find((project) => project.id === projectId))),
   }),
 );
-const layer = FactoryTasks.layer.pipe(Layer.provideMerge(services));
+const layer = FactoryTasks.layer.pipe(
+  Layer.provideMerge(Layer.merge(SqlitePersistence.layerMemory, fakes)),
+);
 
 const target = (scope: string, key: string) => ({ cwd: "/work", host: "t3", scope, key });
 const FACTORY = { kind: "factory", runId: "run-1" } as const;
@@ -202,6 +205,41 @@ describe("TaskTracker", () => {
           ["closed", "Dropped"],
         ]);
       }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("a person's drop that races the factory's next move is never overwritten", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const directory = yield* fileSystem.makeTempDirectoryScoped();
+      // The in-memory database runs each query synchronously, so only a file one interleaves them.
+      const onDisk = FactoryTasks.layer.pipe(
+        Layer.provideMerge(
+          Layer.merge(SqlitePersistence.layerFromPath(`${directory}/state.sqlite`), fakes),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const { api, tasks } = yield* tracker;
+        yield* api.create!({
+          cwd: "/work",
+          host: "t3",
+          scope: "alpha",
+          title: "A task",
+          body: "",
+          labels: [],
+          assignees: [],
+        });
+        const task = yield* tasks.byKey("alpha", 1);
+        yield* tasks.transition(task.id, "building", FACTORY);
+        yield* Effect.all(
+          [
+            tasks.transition(task.id, "dropped", { kind: "person", name: "you" }),
+            Effect.ignore(tasks.transition(task.id, "reviewing", FACTORY)),
+          ],
+          { concurrency: "unbounded" },
+        );
+        expect((yield* tasks.get(task.id)).state).toBe("dropped");
+      }).pipe(Effect.provide(onDisk));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
   it.effect("attaches to a project with no credential, and refuses one", () =>
