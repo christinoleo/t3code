@@ -5742,5 +5742,8 @@
   "fd52d36f2d28072d": "{count, plural, one {Tried to update {count} issue} other {Tried to update {count} issues}}",
   "fdb6381df1e2ac2f": "Send feedback to T3",
   "f6889f5ceab6fbdd": "{count, plural, one {Sent feedback {count} time} other {Sent feedback {count} times}}",
-  "f578484f8452eab8": "{count, plural, one {Tried to send feedback {count} time} other {Tried to send feedback {count} times}}"
+  "f578484f8452eab8": "{count, plural, one {Tried to send feedback {count} time} other {Tried to send feedback {count} times}}",
+  "ad3c1f3c847b1070": "{count, plural, one {Configured the factory {count} time} other {Configured the factory {count} times}}",
+  "1db18367d4cd4f02": "{count, plural, one {Tried to configure the factory {count} time} other {Tried to configure the factory {count} times}}",
+  "0aa6dc7e03221e0d": "Configure the factory"
 }

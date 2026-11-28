@@ -10,7 +10,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -46,11 +45,16 @@ it.effect("a tick starts task runs only in projects whose factory is on", () =>
       settingsWith({ alpha: { enabled: true }, beta: { enabled: false } }),
     );
     const alphaBuild = yield* file(ProjectId.make("alpha"), "Build it");
-    yield* file(ProjectId.make("alpha"), "Talk it through", "grilling");
-    const blocker = yield* file(ProjectId.make("alpha"), "Talk it through first", "grilling");
-    const blocked = yield* file(ProjectId.make("alpha"), "Waits on the talk");
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`INSERT INTO factory_task_edges (task_id, blocker_id) VALUES (${blocked.id}, ${blocker.id})`;
+    const talk = yield* file(ProjectId.make("alpha"), "Talk it through", "grilling");
+    yield* tasks.create(
+      {
+        scope: ProjectId.make("alpha"),
+        title: "Waits on the talk",
+        body: "",
+        blockedBy: [talk.id],
+      },
+      PERSON,
+    );
     yield* file(ProjectId.make("beta"), "Off here");
 
     const started = (tickRun: string) =>

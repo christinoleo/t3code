@@ -13420,5 +13420,8 @@
   "ba2518918ccea00d": "Adicionado às instruções de cada worker, para regras que os agentes deste projeto seguem.",
   "0161a422b2d7ee07": "Instruções da factory",
   "7529c93fee9c26be": "Rótulo de entrada",
-  "391fc9c4112e2c14": "Uma issue no tracker do projeto que recebe este rótulo vira uma tarefa. Só contam rótulos adicionados depois que a factory foi ligada pela primeira vez. Vazio desliga."
+  "391fc9c4112e2c14": "Uma issue no tracker do projeto que recebe este rótulo vira uma tarefa. Só contam rótulos adicionados depois que a factory foi ligada pela primeira vez. Vazio desliga.",
+  "ad3c1f3c847b1070": "{count, plural, one {Configurou a factory {count} vez} other {Configurou a factory {count} vezes}}",
+  "1db18367d4cd4f02": "{count, plural, one {Tentou configurar a factory {count} vez} other {Tentou configurar a factory {count} vezes}}",
+  "0aa6dc7e03221e0d": "Configurar a factory"
 }

@@ -13420,5 +13420,8 @@
   "ba2518918ccea00d": "Ajouté au brief de chaque worker, pour les règles que suivent les agents de ce projet.",
   "0161a422b2d7ee07": "Instructions de la factory",
   "7529c93fee9c26be": "Libellé d’entrée",
-  "391fc9c4112e2c14": "Une issue du tracker du projet qui reçoit ce libellé devient une tâche. Seuls comptent les libellés ajoutés après la première activation de la factory. Vide le désactive."
+  "391fc9c4112e2c14": "Une issue du tracker du projet qui reçoit ce libellé devient une tâche. Seuls comptent les libellés ajoutés après la première activation de la factory. Vide le désactive.",
+  "ad3c1f3c847b1070": "{count, plural, one {Factory configurée {count} fois} other {Factory configurée {count} fois}}",
+  "1db18367d4cd4f02": "{count, plural, one {Tentative de configurer la factory {count} fois} other {Tentative de configurer la factory {count} fois}}",
+  "0aa6dc7e03221e0d": "Configurer la factory"
 }

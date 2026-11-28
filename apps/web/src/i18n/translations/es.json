@@ -13415,5 +13415,8 @@
   "ba2518918ccea00d": "Se añade a las instrucciones de cada worker, para reglas que siguen los agentes de este proyecto.",
   "0161a422b2d7ee07": "Instrucciones de la factory",
   "7529c93fee9c26be": "Etiqueta de entrada",
-  "391fc9c4112e2c14": "Un issue del tracker del proyecto que recibe esta etiqueta se convierte en una tarea. Solo cuentan las etiquetas añadidas después de que la factory se activó por primera vez. Vacío lo desactiva."
+  "391fc9c4112e2c14": "Un issue del tracker del proyecto que recibe esta etiqueta se convierte en una tarea. Solo cuentan las etiquetas añadidas después de que la factory se activó por primera vez. Vacío lo desactiva.",
+  "ad3c1f3c847b1070": "{count, plural, one {Configuró la factory {count} vez} other {Configuró la factory {count} veces}}",
+  "1db18367d4cd4f02": "{count, plural, one {Intentó configurar la factory {count} vez} other {Intentó configurar la factory {count} veces}}",
+  "0aa6dc7e03221e0d": "Configurar la factory"
 }

@@ -13427,5 +13427,8 @@
   "ba2518918ccea00d": "Läggs till i varje workers instruktioner, för regler som projektets agenter följer.",
   "0161a422b2d7ee07": "Factory-instruktioner",
   "7529c93fee9c26be": "Intagsetikett",
-  "391fc9c4112e2c14": "Ett ärende i projektets tracker som får den här etiketten blir en uppgift. Bara etiketter som lagts till efter att factoryn först slogs på räknas. Tomt stänger av det."
+  "391fc9c4112e2c14": "Ett ärende i projektets tracker som får den här etiketten blir en uppgift. Bara etiketter som lagts till efter att factoryn först slogs på räknas. Tomt stänger av det.",
+  "ad3c1f3c847b1070": "{count, plural, one {Konfigurerade factoryn {count} gång} other {Konfigurerade factoryn {count} gånger}}",
+  "1db18367d4cd4f02": "{count, plural, one {Försökte konfigurera factoryn {count} gång} other {Försökte konfigurera factoryn {count} gånger}}",
+  "0aa6dc7e03221e0d": "Konfigurera factoryn"
 }

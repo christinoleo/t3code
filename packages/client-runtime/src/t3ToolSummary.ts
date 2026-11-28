@@ -1203,6 +1203,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "factory-configure": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Configured the factory {count} time} other {Configured the factory {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to configure the factory {count} time} other {Tried to configure the factory {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "theme-set": {
       const count = selected.length;
       label = done

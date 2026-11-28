@@ -13428,5 +13428,8 @@
   "ba2518918ccea00d": "Added to every worker's brief, for rules this project's agents follow.",
   "0161a422b2d7ee07": "Factory instructions",
   "7529c93fee9c26be": "Intake label",
-  "391fc9c4112e2c14": "An issue on the project's tracker that gets this label becomes a task. Only labels added after the factory first turned on count. Empty turns it off."
+  "391fc9c4112e2c14": "An issue on the project's tracker that gets this label becomes a task. Only labels added after the factory first turned on count. Empty turns it off.",
+  "ad3c1f3c847b1070": "{count, plural, one {Configured the factory {count} time} other {Configured the factory {count} times}}",
+  "1db18367d4cd4f02": "{count, plural, one {Tried to configure the factory {count} time} other {Tried to configure the factory {count} times}}",
+  "0aa6dc7e03221e0d": "Configure the factory"
 }

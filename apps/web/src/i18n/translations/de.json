@@ -13421,5 +13421,8 @@
   "ba2518918ccea00d": "Wird jedem Briefing eines Workers hinzugefügt, für Regeln, denen die Agents dieses Projekts folgen.",
   "0161a422b2d7ee07": "Factory-Anweisungen",
   "7529c93fee9c26be": "Intake-Label",
-  "391fc9c4112e2c14": "Ein Issue im Tracker des Projekts, das dieses Label erhält, wird zu einer Aufgabe. Es zählen nur Labels, die nach dem ersten Einschalten der Factory hinzugefügt wurden. Leer schaltet es aus."
+  "391fc9c4112e2c14": "Ein Issue im Tracker des Projekts, das dieses Label erhält, wird zu einer Aufgabe. Es zählen nur Labels, die nach dem ersten Einschalten der Factory hinzugefügt wurden. Leer schaltet es aus.",
+  "ad3c1f3c847b1070": "{count, plural, one {Factory {count}-mal konfiguriert} other {Factory {count}-mal konfiguriert}}",
+  "1db18367d4cd4f02": "{count, plural, one {Versucht, die Factory {count}-mal zu konfigurieren} other {Versucht, die Factory {count}-mal zu konfigurieren}}",
+  "0aa6dc7e03221e0d": "Factory konfigurieren"
 }
