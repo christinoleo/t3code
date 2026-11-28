@@ -20,9 +20,8 @@ import { type FactoryDeps, makeFactoryWorkflows } from "./factoryWorkflow.ts";
 
 /**
  * A Workflows engine on a fresh database running only the factory's definitions, built from
- * `deps`, with the agents and forge a test plays. Each `boot` is the server starting on that one
- * database, so a second is a restart. Time runs while `use` does, since the engine polls and
- * backs off on the clock.
+ * `deps`, with the agents and forge a test plays. Time runs while `use` does, since the engine
+ * polls and backs off on the clock.
  */
 export const factoryEngine = Effect.fnUntraced(function* (
   deps: FactoryDeps,
@@ -61,7 +60,6 @@ export const factoryEngine = Effect.fnUntraced(function* (
     );
 });
 
-/** One boot of `factoryEngine`. */
 export const runFactory = Effect.fnUntraced(function* <A, E>(
   deps: FactoryDeps,
   use: Effect.Effect<A, E, Workflows.Workflows>,

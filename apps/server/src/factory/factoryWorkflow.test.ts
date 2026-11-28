@@ -46,14 +46,14 @@ const depsOver = (
   tasks: FactoryTasks.FactoryTasks["Service"],
   settings: Ref.Ref<ServerSettings>,
   settled: Array<AgentThread> = [],
-  mainTouched: FactoryDeps["mainTouched"] = () => Effect.succeed(false),
+  baseTouchedSinceFork: FactoryDeps["baseTouchedSinceFork"] = () => Effect.succeed(false),
 ): FactoryDeps => ({
   tasks,
   enabledProjects: Effect.map(Ref.get(settings), enabledProjects),
   projectSettings: (project) =>
     Effect.map(Ref.get(settings), (all) => factoryProjectSettingsOf(all, project)),
   settle: (thread) => Effect.sync(() => void settled.push(thread)),
-  mainTouched,
+  baseTouchedSinceFork,
 });
 
 const tickAt = (minute: number) =>
@@ -65,7 +65,6 @@ const tickAt = (minute: number) =>
     ),
   );
 
-/** Until the run waits on its `nth` Needs-you question. */
 const waitAsked = (runId: string, nth: number) =>
   Effect.flatMap(Workflows.Workflows, (workflows) =>
     workflows.waitFor(
@@ -404,16 +403,11 @@ it.effect("a timeline write that fails once is retried without repeating the att
     );
 
     const { entries } = yield* real.timeline(task.id);
-    // Two give-ups spend the build's budget, one decision each.
     expect(entries.filter((entry) => entry.type === "attempt")).toHaveLength(2);
     expect(entries.filter((entry) => entry.type === "decision")).toHaveLength(2);
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
-/**
- * Agents that follow `script` by step name: a report to submit, a start that fails as on a
- * machine that is gone, or a turn that never ends.
- */
 const scripted = (
   script: (step: string) => Schema.Json | "unstartable" | "never",
   started: Array<Started> = [],
@@ -445,69 +439,68 @@ const statesOf = (entries: ReadonlyArray<FactoryTasks.TaskEntry>) =>
   entries.flatMap((entry) => (entry.type === "state" ? [`${entry.from}>${entry.to}`] : []));
 const GAVE_UP = { outcome: "gave-up", why: "Stuck.", tryNext: "Read the logs.", decisions: [] };
 
-it.effect("infra failures are free up to five in a row, give-ups and stalls spend the build's two, and each cap asks Leo", () =>
-  Effect.gen(function* () {
-    const tasks = yield* FactoryTasks.FactoryTasks;
-    const settings = yield* Ref.make(
-      decodeSettings({
-        factory: { projects: { alpha: { enabled: true, budgets: { buildTimeoutMinutes: 1 } } } },
-      }),
-    );
-    const task = yield* tasks.create(
-      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
-      PERSON,
-    );
-    const started: Array<Started> = [];
-    // A give-up, five machines gone, then a stall: the infra failures between cost nothing.
-    // After Leo's answer, six machines gone in a row.
-    const agents = scripted((step) => {
-      const nth = attemptOf(step);
-      if (nth === 1) return GAVE_UP;
-      if (nth === 7) return "never";
-      return nth <= 13 ? "unstartable" : GAVE_UP;
-    }, started);
+it.effect(
+  "infra failures are free up to five in a row, give-ups and stalls spend the build's two, and each cap asks Leo",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(
+        decodeSettings({
+          factory: { projects: { alpha: { enabled: true, budgets: { buildTimeoutMinutes: 1 } } } },
+        }),
+      );
+      const task = yield* tasks.create(
+        { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+        PERSON,
+      );
+      const started: Array<Started> = [];
+      const agents = scripted((step) => {
+        const nth = attemptOf(step);
+        if (nth === 1) return GAVE_UP;
+        if (nth === 7) return "never";
+        return nth <= 13 ? "unstartable" : GAVE_UP;
+      }, started);
 
-    yield* runFactory(
-      depsOver(tasks, settings),
-      Effect.gen(function* () {
-        const workflows = yield* Workflows.Workflows;
-        yield* startedBy(yield* tickAt(0));
-        const run = yield* taskRun;
-        yield* waitAsked(run.runId, 1);
-        yield* workflows.answer(run.runId, "needs-you/1", {
-          choice: "retry",
-          reason: "Use the other machine.",
-        });
-        yield* waitAsked(run.runId, 2);
-        yield* workflows.answer(run.runId, "needs-you/2", { choice: "drop" });
-        yield* workflows.waitFor(run.runId, (found) => found.status === "stopped");
-      }),
-      { agents },
-    );
+      yield* runFactory(
+        depsOver(tasks, settings),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const run = yield* taskRun;
+          yield* waitAsked(run.runId, 1);
+          yield* workflows.answer(run.runId, "needs-you/1", {
+            choice: "retry",
+            reason: "Use the other machine.",
+          });
+          yield* waitAsked(run.runId, 2);
+          yield* workflows.answer(run.runId, "needs-you/2", { choice: "drop" });
+          yield* workflows.waitFor(run.runId, (found) => found.status === "stopped");
+        }),
+        { agents },
+      );
 
-    const { entries } = yield* tasks.timeline(task.id);
-    expect(entries.flatMap((entry) => (entry.type === "attempt" ? [entry.failure] : []))).toEqual([
-      "agent",
-      ...Array(5).fill("infra"),
-      "agent",
-      ...Array(6).fill("infra"),
-    ]);
-    expect(statesOf(entries)).toEqual([
-      "ready>building",
-      "building>needs-you",
-      "needs-you>building",
-      "building>needs-you",
-      "needs-you>dropped",
-    ]);
-    const reasons = entries.flatMap((entry) =>
-      entry.type === "state" && entry.to === "needs-you" ? [entry.reason] : [],
-    );
-    expect(reasons[0]).toMatch(/^The build failed 2 times: .*not done after 1m/);
-    expect(reasons[1]).toMatch(/^The build could not run 6 times in a row: /);
-    expect(promptOf(started, "build/2")).toContain("Last attempt: Stuck. Try next: Read the logs.");
-    expect(promptOf(started, "build/8")).toContain("Leo's answer: Use the other machine.");
-    expect((yield* tasks.get(task.id)).state).toBe("dropped");
-  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(entries.flatMap((entry) => (entry.type === "attempt" ? [entry.failure] : []))).toEqual(
+        ["agent", ...Array(5).fill("infra"), "agent", ...Array(6).fill("infra")],
+      );
+      expect(statesOf(entries)).toEqual([
+        "ready>building",
+        "building>needs-you",
+        "needs-you>building",
+        "building>needs-you",
+        "needs-you>dropped",
+      ]);
+      const reasons = entries.flatMap((entry) =>
+        entry.type === "state" && entry.to === "needs-you" ? [entry.reason] : [],
+      );
+      expect(reasons[0]).toMatch(/^The build failed 2 times: .*not done after 1m/);
+      expect(reasons[1]).toMatch(/^The build could not run 6 times in a row: /);
+      expect(promptOf(started, "build/2")).toContain(
+        "Last attempt: Stuck. Try next: Read the logs.",
+      );
+      expect(promptOf(started, "build/8")).toContain("Leo's answer: Use the other machine.");
+      expect((yield* tasks.get(task.id)).state).toBe("dropped");
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
 it.effect("a Needs you outlives a restart, and Leo's comment on the task answers it", () =>
@@ -556,89 +549,91 @@ it.effect("a Needs you outlives a restart, and Leo's comment on the task answers
   }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
-it.effect("red checks, requested changes and main moving each spend a fix round, and a third asks Leo", () =>
-  Effect.gen(function* () {
-    const tasks = yield* FactoryTasks.FactoryTasks;
-    const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
-    const task = yield* tasks.create(
-      { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
-      PERSON,
-    );
-    let ci = "failure";
-    let landed = false;
-    const started: Array<Started> = [];
-    const opened = { outcome: "pull-request", url: PULL_REQUEST, decisions: [] };
-    const agents = scripted((step) => {
-      if (step === "fix/1") ci = "success";
-      if (step === "review/1") return { outcome: "changes", requests: "Rename it.", decisions: [] };
-      return kindOf(step) === "review" ? { outcome: "approve", decisions: [] } : opened;
-    }, started);
-    const forge = WorkflowForge.of({
-      ...unavailable,
-      pullRequests: {
-        ...unavailable.pullRequests,
-        read: () =>
-          Effect.sync(
-            () =>
-              ({
-                state: landed ? "merged" : "open",
-                mergeability: "mergeable",
-                url: PULL_REQUEST,
-                headBranch: `factory/${FactoryTasks.displayKey(task)}`,
-                checks: [{ name: "test", status: ci, description: null, url: null }],
-              }) as never,
-          ),
-        // The host takes the merge, and its reply is lost.
-        act: () =>
-          Effect.suspend(() => {
-            landed = true;
-            return Effect.fail(new WorkflowForgeError({ reason: "the connection reset" }));
-          }),
-      },
-    });
-    let mainChecks = 0;
-    const mainTouched = () => Effect.sync(() => ++mainChecks === 1);
+it.effect(
+  "red checks, requested changes and main moving each spend a fix round, and a third asks Leo",
+  () =>
+    Effect.gen(function* () {
+      const tasks = yield* FactoryTasks.FactoryTasks;
+      const settings = yield* Ref.make(settingsWith({ alpha: { enabled: true } }));
+      const task = yield* tasks.create(
+        { scope: ProjectId.make("alpha"), title: "Ship it", body: "" },
+        PERSON,
+      );
+      let ci = "failure";
+      let landed = false;
+      const started: Array<Started> = [];
+      const opened = { outcome: "pull-request", url: PULL_REQUEST, decisions: [] };
+      const agents = scripted((step) => {
+        if (step === "fix/1") ci = "success";
+        if (step === "review/1")
+          return { outcome: "changes", requests: "Rename it.", decisions: [] };
+        return kindOf(step) === "review" ? { outcome: "approve", decisions: [] } : opened;
+      }, started);
+      const forge = WorkflowForge.of({
+        ...unavailable,
+        pullRequests: {
+          ...unavailable.pullRequests,
+          read: () =>
+            Effect.sync(
+              () =>
+                ({
+                  state: landed ? "merged" : "open",
+                  mergeability: "mergeable",
+                  url: PULL_REQUEST,
+                  headBranch: `factory/${FactoryTasks.displayKey(task)}`,
+                  checks: [{ name: "test", status: ci, description: null, url: null }],
+                }) as never,
+            ),
+          act: () =>
+            Effect.suspend(() => {
+              landed = true;
+              return Effect.fail(new WorkflowForgeError({ reason: "the connection reset" }));
+            }),
+        },
+      });
+      let mainChecks = 0;
+      const baseTouchedSinceFork = () => Effect.sync(() => ++mainChecks === 1);
 
-    yield* runFactory(
-      depsOver(tasks, settings, [], mainTouched),
-      Effect.gen(function* () {
-        const workflows = yield* Workflows.Workflows;
-        yield* startedBy(yield* tickAt(0));
-        const run = yield* taskRun;
-        yield* waitAsked(run.runId, 1);
-        yield* workflows.answer(run.runId, "needs-you/1", { choice: "retry" });
-        yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
-      }),
-      { agents, forge },
-    );
+      yield* runFactory(
+        depsOver(tasks, settings, [], baseTouchedSinceFork),
+        Effect.gen(function* () {
+          const workflows = yield* Workflows.Workflows;
+          yield* startedBy(yield* tickAt(0));
+          const run = yield* taskRun;
+          yield* waitAsked(run.runId, 1);
+          yield* workflows.answer(run.runId, "needs-you/1", { choice: "retry" });
+          yield* workflows.waitFor(run.runId, (found) => found.status === "completed");
+        }),
+        { agents, forge },
+      );
 
-    expect(started.map((input) => input.origin.step)).toEqual([
-      "build/1",
-      "fix/1",
-      "review/1",
-      "fix/2",
-      "review/2",
-      "review/3",
-    ]);
-    expect(promptOf(started, "fix/1")).toContain(`Fix: The checks on ${PULL_REQUEST} fail.`);
-    expect(promptOf(started, "fix/2")).toContain("Fix: Rename it.");
-    expect(promptOf(started, "review/3")).toContain("Main changed: ");
-    const { entries } = yield* tasks.timeline(task.id);
-    expect(statesOf(entries)).toEqual([
-      "ready>building",
-      "building>reviewing",
-      "reviewing>building",
-      "building>reviewing",
-      "reviewing>building",
-      "building>reviewing",
-      "reviewing>needs-you",
-      "needs-you>reviewing",
-      "reviewing>done",
-    ]);
-    expect(entries.find((entry) => entry.type === "state" && entry.to === "needs-you")).toMatchObject(
-      { reason: expect.stringContaining("past 2 fix rounds") },
-    );
-  }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
+      expect(started.map((input) => input.origin.step)).toEqual([
+        "build/1",
+        "fix/1",
+        "review/1",
+        "fix/2",
+        "review/2",
+        "review/3",
+      ]);
+      expect(promptOf(started, "fix/1")).toContain(`Fix: The checks on ${PULL_REQUEST} fail.`);
+      expect(promptOf(started, "fix/2")).toContain("Fix: Rename it.");
+      expect(promptOf(started, "review/3")).toContain("Main changed: ");
+      const { entries } = yield* tasks.timeline(task.id);
+      expect(statesOf(entries)).toEqual([
+        "ready>building",
+        "building>reviewing",
+        "reviewing>building",
+        "building>reviewing",
+        "reviewing>building",
+        "building>reviewing",
+        "reviewing>needs-you",
+        "needs-you>reviewing",
+        "reviewing>done",
+      ]);
+      expect(
+        entries.find((entry) => entry.type === "state" && entry.to === "needs-you"),
+      ).toMatchObject({ reason: expect.stringContaining("past 2 fix rounds") });
+    }).pipe(Effect.provide(Layer.merge(store, NodeServices.layer)), Effect.scoped),
 );
 
 it.effect("cancelling a task's run drops the task", () =>

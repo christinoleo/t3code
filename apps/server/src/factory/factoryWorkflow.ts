@@ -46,12 +46,11 @@ export interface FactoryDeps {
   ) => Effect.Effect<FactoryProjectSettings, ServerSettingsError>;
   /** Never fails: a thread left open is no reason to hold back a task that is done. */
   readonly settle: (thread: AgentThread) => Effect.Effect<void>;
-  /** Whether `base` moved past the pull request's base and changed files the pull request changes. */
-  readonly mainTouched: (pullRequest: {
+  readonly baseTouchedSinceFork: (pullRequest: {
     readonly checkout: string;
     readonly base: string;
     readonly head: string;
-  }) => Effect.Effect<boolean, unknown>;
+  }) => Effect.Effect<boolean, Error>;
 }
 
 const Projects = Schema.Array(Schema.Struct({ id: Schema.String, scope: Schema.String }));
@@ -84,10 +83,8 @@ const briefFor = (skill: string, task: Brief, settings: FactoryProjectSettings, 
     .filter((part) => part.trim() !== "")
     .join("\n\n");
 
-// What happened to the agent, not what it did: tried again for free, up to `infraRetries` in a row.
-const INFRA: ReadonlySet<AgentFailure> = new Set(["unstarted", "died", "stopped"]);
+const FREE_RETRY_CAUSES: ReadonlySet<AgentFailure> = new Set(["unstarted", "died", "stopped"]);
 
-/** How a report reads: the job is done, the agent gave up, or it asks Leo. */
 type Judged = { readonly _tag: "done" | "gave-up" | "needs-you"; readonly detail: string };
 
 const judgeWork = (report: WorkerReport): Judged =>
@@ -106,7 +103,6 @@ const judgeReview = (report: ReviewReport): Judged =>
         ? { _tag: "needs-you", detail: report.question }
         : { _tag: "gave-up", detail: report.why };
 
-/** The question a run asks when it raises Needs you for the `nth` time. */
 const needsYouWait = (nth: number) => `needs-you/${nth}`;
 
 const taskWorkflow = (deps: FactoryDeps) =>
@@ -116,7 +112,6 @@ const taskWorkflow = (deps: FactoryDeps) =>
       version: 1,
       payload: TaskRun,
       asks: { "needs-you": "Needs you" },
-      // A run cancelled on the Workflows page drops its task, unless the task has moved on.
       onEnd: (payload, end) =>
         end.outcome !== "cancelled"
           ? Effect.void
@@ -210,10 +205,6 @@ const taskWorkflow = (deps: FactoryDeps) =>
       });
 
       let asked = 0;
-      /**
-       * Moves the task to Needs you and waits for Leo as long as it takes. A person's comment on
-       * the task answers too: the tick passes it on. Returns what to tell the next agent.
-       */
       const needsYou = Effect.fnUntraced(function* (reason: string, pullRequest?: string) {
         yield* move("needs-you", reason);
         const answer = yield* ask(needsYouWait(++asked), {
@@ -241,12 +232,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
 
       const attempts: Partial<Record<Phase, number>> = {};
       const threads: Array<AgentThread> = [];
-      /**
-       * One agent's job, tried until it is done. Infra failures are free up to `infraRetries` in a
-       * row; agent failures (a give-up, a timeout, no result) spend `budget`. Either cap asks Leo,
-       * whose answer starts both counts again.
-       */
-      const phase = <A>(
+      const phase = Effect.fn("factory.phase")(function* <A>(
         kind: "build" | "fix" | "review",
         budget: number,
         judge: (report: A) => Judged,
@@ -254,75 +240,74 @@ const taskWorkflow = (deps: FactoryDeps) =>
         launch: (facts: Facts) => AgentOptions<A, unknown>,
         given: Facts,
         pullRequest?: string,
-      ) =>
-        Effect.gen(function* () {
-          let spent = 0;
-          let streak = 0;
-          let facts = given;
-          while (true) {
-            yield* enter(kind === "review" ? "reviewing" : "building");
-            const nth = (attempts[kind] ?? 0) + 1;
-            attempts[kind] = nth;
-            const name = `${kind}/${nth}`;
-            const tried = yield* agent.try(name, launch(facts));
-            if (tried.thread !== undefined) threads.push(tried.thread);
-            let detail: string;
-            let infra = false;
-            if (tried.outcome === "failed") {
-              infra = INFRA.has(tried.cause);
-              detail = tried.reason;
-              yield* record(
-                name,
-                kind,
-                tried.thread,
-                "failed",
-                infra ? "infra" : "agent",
-                detail,
-                [],
-              );
-            } else {
-              const judged = judge(tried.value);
-              detail = judged.detail;
-              yield* record(
-                name,
-                kind,
-                tried.thread,
-                judged._tag === "done"
-                  ? "succeeded"
-                  : judged._tag === "needs-you"
-                    ? "needs-you"
-                    : "failed",
-                judged._tag === "gave-up" ? "agent" : null,
-                detail,
-                decisionsOf(tried.value),
-              );
-              if (judged._tag === "done") return tried.value;
-              if (judged._tag === "needs-you") {
-                facts = yield* needsYou(detail, pullRequest);
-                spent = 0;
-                streak = 0;
-                continue;
-              }
-            }
-            if (infra) streak++;
-            else {
-              streak = 0;
-              spent++;
-            }
-            if (infra ? streak <= budgets.infraRetries : spent < budget) {
-              facts = { ...given, "Last attempt": detail };
+      ) {
+        let agentFailures = 0;
+        let infraStreak = 0;
+        let facts = given;
+        while (true) {
+          yield* enter(kind === "review" ? "reviewing" : "building");
+          const nth = (attempts[kind] ?? 0) + 1;
+          attempts[kind] = nth;
+          const name = `${kind}/${nth}`;
+          const tried = yield* agent.try(name, launch(facts));
+          if (tried.thread !== undefined) threads.push(tried.thread);
+          let detail: string;
+          let infra = false;
+          if (tried.outcome === "failed") {
+            infra = FREE_RETRY_CAUSES.has(tried.cause);
+            detail = tried.reason;
+            yield* record(
+              name,
+              kind,
+              tried.thread,
+              "failed",
+              infra ? "infra" : "agent",
+              detail,
+              [],
+            );
+          } else {
+            const judged = judge(tried.value);
+            detail = judged.detail;
+            yield* record(
+              name,
+              kind,
+              tried.thread,
+              judged._tag === "done"
+                ? "succeeded"
+                : judged._tag === "needs-you"
+                  ? "needs-you"
+                  : "failed",
+              judged._tag === "gave-up" ? "agent" : null,
+              detail,
+              decisionsOf(tried.value),
+            );
+            if (judged._tag === "done") return tried.value;
+            if (judged._tag === "needs-you") {
+              facts = yield* needsYou(detail, pullRequest);
+              agentFailures = 0;
+              infraStreak = 0;
               continue;
             }
-            facts = yield* needsYou(
-              infra
-                ? `The ${kind} could not run ${streak} times in a row: ${detail}`
-                : `The ${kind} failed ${spent} times: ${detail}`,
-              pullRequest,
-            );
-            spent = 0;
-            streak = 0;
           }
-        });
+          if (infra) infraStreak++;
+          else {
+            infraStreak = 0;
+            agentFailures++;
+          }
+          if (infra ? infraStreak <= budgets.infraRetries : agentFailures < budget) {
+            facts = { ...given, "Last attempt": detail };
+            continue;
+          }
+          facts = yield* needsYou(
+            infra
+              ? `The ${kind} could not run ${infraStreak} times in a row: ${detail}`
+              : `The ${kind} failed ${agentFailures} times: ${detail}`,
+            pullRequest,
+          );
+          agentFailures = 0;
+          infraStreak = 0;
+        }
+      });
 
       const model = settings.builder === null ? {} : { model: settings.builder };
       // The worker pushes here from a worktree of its own: a launch refuses a branch that exists,
@@ -388,7 +373,6 @@ const taskWorkflow = (deps: FactoryDeps) =>
         );
 
       let waits = 0;
-      // Checks that are missing count as passing: not every repository runs CI.
       const checks = (pullRequest: { readonly project: string; readonly url: string }) =>
         Effect.map(
           pullRequests.wait(`checks/${++waits}`, pullRequest, {
@@ -405,14 +389,12 @@ const taskWorkflow = (deps: FactoryDeps) =>
                   : "passing",
         );
 
-      // What the next agent is told: Leo's answer, or why the job came back.
       let facts: Facts = {};
       let pullRequest: { readonly project: string; readonly url: string } | undefined;
       let rounds = 0;
       let heads = 0;
       let mains = 0;
       let merges = 0;
-      /** A fix, a red CI and a re-review after main moved each spend a round. */
       const spendRound = Effect.fnUntraced(function* (why: string) {
         if (++rounds <= budgets.fixRounds) return;
         const answer = yield* needsYou(
@@ -427,13 +409,11 @@ const taskWorkflow = (deps: FactoryDeps) =>
         yield* work("fix", { ...facts, Fix: requests }, url);
         facts = {};
       });
-      /** The pull request stopped being one to review; Leo says what now. */
       const lost = Effect.fnUntraced(function* (url: string, standing: "closed" | "stuck") {
         facts = yield* needsYou(
           standing === "closed" ? `${url} was closed.` : `The checks on ${url} did not settle.`,
           url,
         );
-        // A closed one is built again.
         if (standing === "closed") pullRequest = undefined;
       });
 
@@ -477,14 +457,13 @@ const taskWorkflow = (deps: FactoryDeps) =>
           continue;
         }
 
-        // The reviewer may have pushed fixes, so its head's checks are waited for too.
-        const after = yield* checks(pullRequest);
-        if (after === "merged") break;
-        if (after === "closed" || after === "stuck") {
-          yield* lost(url, after);
+        const reviewedChecks = yield* checks(pullRequest);
+        if (reviewedChecks === "merged") break;
+        if (reviewedChecks === "closed" || reviewedChecks === "stuck") {
+          yield* lost(url, reviewedChecks);
           continue;
         }
-        if (after === "failing") {
+        if (reviewedChecks === "failing") {
           yield* fix(url, `After review, the checks on ${url} fail.`);
           continue;
         }
@@ -493,7 +472,7 @@ const taskWorkflow = (deps: FactoryDeps) =>
           `main/${++mains}`,
           { returns: Schema.Boolean },
           Effect.flatMap(pullRequests.read(pullRequest), (found) =>
-            deps.mainTouched({
+            deps.baseTouchedSinceFork({
               checkout: found.workspaceRoot,
               base: found.baseBranch,
               head: found.headBranch,
@@ -562,10 +541,6 @@ const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"
   return entries;
 });
 
-/**
- * A person's comment on a task that waits for them answers its open question as `retry`, with
- * the comment passed on. One signal per comment, so a later tick sends nothing new.
- */
 const answerByComment = Effect.fnUntraced(function* (
   tasks: FactoryTasks["Service"],
   scope: string,

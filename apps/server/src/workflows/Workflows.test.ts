@@ -3473,7 +3473,10 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         yield* agents.started(stuck.runId, "second/0");
         yield* agents.end(stuck.runId, "second/0", { output: { head: "ghi" } });
         const weighed = yield* workflows.waitFor(stuck.runId, status("completed", "paused"));
-        assert.match(weighed.result as string, /^ghi after timeout: .*its turn could not be stopped$/);
+        assert.match(
+          weighed.result as string,
+          /^ghi after timeout: .*its turn could not be stopped$/,
+        );
 
         // A stop turned down once gets through on its retry, and the step says it was stopped.
         const before = agents.interrupted.length;
@@ -3548,10 +3551,16 @@ it.effect("a workflow can take an agent's failure as an answer and go on", () =>
         yield* agents.end(unasked.runId, "first/0", {});
         yield* agents.end(unasked.runId, "second/0", { output: { head: "yz" } });
         const kept = yield* workflows.waitFor(unasked.runId, status("completed", "paused"));
-        assert.match(kept.result as string, /^yz after died: .*could not be asked again: .* in thread-\d+$/);
+        assert.match(
+          kept.result as string,
+          /^yz after died: .*could not be asked again: .* in thread-\d+$/,
+        );
 
-        // A turn someone stopped is not the agent's doing either, and is not tried again.
-        const halted = yield* workflows.start("fallback", { project: "p1" }, { idempotencyKey: "h" });
+        const halted = yield* workflows.start(
+          "fallback",
+          { project: "p1" },
+          { idempotencyKey: "h" },
+        );
         yield* agents.started(halted.runId, "first/0");
         yield* agents.end(halted.runId, "first/0", { ending: "stopped", detail: "interrupted" });
         yield* agents.end(halted.runId, "second/0", { output: { head: "ab" } });
