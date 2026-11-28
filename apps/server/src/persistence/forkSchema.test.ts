@@ -37,7 +37,7 @@ const indexedTags = Effect.gen(function* () {
   const rows = yield* sql<{ readonly thread_id: string; readonly tag: string }>`
     SELECT thread_id, tag FROM orchestration_v2_projection_thread_tags ORDER BY thread_id, tag
   `;
-  return rows.map((row) => [row.thread_id, row.tag]);
+  return rows.map((row): readonly [string, string] => [row.thread_id, row.tag]);
 });
 
 const recountedTags = Effect.gen(function* () {
@@ -48,7 +48,7 @@ const recountedTags = Effect.gen(function* () {
     WHERE json_valid(t.payload_json) AND tag.type = 'text'
     ORDER BY t.thread_id, tag.value
   `;
-  return rows.map((row) => [row.thread_id, row.tag]);
+  return rows.map((row): readonly [string, string] => [row.thread_id, row.tag]);
 });
 
 const assertTags = (expected: ReadonlyArray<readonly [string, string]>) =>
