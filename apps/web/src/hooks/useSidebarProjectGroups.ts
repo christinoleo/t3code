@@ -5,11 +5,26 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
-import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
-import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../state/environments";
-import { useDelegatedUnderParent, useProjects, useQuietThreadShells } from "../state/entities";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import {
+  buildSidebarProjectSnapshots,
+  shownSidebarProjectScopeKeys,
+} from "../sidebarProjectGrouping";
+import {
+  readPrimaryEnvironmentId,
+  useEnvironmentIdentities,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
+import {
+  readProjects,
+  useDelegatedUnderParent,
+  useProjects,
+  useQuietThreadShells,
+} from "../state/entities";
+import { environmentProjects } from "../state/projects";
+import { allEnvironmentProjectSnapshotsReadyAtom } from "../state/shell";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
-import { useClientSettings } from "./useSettings";
+import { getClientSettings, useClientSettings } from "./useSettings";
 
 export function useSidebarProjectGroups() {
   const projects = useProjects();
@@ -46,4 +61,23 @@ export function useSidebarProjectGroups() {
     resolve,
   );
   return sortSidebarV2ProjectGroups(unsortedGroups, threads, sortOrder, delegatedUnderParent);
+}
+
+/** The sidebar's shown scope, read at the moment of an action rather than subscribed to. */
+export function readShownSidebarProjectScopeKeys(): string[] {
+  const settings = selectProjectGroupingSettings(getClientSettings());
+  return shownSidebarProjectScopeKeys({
+    groups: buildSidebarProjectSnapshots({
+      projects: readProjects(),
+      groupScratchProjects: true,
+      settings,
+      primaryEnvironmentId: readPrimaryEnvironmentId(),
+      resolveEnvironmentLabel: () => null,
+    }),
+    keys: useUiStateStore.getState().sidebarProjectScopeKeys,
+    settings,
+    canClearMissingScope:
+      appAtomRegistry.get(allEnvironmentProjectSnapshotsReadyAtom) &&
+      appAtomRegistry.get(environmentProjects.projectConfigsReadyAtom),
+  });
 }
