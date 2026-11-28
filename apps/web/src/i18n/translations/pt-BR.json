@@ -13423,5 +13423,10 @@
   "391fc9c4112e2c14": "Uma issue no tracker do projeto que recebe este rótulo vira uma tarefa. Só contam rótulos adicionados depois que a factory foi ligada pela primeira vez. Vazio desliga.",
   "ad3c1f3c847b1070": "{count, plural, one {Configurou a factory {count} vez} other {Configurou a factory {count} vezes}}",
   "1db18367d4cd4f02": "{count, plural, one {Tentou configurar a factory {count} vez} other {Tentou configurar a factory {count} vezes}}",
-  "0aa6dc7e03221e0d": "Configurar a factory"
+  "0aa6dc7e03221e0d": "Configurar a factory",
+  "efa7de0002a4aaa9": "Projeto do PostHog",
+  "9af3cd9b74d3d3f0": "A página do projeto no PostHog, como aparece na barra de endereços.",
+  "9ecb571ec7eff943": "Chave de API do PostHog",
+  "5e75fefe7577669d": "Uma chave de API pessoal com acesso de leitura ao rastreamento de erros. Ela fica neste servidor.",
+  "32997eb004b3ed33": "Limpar a chave de API do PostHog"
 }

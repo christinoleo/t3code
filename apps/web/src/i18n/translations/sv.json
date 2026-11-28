@@ -13430,5 +13430,10 @@
   "391fc9c4112e2c14": "Ett ärende i projektets tracker som får den här etiketten blir en uppgift. Bara etiketter som lagts till efter att factoryn först slogs på räknas. Tomt stänger av det.",
   "ad3c1f3c847b1070": "{count, plural, one {Konfigurerade factoryn {count} gång} other {Konfigurerade factoryn {count} gånger}}",
   "1db18367d4cd4f02": "{count, plural, one {Försökte konfigurera factoryn {count} gång} other {Försökte konfigurera factoryn {count} gånger}}",
-  "0aa6dc7e03221e0d": "Konfigurera factoryn"
+  "0aa6dc7e03221e0d": "Konfigurera factoryn",
+  "efa7de0002a4aaa9": "PostHog-projekt",
+  "9af3cd9b74d3d3f0": "Projektets sida i PostHog, som den står i adressfältet.",
+  "9ecb571ec7eff943": "PostHog-API-nyckel",
+  "5e75fefe7577669d": "En personlig API-nyckel med läsåtkomst till felspårning. Den stannar på den här servern.",
+  "32997eb004b3ed33": "Rensa PostHog-API-nyckeln"
 }

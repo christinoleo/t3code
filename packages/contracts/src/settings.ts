@@ -36,7 +36,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { FactoryProjectSettingsPatch, FactorySettings } from "./factory.ts";
+import { FactorySettings, FactorySettingsPatch } from "./factory.ts";
 import {
   ProjectIconOverride,
   ProjectScript,
@@ -2004,9 +2004,7 @@ export const ServerSettingsPatch = Schema.Struct({
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   workflowsEnabled: Schema.optionalKey(Schema.Boolean),
-  factory: Schema.optionalKey(
-    Schema.Struct({ projects: Schema.Record(ProjectId, FactoryProjectSettingsPatch) }),
-  ),
+  factory: Schema.optionalKey(FactorySettingsPatch),
   workflowSkippedRunsKept: Schema.optionalKey(WorkflowSkippedRunsKept),
   promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),
   terseReplies: Schema.optionalKey(Schema.Boolean),

@@ -13423,5 +13423,10 @@
   "391fc9c4112e2c14": "Une issue du tracker du projet qui reçoit ce libellé devient une tâche. Seuls comptent les libellés ajoutés après la première activation de la factory. Vide le désactive.",
   "ad3c1f3c847b1070": "{count, plural, one {Factory configurée {count} fois} other {Factory configurée {count} fois}}",
   "1db18367d4cd4f02": "{count, plural, one {Tentative de configurer la factory {count} fois} other {Tentative de configurer la factory {count} fois}}",
-  "0aa6dc7e03221e0d": "Configurer la factory"
+  "0aa6dc7e03221e0d": "Configurer la factory",
+  "efa7de0002a4aaa9": "Projet PostHog",
+  "9af3cd9b74d3d3f0": "La page du projet dans PostHog, telle qu'elle apparaît dans la barre d'adresse.",
+  "9ecb571ec7eff943": "Clé d'API PostHog",
+  "5e75fefe7577669d": "Une clé d'API personnelle avec un accès en lecture au suivi des erreurs. Elle reste sur ce serveur.",
+  "32997eb004b3ed33": "Effacer la clé d'API PostHog"
 }

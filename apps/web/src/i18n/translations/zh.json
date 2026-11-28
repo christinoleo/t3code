@@ -13433,5 +13433,10 @@
   "391fc9c4112e2c14": "项目跟踪器中被加上此标签的 Issue 会成为任务。只计算工厂首次开启后添加的标签。留空则关闭。",
   "ad3c1f3c847b1070": "{count, plural, other {已配置工厂 {count} 次}}",
   "1db18367d4cd4f02": "{count, plural, other {尝试配置工厂 {count} 次}}",
-  "0aa6dc7e03221e0d": "配置工厂"
+  "0aa6dc7e03221e0d": "配置工厂",
+  "efa7de0002a4aaa9": "PostHog 项目",
+  "9af3cd9b74d3d3f0": "项目在 PostHog 中的页面，即地址栏中显示的地址。",
+  "9ecb571ec7eff943": "PostHog API 密钥",
+  "5e75fefe7577669d": "具有错误跟踪读取权限的个人 API 密钥。它只保存在此服务器上。",
+  "32997eb004b3ed33": "清除 PostHog API 密钥"
 }

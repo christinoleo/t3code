@@ -4,6 +4,7 @@ import {
   CloudSpeechCredentials,
   CodexSettings,
   EasDeviceHostConfig,
+  FactoryPosthog,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerSettings,
@@ -54,6 +55,7 @@ const textGeneratorSecretFields = secretSettingsFields(TextGeneratorConfig);
 const voiceSecretFields = secretSettingsFields(CloudSpeechCredentials);
 const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
+const factoryPosthogSecretFields = secretSettingsFields(FactoryPosthog);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
 
 export interface SettingsSecret {
@@ -250,8 +252,17 @@ function mapSecretFieldGroups(
       ) as SimlockDeviceHostConfig,
   );
 
+  // Fork-only (christinoleo/t3code#132).
+  const factoryPosthog = Object.fromEntries(
+    Object.entries(settings.factory.posthog).map(([projectId, posthog]) => [
+      projectId,
+      mapFields(posthog, factoryPosthogSecretFields, () => `factory-posthog-${projectId}`),
+    ]),
+  ) as ServerSettings["factory"]["posthog"];
+
   return {
     ...settings,
+    factory: { ...settings.factory, posthog: factoryPosthog },
     cloudSpeechCredentials: mapFields(
       settings.cloudSpeechCredentials,
       voiceSecretFields,

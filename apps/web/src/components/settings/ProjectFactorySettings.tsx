@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { msg, useGT, useMessages } from "gt-react";
+import { XIcon } from "lucide-react";
 
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -30,6 +31,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { resolveDefaultModelSettingsPresentation } from "./ProjectDefaultsSettings.logic";
+import { SecretInput } from "./SecretInput";
 import { SETTINGS_PICKER_TRIGGER_CLASSNAME, SettingsRow, SettingsSection } from "./settingsLayout";
 
 const MERGE_METHODS = {
@@ -134,6 +136,10 @@ function CheckoutFactory({
     }
     updateSettings(next.patch);
   };
+
+  const posthog = settings.factory.posthog[projectId];
+  const savePosthog = (fields: { projectUrl?: string; apiKey?: string }) =>
+    updateSettings({ factory: { posthog: { [projectId]: fields } } });
 
   const instanceEntries = providerInstanceEntriesFor(providers, settings, projectId);
   const shown =
@@ -350,6 +356,56 @@ function CheckoutFactory({
           }
         />
       ))}
+      {factory.intake.posthogErrors ? (
+        <>
+          <SettingsRow
+            title={gt("PostHog project")}
+            description={gt("The project's page in PostHog, as its address bar shows it.")}
+            control={
+              <Input
+                key={posthog?.projectUrl ?? ""}
+                className="w-full sm:w-72"
+                defaultValue={posthog?.projectUrl ?? ""}
+                placeholder="https://us.posthog.com/project/12345"
+                aria-label={gt("PostHog project")}
+                onBlur={(event) => {
+                  const projectUrl = event.target.value.trim();
+                  if (projectUrl !== (posthog?.projectUrl ?? "")) savePosthog({ projectUrl });
+                }}
+              />
+            }
+          />
+          <SettingsRow
+            title={gt("PostHog API key")}
+            description={gt(
+              "A personal API key with read access to error tracking. It stays on this server.",
+            )}
+            control={
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-72">
+                <SecretInput
+                  size="sm"
+                  className="min-w-0 flex-1"
+                  configured={(posthog?.apiKey ?? "") !== ""}
+                  value=""
+                  aria-label={gt("PostHog API key")}
+                  onCommit={(apiKey) => savePosthog({ apiKey })}
+                />
+                {(posthog?.apiKey ?? "") !== "" ? (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost-destructive"
+                    onClick={() => savePosthog({ apiKey: "" })}
+                    aria-label={gt("Clear PostHog API key")}
+                  >
+                    <XIcon className="size-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+            }
+          />
+        </>
+      ) : null}
       <AdvancedSettings targetIds={[]}>
         {(Object.keys(BUDGETS) as Array<keyof FactoryBudgets>).map(numberRow)}
       </AdvancedSettings>

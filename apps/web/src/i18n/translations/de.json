@@ -13424,5 +13424,10 @@
   "391fc9c4112e2c14": "Ein Issue im Tracker des Projekts, das dieses Label erhält, wird zu einer Aufgabe. Es zählen nur Labels, die nach dem ersten Einschalten der Factory hinzugefügt wurden. Leer schaltet es aus.",
   "ad3c1f3c847b1070": "{count, plural, one {Factory {count}-mal konfiguriert} other {Factory {count}-mal konfiguriert}}",
   "1db18367d4cd4f02": "{count, plural, one {Versucht, die Factory {count}-mal zu konfigurieren} other {Versucht, die Factory {count}-mal zu konfigurieren}}",
-  "0aa6dc7e03221e0d": "Factory konfigurieren"
+  "0aa6dc7e03221e0d": "Factory konfigurieren",
+  "efa7de0002a4aaa9": "PostHog-Projekt",
+  "9af3cd9b74d3d3f0": "Die Seite des Projekts in PostHog, wie sie in der Adressleiste steht.",
+  "9ecb571ec7eff943": "PostHog-API-Schlüssel",
+  "5e75fefe7577669d": "Ein persönlicher API-Schlüssel mit Lesezugriff auf Error Tracking. Er bleibt auf diesem Server.",
+  "32997eb004b3ed33": "PostHog-API-Schlüssel löschen"
 }
