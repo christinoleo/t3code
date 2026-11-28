@@ -54,7 +54,11 @@ it.effect("a machine reports only the projects a worker can still launch in", ()
           listPage: () =>
             Effect.succeed({
               projects: [
-                { id: "archived", archivedAt: new Date(0), repositoryIdentity: null },
+                {
+                  id: "archived",
+                  archivedAt: "2026-01-01T00:00:00.000Z",
+                  repositoryIdentity: null,
+                },
                 { id: "live", archivedAt: null, repositoryIdentity: null },
               ] as never,
               nextCursor: null,
