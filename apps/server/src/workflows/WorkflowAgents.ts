@@ -34,6 +34,8 @@ export interface AgentLaunch {
   readonly workspace?: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
   readonly runtimeMode?: RuntimeMode | undefined;
   readonly interactionMode?: ProviderInteractionMode | undefined;
+  /** Only read: T3 refuses the thread's writes, and its provider runs read-only where it can. */
+  readonly readOnly?: true | undefined;
 }
 
 export const AgentTurn = Schema.Struct({
@@ -64,7 +66,7 @@ export type AgentResult = typeof AgentResult.Type;
 /** What a continued thread says to options that only shape a new one. */
 export const launchOnContinue = new WorkflowAgentError({
   reason:
-    "`workspace`, `runtimeMode` and `interactionMode` shape a new thread. A continued `thread` keeps how it started.",
+    "`workspace`, `runtimeMode`, `interactionMode` and `readOnly` shape a new thread. A continued `thread` keeps how it started.",
 });
 
 /** A project named by its folder instead of its id. */

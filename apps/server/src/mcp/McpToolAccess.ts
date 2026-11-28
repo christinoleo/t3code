@@ -133,14 +133,27 @@ const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
   ),
 );
 
-const writingCaller = refuseReadOnlyClient.pipe(
+const refuseReadOnlyThread = ({ caller }: Caller) =>
+  caller?.workflowRun?.readOnly === true
+    ? Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message: "This tool changes the environment, and this thread was started read-only.",
+        }),
+      )
+    : Effect.void;
+
+const answeringCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(loadCaller()),
   Effect.tap(assertLiveCaller),
 );
 
+const writingCaller = answeringCaller.pipe(Effect.tap(refuseReadOnlyThread));
+
 const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(readCaller()),
   Effect.tap(assertLiveCaller),
+  Effect.tap(refuseReadOnlyThread),
 );
 
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
@@ -161,6 +174,17 @@ export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A,
     (params: P) =>
       requireThreadCaller.pipe(
         Effect.andThen(writingCaller),
+        Effect.flatMap(() => handle(params)),
+      ),
+    undefined,
+  );
+
+/** Acts only on the calling thread's own turn, as submitting its output does, so a read-only thread may too. */
+export const answersAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare(
+    (params: P) =>
+      requireThreadCaller.pipe(
+        Effect.andThen(answeringCaller),
         Effect.flatMap(() => handle(params)),
       ),
     undefined,

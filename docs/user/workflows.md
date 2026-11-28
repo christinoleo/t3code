@@ -84,7 +84,7 @@ t3 workflow store set <key> '<json>'
 
 Open **Open workflows** from the command palette (web/desktop) to filter **Needs you**, **Running**, or **All**, inspect agent threads, answer questions, resume, or cancel runs.
 
-- **Agent steps**: Each `agent` step runs in a regular thread (hidden from sidebar lists) that you can open live from the run. Supports custom `workspace`, `runtimeMode`, `interactionMode`, `title`, typed `returns`, and [linked environments](./remote-access.md#link-another-environment).
+- **Agent steps**: Each `agent` step runs in a regular thread (hidden from sidebar lists) that you can open live from the run. Supports custom `workspace`, `runtimeMode`, `interactionMode`, `readOnly` (T3 refuses the thread's changes, and Codex and Claude run it in a read-only sandbox), `title`, typed `returns`, and [linked environments](./remote-access.md#link-another-environment).
 - **Retries & pausing**: Failed code steps auto-retry after 5, 20, and 80 minutes (or immediately on **Resume**). Failed or timed-out agent steps pause for manual resume (offline-start failures auto-retry). Cancelling stops active agent turns and child runs permanently.
 - **Skipped runs**: Up to 500 skipped top-level runs are kept per workflow (configurable via **Settings → Labs → Skipped runs kept** or `"workflowSkippedRunsKept"` in `settings.json`).
 - **Always-on requirement**: Runs only advance while the server that started them is online.

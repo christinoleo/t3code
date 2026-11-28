@@ -33,6 +33,7 @@ const backgroundThreadId = ThreadId.make("thread:background");
 const oldProviderThreadId = ThreadId.make("thread:old-provider-background");
 const archivedThreadId = ThreadId.make("thread:archived-background");
 const unknownOwnerThreadId = ThreadId.make("thread:unknown-background-owner");
+const readOnlyThreadId = ThreadId.make("thread:read-only-step");
 
 const backgroundShell = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) => ({
   ...liveThreadShell(threadId, { activeRunId: null }),
@@ -56,6 +57,19 @@ const shells = new Map([
     {
       ...backgroundShell(archivedThreadId, ProviderInstanceId.make("codex")),
       archivedAt: liveThreadShell(archivedThreadId).updatedAt,
+    },
+  ],
+  [
+    readOnlyThreadId,
+    {
+      ...liveThreadShell(readOnlyThreadId, { interactionMode: "plan" }),
+      workflowRun: {
+        environmentId: EnvironmentId.make("environment"),
+        runId: "run:factory-task",
+        workflow: "factory-task",
+        step: "triage",
+        readOnly: true,
+      },
     },
   ],
   [
@@ -123,6 +137,10 @@ const ProbeToolkit = Toolkit.make(
     McpSchema.EnabledWhen,
     McpInvocationContext.hiddenFromOutsideClients,
   ),
+  Tool.make("answers_as_caller", probe).annotate(
+    McpSchema.EnabledWhen,
+    McpInvocationContext.hiddenFromOutsideClients,
+  ),
   Tool.make("writes", probe),
   Tool.make("writes_with_capability", probe),
   Tool.make("writes_threads", {
@@ -144,6 +162,7 @@ const probeHandlers: McpToolAccess.Handlers<typeof ProbeToolkit.tools> = {
   reads: McpToolAccess.reads(() => ran),
   reads_as_caller: McpToolAccess.readsAsCaller(() => ran),
   acts_as_caller: McpToolAccess.actsAsCaller(() => ran),
+  answers_as_caller: McpToolAccess.answersAsCaller(() => ran),
   writes: McpToolAccess.writes(() => ran),
   writes_with_capability: McpToolAccess.writesWithCapability(() => ran),
   writes_threads: McpToolAccess.writesThreads(
@@ -191,6 +210,7 @@ export const refusedAtCompileTime = () => {
       reads: unchecked,
       reads_as_caller: unchecked,
       acts_as_caller: unchecked,
+      answers_as_caller: unchecked,
       writes: unchecked,
       writes_with_capability: unchecked,
       writes_threads: unchecked,
@@ -236,6 +256,7 @@ const background = threadCaller(backgroundThreadId);
 const oldProviderBackground = threadCaller(oldProviderThreadId);
 const archivedBackground = threadCaller(archivedThreadId);
 const unknownOwnerBackground = threadCaller(unknownOwnerThreadId);
+const readOnlyStep = threadCaller(readOnlyThreadId);
 const mismatchedProvider = {
   ...background,
   thread: { ...background.thread!, providerInstanceId: ProviderInstanceId.make("claude") },
@@ -345,6 +366,16 @@ it.effect.each([
   ["writes_owner_work", fullAccessLinkedClient, {}, "ran"],
   ["writes_owner_work", atCeilingClient, {}, "ran"],
   ["writes_environment", atCeilingClient, {}, "capability_denied"],
+
+  ["reads", readOnlyStep, {}, "ran"],
+  ["reads_as_caller", readOnlyStep, {}, "ran"],
+  ["answers_as_caller", readOnlyStep, {}, "ran"],
+  ["answers_as_caller", ended, {}, "parent_not_active"],
+  ["acts_as_caller", readOnlyStep, {}, "capability_denied"],
+  ["writes", readOnlyStep, {}, "capability_denied"],
+  ["writes_with_capability", readOnlyStep, {}, "capability_denied"],
+  ["writes_threads", readOnlyStep, {}, "capability_denied"],
+  ["starts_threads", readOnlyStep, {}, "capability_denied"],
 ] as const)("%s from %o with %o: %s", ([tool, scope, args, expected]) =>
   call(tool, scope, args).pipe(
     Effect.map((outcome) => expect(outcome).toBe(expected)),

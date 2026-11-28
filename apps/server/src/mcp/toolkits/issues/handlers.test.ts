@@ -6,6 +6,7 @@ import {
   ThreadId,
   type IssueDetail,
   type OrchestrationProjectShell,
+  type OrchestrationV2ThreadShell,
   type ThreadIssueLink,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
@@ -28,6 +29,7 @@ import * as IssueService from "../../../issue/IssueService.ts";
 import * as SqlitePersistence from "../../../persistence/Sqlite.ts";
 import * as IssueTrackerRegistry from "../../../issue/IssueTrackerRegistry.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadIssueService from "../../../orchestration-v2/ThreadIssueService.ts";
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as IssueTrackerBindings from "../../../persistence/IssueTrackerBindings.ts";
@@ -152,6 +154,9 @@ const projectLayer = Layer.mock(ProjectService.ProjectService)({
 const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (
   issues: ReadonlyArray<ThreadIssueLink> = [],
   issueLayer?: Layer.Layer<IssueService.IssueService>,
+  callerShell: (
+    threadId: ThreadId,
+  ) => OrchestrationV2ThreadShell = McpToolAccessTestkit.liveThreadShell,
 ) {
   const links = yield* Ref.make<ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>>([]);
   const layerDependencies = Layer.mergeAll(
@@ -187,7 +192,9 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (
         ),
       unlink: () => Effect.succeed({ wasLinked: true }),
     }),
-    McpToolAccessTestkit.liveThreadsLayer,
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getThreadShell: (threadId) => Effect.succeed(callerShell(threadId)),
+    }),
   );
   const toolkit = yield* IssuesToolkit.pipe(
     Effect.provide(
@@ -406,6 +413,35 @@ describe("issue toolkit handlers", () => {
         ),
       ),
     ),
+  );
+
+  it.effect("refuses every issue write from a read-only workflow step, and still reads", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([], undefined, (threadId) => ({
+        ...McpToolAccessTestkit.liveThreadShell(threadId, { interactionMode: "plan" }),
+        workflowRun: {
+          environmentId: EnvironmentId.make("environment-1"),
+          runId: "run-1",
+          workflow: "factory-task",
+          step: "triage",
+          readOnly: true,
+        },
+      }));
+      const refused = { code: "capability_denied" };
+      expect(yield* Effect.flip(harness.call("create_issue", { title: "Build it" }))).toMatchObject(
+        refused,
+      );
+      expect(
+        yield* Effect.flip(harness.call("update_issue", { key: "7", labels: [] })),
+      ).toMatchObject(refused);
+      expect(
+        yield* Effect.flip(harness.call("comment_on_issue", { key: "7", body: "Approved." })),
+      ).toMatchObject(refused);
+      expect(
+        yield* Effect.flip(harness.call("set_issue_state", { key: "7", state: "closed" })),
+      ).toMatchObject(refused);
+      expect(yield* harness.call("read_issue", { key: "7" })).toMatchObject({ key: "7" });
+    }),
   );
 
   it.effect("refuses a credential without the issues capability", () =>

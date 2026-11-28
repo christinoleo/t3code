@@ -171,6 +171,8 @@ export const OrchestrationV2WorkflowOrigin = Schema.Struct({
   runId: TrimmedNonEmptyString,
   workflow: TrimmedNonEmptyString,
   step: TrimmedNonEmptyString,
+  /** The step may only read: T3 refuses its writes, and its provider runs read-only where it can. */
+  readOnly: Schema.optional(Schema.Literal(true)),
 });
 export type OrchestrationV2WorkflowOrigin = typeof OrchestrationV2WorkflowOrigin.Type;
 
