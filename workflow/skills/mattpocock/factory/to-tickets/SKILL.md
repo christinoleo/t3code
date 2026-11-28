@@ -75,7 +75,7 @@ Publish the approved tickets. **How** depends on the tracker `/setup-matt-pocock
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
-For a ticket only a person can do (credentials, a third-party dashboard), label it `ready-for-human` instead and write its steps as a numbered checklist: the links, the values to enter, and how to confirm each step worked.
+For a ticket only a person can do (credentials, a third-party dashboard), label it `ready-for-human` (on `t3`, make it a `kind/task`) instead and write its steps as a numbered checklist: the links, the values to enter, and how to confirm each step worked.
 
 Do NOT close or modify any parent issue.
 

@@ -119,8 +119,8 @@ With the factory on for the project, it runs every frontier ticket itself: resea
 
 When your brief says the ticket is run by the factory, it names one ticket (`T3-<n>` and its link) and its `Kind`. Resolve that ticket as [Work through the map](#work-through-the-map) says from step 3, with these changes:
 
-- Read the ticket with `read_issue` on its link. Its parent is the map. It is already claimed, so skip step 2.
-- **Research:** resolve it alone with the `research` skill, and push the findings to a `research/<name>` branch as charting step 5 says. Then submit `resolved` with the `resolution`: the answer and a pointer to the branch.
+- Read the ticket with `read_issue` on its link. Its parent is the map; a ticket with no parent has no map, so skip the map steps below. It is already claimed, so skip step 2.
+- **Research:** resolve it alone with the `research` skill, and push the findings to a `research/<name>` branch, but do not comment on or close the ticket yourself. Then submit `resolved` with the `resolution`: the answer and a pointer to the branch.
 - **Grilling, prototype, or a task only Leo can do:** prime the session. Read the map, the ticket, the closed tickets it builds on and the code it concerns. Then post your opening as your last message: the first question, the prototype, or the checklist. Submit `session` with that `opening`, which asks Leo to join you in this thread. Then stay in the thread and work the ticket with him, as its type's skill says. When the session reaches its answer, post the answer on the ticket with `comment_on_issue`. That comment is the resolution, and the factory closes the ticket.
 - **A task you can do alone:** do it, and submit `resolved`.
 - **Step 4 and 5:** the factory posts a submitted resolution as the ticket's comment and closes it. You still add the map's Decisions-so-far line with `update_issue`, and file the tickets the answer surfaced as children of the map.

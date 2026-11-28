@@ -14,8 +14,8 @@ export const isOpen = (state: TaskState) => TASK_STATES[state].category === "ope
 export const OPEN_STATES = TaskState.literals.filter(isOpen);
 
 /**
- * The kinds the factory starts a run for. Grilling, prototype and task tickets get a thread primed
- * for Leo rather than running alone (#85 Q3).
+ * The kinds the factory starts a run for. A grilling, prototype or task ticket may get a thread
+ * primed for Leo rather than running alone (#85 Q3).
  */
 export const DISPATCHED_KINDS = [
   "build",

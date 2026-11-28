@@ -635,9 +635,9 @@ const wholeTimeline = Effect.fnUntraced(function* (tasks: FactoryTasks["Service"
   return entries;
 });
 
-const asksForSession = (task: Task, before: ReadonlyArray<TaskEntry>) => {
+const asksForSession = (before: ReadonlyArray<TaskEntry>) => {
   const opened = before.findLast((entry) => entry.type === "attempt");
-  return task.kind !== "build" && opened?.type === "attempt" && opened.outcome === "needs-you";
+  return opened?.type === "attempt" && opened.phase === "session" && opened.outcome === "needs-you";
 };
 
 const answerByComment = Effect.fnUntraced(function* (
@@ -653,7 +653,7 @@ const answerByComment = Effect.fnUntraced(function* (
     const raised = entries[raisedAt];
     if (raised?.by.kind !== "factory") continue;
     const runId = raised.by.runId;
-    const choice = asksForSession(waiting, entries.slice(0, raisedAt)) ? "resolved" : "retry";
+    const choice = asksForSession(entries.slice(0, raisedAt)) ? "resolved" : "retry";
     const comment = entries
       .slice(raisedAt + 1)
       .find(
