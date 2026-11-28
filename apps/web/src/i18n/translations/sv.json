@@ -13379,5 +13379,16 @@
   "6a78eb543f2cb337": "Återställde {count, plural, one {{count} mapp} other {{count} mappar}}",
   "fa31841f29a7cc70": "{count, plural, =1 {Mapp borttagen,} other {Tog bort {count} mappar,}}",
   "cfecdd8ffc11d832": "Mappen tillämpades inte",
-  "592b4c8f71f70441": "Mappnamnet {folder} är ogiltigt, så den nya tråden startar utanför den."
+  "592b4c8f71f70441": "Mappnamnet {folder} är ogiltigt, så den nya tråden startar utanför den.",
+  "03652640b11a4dd8": "Överordnad",
+  "de30b8e7d1a2c787": "Underordnade",
+  "6dfb265c8713121b": "Blockeras av",
+  "3650fae70ca9e049": "Blockerar",
+  "a25e36f18edb091a": "Relationer",
+  "c99fc069b1469f38": "Uppdatera ett ärende",
+  "5caa64a6e4af8bce": "{count, plural, one {Uppdaterade {count} ärende} other {Uppdaterade {count} ärenden}}",
+  "fd52d36f2d28072d": "{count, plural, one {Försökte uppdatera {count} ärende} other {Försökte uppdatera {count} ärenden}}",
+  "fdb6381df1e2ac2f": "Skicka feedback till T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Skickade feedback {count} gång} other {Skickade feedback {count} gånger}}",
+  "f578484f8452eab8": "{count, plural, one {Försökte skicka feedback {count} gång} other {Försökte skicka feedback {count} gånger}}"
 }

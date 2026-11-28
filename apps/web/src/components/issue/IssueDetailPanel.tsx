@@ -78,6 +78,7 @@ import {
 } from "../pullRequest/pullRequestPresentation";
 import { IssueCommentComposer } from "./IssueCommentComposer";
 import { IssueDetailGhost } from "./IssueDetailGhost";
+import { IssueRelationsSection } from "./IssueRelations";
 import { IssueThreadLinks } from "./IssueThreadLinks";
 import { WorkflowRunsAbout } from "../workflows/WorkflowRunsAbout";
 import { ReactionBar } from "../pullRequest/PullRequestReactions";
@@ -906,6 +907,26 @@ export function IssueDetailPanel({
             ) : null}
           </div>
         </PullRequestSection>
+
+        {detail.relations ? (
+          <IssueRelationsSection
+            key={`relations:${detail.url}`}
+            relations={detail.relations}
+            onSelect={
+              onSelectIssue
+                ? (target) =>
+                    onSelectIssue({
+                      projectId: reference.projectId,
+                      tracker: reference.tracker,
+                      ...(reference.host === undefined ? {} : { host: reference.host }),
+                      scope: target.scope,
+                      key: target.key,
+                      url: target.url,
+                    })
+                : null
+            }
+          />
+        ) : null}
 
         {detail.linkedPullRequests.length > 0 ? (
           <PullRequestSection key={`linked:${detail.url}`} title={gt("Linked pull requests")}>

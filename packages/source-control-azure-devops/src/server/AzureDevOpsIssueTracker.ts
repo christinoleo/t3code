@@ -490,7 +490,7 @@ export const make: Effect.Effect<
     readonly item: AzureDevOpsWorkItem;
   }): Effect.Effect<ReadonlyArray<IssueLinkedPullRequest>, IssueTrackerError> => {
     const numbers = [
-      ...new Set(input.item.relations.flatMap((relation) => pullRequestNumberOf(relation) ?? [])),
+      ...new Set(input.item.links.flatMap((relation) => pullRequestNumberOf(relation) ?? [])),
     ].slice(0, LINKED_PULL_REQUEST_LIMIT);
     return Effect.forEach(
       numbers,

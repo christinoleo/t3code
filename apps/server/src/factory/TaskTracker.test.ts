@@ -124,9 +124,6 @@ describe("TaskTracker", () => {
         comments: [{ body: "On it." }],
       });
       expect(
-        yield* Effect.flip(api.update!({ ...target("alpha", "1"), labels: ["blocked"] })),
-      ).toMatchObject({ reason: "failed" });
-      expect(
         yield* Effect.flip(
           api.update!({ ...target("alpha", "1"), labels: ["kind/build", "kind/task"] }),
         ),
@@ -134,6 +131,122 @@ describe("TaskTracker", () => {
       expect(yield* Effect.flip(api.getIssue(target("alpha", "ENG-1")))).toMatchObject({
         reason: "not-found",
       });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("relates tasks, and a task is blocked only while a blocker is open", () =>
+    Effect.gen(function* () {
+      const { api, tasks } = yield* tracker;
+      const create = (
+        title: string,
+        relations?: {
+          parent?: { key: string };
+          blockedBy?: ReadonlyArray<{ key: string; scope?: string }>;
+        },
+        scope = "alpha",
+      ) =>
+        api.create!({
+          cwd: "/work",
+          host: "t3",
+          scope,
+          title,
+          body: "",
+          labels: [],
+          assignees: [],
+          relations,
+        });
+      yield* create("Epic");
+      yield* create("Store", { parent: { key: "1" } });
+      yield* create("Elsewhere", undefined, "beta");
+      yield* create("Panel", {
+        parent: { key: "1" },
+        blockedBy: [{ key: "2" }, { scope: "beta", key: "1" }],
+      });
+      const panel = target("alpha", "3");
+      const read = (key: string, scope = "alpha") => api.getIssue(target(scope, key));
+      const names = (issues: ReadonlyArray<{ readonly scope: string; readonly key: string }>) =>
+        issues.map((issue) => `${issue.scope}#${issue.key}`);
+      const labels = Effect.map(read("3"), (detail) => detail.labels.map((label) => label.name));
+
+      const epic = yield* read("1");
+      expect(epic.relations).toMatchObject({ parent: null, blockedBy: [], blocking: [] });
+      expect(names(epic.relations!.children)).toEqual(["alpha#2", "alpha#3"]);
+      const blocked = yield* read("3");
+      expect(blocked.relations?.parent).toMatchObject({
+        scope: "alpha",
+        key: "1",
+        displayKey: "T3-1",
+        title: "Epic",
+        state: { name: "Ready" },
+      });
+      expect(names(blocked.relations!.blockedBy)).toEqual(["alpha#2", "beta#1"]);
+      expect(names((yield* read("2")).relations!.blocking)).toEqual(["alpha#3"]);
+      expect(yield* labels).toEqual(["kind/build", "blocked"]);
+      const listedBlocked = yield* api.listIssues({
+        cwd: "/work",
+        host: "t3",
+        scope: "alpha",
+        involvement: "all",
+        state: "open",
+        labels: ["blocked"],
+        limit: 10,
+        sort: "created",
+      });
+      expect(listedBlocked.items.map((issue) => issue.key)).toEqual(["3"]);
+
+      // A label edit sends back the labels it was shown; the derived one is not the writer's.
+      yield* api.update!({ ...panel, labels: ["kind/build", "blocked", "ui"] });
+      expect(yield* labels).toEqual(["kind/build", "blocked", "ui"]);
+
+      yield* tasks.transition((yield* tasks.byKey("alpha", 2)).id, "building", FACTORY);
+      yield* tasks.transition((yield* tasks.byKey("alpha", 2)).id, "done", FACTORY);
+      expect(yield* labels).toEqual(["kind/build", "blocked", "ui"]);
+      yield* api.setState!({ ...target("beta", "1"), state: "Dropped" });
+      expect(yield* labels).toEqual(["kind/build", "ui"]);
+      expect((yield* read("3")).comments.map((comment) => comment.body)).toEqual([
+        "Elsewhere (T3-1) was dropped, so it no longer blocks this task.",
+      ]);
+
+      yield* api.update!({ ...panel, relations: { parent: null, blockedBy: [] } });
+      expect((yield* read("3")).relations).toMatchObject({ parent: null, blockedBy: [] });
+      expect(names((yield* read("1")).relations!.children)).toEqual(["alpha#2"]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("refuses a relation that names no task, the task itself, or makes a loop", () =>
+    Effect.gen(function* () {
+      const { api } = yield* tracker;
+      for (const title of ["One", "Two", "Three"]) {
+        yield* api.create!({
+          cwd: "/work",
+          host: "t3",
+          scope: "alpha",
+          title,
+          body: "",
+          labels: [],
+          assignees: [],
+        });
+      }
+      yield* api.update!({
+        ...target("alpha", "2"),
+        relations: { parent: { key: "1" }, blockedBy: [{ key: "1" }] },
+      });
+      yield* api.update!({
+        ...target("alpha", "3"),
+        relations: { parent: { key: "2" }, blockedBy: [{ key: "2" }] },
+      });
+      const refused = (key: string, relations: object) =>
+        Effect.flip(api.update!({ ...target("alpha", key), relations }));
+
+      expect(yield* refused("1", { blockedBy: [{ key: "9" }] })).toMatchObject({
+        reason: "not-found",
+      });
+      for (const relations of [{ parent: { key: "1" } }, { blockedBy: [{ key: "1" }] }]) {
+        expect(yield* refused("1", relations)).toMatchObject({ reason: "failed" });
+      }
+      for (const relations of [{ parent: { key: "3" } }, { blockedBy: [{ key: "3" }] }]) {
+        expect(yield* refused("1", relations)).toMatchObject({ reason: "failed" });
+      }
     }).pipe(Effect.provide(layer)),
   );
 

@@ -13305,5 +13305,16 @@
   "6a78eb543f2cb337": "{count, plural, other {{count} 件のフォルダー}}の削除を元に戻しました",
   "fa31841f29a7cc70": "{count, plural, =1 {フォルダー削除、} other {フォルダー {count} 件削除、}}",
   "cfecdd8ffc11d832": "フォルダーを適用できませんでした",
-  "592b4c8f71f70441": "フォルダー名 {folder} が無効なため、新しいスレッドはフォルダーの外で開始されます。"
+  "592b4c8f71f70441": "フォルダー名 {folder} が無効なため、新しいスレッドはフォルダーの外で開始されます。",
+  "03652640b11a4dd8": "親",
+  "de30b8e7d1a2c787": "子",
+  "6dfb265c8713121b": "ブロック元",
+  "3650fae70ca9e049": "ブロック先",
+  "a25e36f18edb091a": "関連",
+  "c99fc069b1469f38": "Issue を更新",
+  "5caa64a6e4af8bce": "{count, plural, other {{count} 件の Issue を更新しました}}",
+  "fd52d36f2d28072d": "{count, plural, other {{count} 件の Issue の更新を試みました}}",
+  "fdb6381df1e2ac2f": "T3 にフィードバックを送信",
+  "f6889f5ceab6fbdd": "{count, plural, other {フィードバックを {count} 回送信しました}}",
+  "f578484f8452eab8": "{count, plural, other {フィードバックの送信を {count} 回試みました}}"
 }

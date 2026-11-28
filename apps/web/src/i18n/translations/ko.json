@@ -13302,5 +13302,16 @@
   "6a78eb543f2cb337": "{count, plural, other {폴더 {count}개}} 삭제 실행 취소함",
   "fa31841f29a7cc70": "{count, plural, =1 {폴더 삭제됨,} other {폴더 {count}개 삭제됨,}}",
   "cfecdd8ffc11d832": "폴더가 적용되지 않음",
-  "592b4c8f71f70441": "폴더 이름 {folder}이(가) 유효하지 않아 새 스레드가 폴더 밖에서 시작됩니다."
+  "592b4c8f71f70441": "폴더 이름 {folder}이(가) 유효하지 않아 새 스레드가 폴더 밖에서 시작됩니다.",
+  "03652640b11a4dd8": "상위",
+  "de30b8e7d1a2c787": "하위",
+  "6dfb265c8713121b": "차단하는 이슈",
+  "3650fae70ca9e049": "차단 중인 이슈",
+  "a25e36f18edb091a": "관계",
+  "c99fc069b1469f38": "이슈 업데이트",
+  "5caa64a6e4af8bce": "{count, plural, other {이슈 {count}개를 업데이트함}}",
+  "fd52d36f2d28072d": "{count, plural, other {이슈 {count}개 업데이트를 시도함}}",
+  "fdb6381df1e2ac2f": "T3에 피드백 보내기",
+  "f6889f5ceab6fbdd": "{count, plural, other {피드백을 {count}번 보냄}}",
+  "f578484f8452eab8": "{count, plural, other {피드백 보내기를 {count}번 시도함}}"
 }

@@ -94,13 +94,26 @@ export interface TaskDraft {
   readonly body: string;
   readonly labels?: ReadonlyArray<string> | undefined;
   readonly parent?: TaskId | undefined;
+  readonly blockedBy?: ReadonlyArray<TaskId> | undefined;
 }
 
-/** Only the present fields are written; `labels` is the whole set, kind label included. */
+/**
+ * Only the present fields are written; `labels` is the whole set, kind label included, and
+ * `blockedBy` the whole set of blockers. A null `parent` takes the task out of its parent.
+ */
 export interface TaskPatch {
   readonly title?: string | undefined;
   readonly body?: string | undefined;
   readonly labels?: ReadonlyArray<string> | undefined;
+  readonly parent?: TaskId | null | undefined;
+  readonly blockedBy?: ReadonlyArray<TaskId> | undefined;
+}
+
+export interface TaskRelations {
+  readonly parent: Task | null;
+  readonly children: ReadonlyArray<Task>;
+  readonly blockedBy: ReadonlyArray<Task>;
+  readonly blocking: ReadonlyArray<Task>;
 }
 
 export interface TaskQuery {
@@ -176,6 +189,7 @@ export class FactoryTasks extends Context.Service<
       { readonly items: ReadonlyArray<Task>; readonly next: string | null },
       TaskStoreError
     >;
+    readonly relations: (id: TaskId) => Effect.Effect<TaskRelations, TaskError>;
     readonly update: (id: TaskId, patch: TaskPatch, by: Actor) => Effect.Effect<Task, TaskError>;
     readonly comment: (id: TaskId, body: string, by: Actor) => Effect.Effect<TaskEntry, TaskError>;
     /** The lifecycle's only gate: refuses a move the table forbids for this actor. */
@@ -262,6 +276,8 @@ const taskUrl = (environmentId: EnvironmentId, scope: string, number: number) =>
   url.searchParams.set("key", String(number));
   return url.href;
 };
+
+export const displayKey = (task: Pick<Task, "number">) => `T3-${task.number}`;
 
 export const shownLabels = (task: Task) => [
   TASK_LABEL.kind(task.kind),
@@ -380,14 +396,11 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /** `blocked` is dropped: it follows the blockers, and a label edit sends back what it was shown. */
   const splitLabels = Effect.fn("FactoryTasks.splitLabels")(function* (
-    labels: ReadonlyArray<string>,
+    shown: ReadonlyArray<string>,
   ) {
-    if (labels.includes(TASK_LABEL.blocked)) {
-      return yield* new TaskInvalidError({
-        detail: "`blocked` follows the task's blockers; set those instead.",
-      });
-    }
+    const labels = shown.filter((label) => label !== TASK_LABEL.blocked);
     const kinds = labels.filter(isKindLabel).map((label) => label.slice(KIND_PREFIX.length));
     if (kinds.length > 1) {
       return yield* new TaskInvalidError({ detail: "A task has one kind." });
@@ -402,6 +415,87 @@ const make = Effect.gen(function* () {
     }
     return { kind, free };
   });
+
+  /** Refuses a parent that is the task itself or sits under it. */
+  const setParent = Effect.fn("FactoryTasks.setParent")(function* (
+    id: TaskId,
+    parent: TaskId | null,
+  ) {
+    if (parent !== null) {
+      const loops = yield* sql`
+        WITH RECURSIVE ancestors(id) AS (
+          SELECT ${parent}
+          UNION SELECT t.parent_id FROM factory_tasks t JOIN ancestors a ON t.id = a.id
+          WHERE t.parent_id IS NOT NULL
+        )
+        SELECT 1 FROM ancestors WHERE id = ${id}
+      `.pipe(failed("update"));
+      if (loops.length > 0) {
+        return yield* new TaskInvalidError({
+          detail: "A task cannot be its own parent, nor sit under one of its own children.",
+        });
+      }
+    }
+    yield* sql`UPDATE factory_tasks SET parent_id = ${parent} WHERE id = ${id}`.pipe(
+      failed("update"),
+    );
+  });
+
+  /** Refuses a blocker that is the task itself or waits on it: neither could ever start. */
+  const setBlockers = Effect.fn("FactoryTasks.setBlockers")(function* (
+    id: TaskId,
+    blockers: ReadonlyArray<TaskId>,
+  ) {
+    const unique = [...new Set(blockers)];
+    if (unique.length > 0) {
+      const loops = yield* sql`
+        WITH RECURSIVE reached(id) AS (
+          SELECT id FROM factory_tasks WHERE id IN ${sql.in(unique)}
+          UNION SELECT e.blocker_id FROM factory_task_edges e JOIN reached r ON e.task_id = r.id
+          WHERE e.blocker_id IS NOT NULL
+        )
+        SELECT 1 FROM reached WHERE id = ${id}
+      `.pipe(failed("update"));
+      if (loops.length > 0) {
+        return yield* new TaskInvalidError({
+          detail: "A task cannot be blocked by itself, nor by a task that waits on it.",
+        });
+      }
+    }
+    yield* sql`
+      DELETE FROM factory_task_edges WHERE task_id = ${id} AND blocker_id IS NOT NULL
+    `.pipe(failed("update"));
+    for (const blocker of unique) {
+      yield* sql`
+        INSERT INTO factory_task_edges (task_id, blocker_id) VALUES (${id}, ${blocker})
+      `.pipe(failed("update"));
+    }
+  });
+
+  const relations: FactoryTasks["Service"]["relations"] = Effect.fn("FactoryTasks.relations")(
+    function* (id) {
+      const task = yield* find(id);
+      const related = (rows: Effect.Effect<ReadonlyArray<unknown>, SqlError.SqlError>) =>
+        rows.pipe(
+          failed("relations"),
+          Effect.map((found) => found.map(toTask)),
+        );
+      return {
+        parent: task.parent === null ? null : yield* find(task.parent),
+        children: yield* related(sql`${selectTasks} WHERE t.parent_id = ${id} ORDER BY t.id`),
+        blockedBy: yield* related(sql`
+          ${selectTasks} WHERE t.id IN (
+            SELECT blocker_id FROM factory_task_edges WHERE task_id = ${id}
+          ) ORDER BY t.id
+        `),
+        blocking: yield* related(sql`
+          ${selectTasks} WHERE t.id IN (
+            SELECT task_id FROM factory_task_edges WHERE blocker_id = ${id}
+          ) ORDER BY t.id
+        `),
+      };
+    },
+  );
 
   const create: FactoryTasks["Service"]["create"] = Effect.fn("FactoryTasks.create")(
     function* (draft, by) {
@@ -426,7 +520,9 @@ const make = Effect.gen(function* () {
             )
             RETURNING id
           `.pipe(failed("create"));
-          return yield* find(TaskId.make(row!.id));
+          const id = TaskId.make(row!.id);
+          if (draft.blockedBy !== undefined) yield* setBlockers(id, draft.blockedBy);
+          return yield* find(id);
         }),
       );
     },
@@ -498,6 +594,8 @@ const make = Effect.gen(function* () {
               labels_json = ${encodeJson(labels?.free ?? task.labels)}
             WHERE id = ${id}
           `.pipe(failed("update"));
+          if (patch.parent !== undefined) yield* setParent(id, patch.parent);
+          if (patch.blockedBy !== undefined) yield* setBlockers(id, patch.blockedBy);
           yield* touch(id, at).pipe(failed("update"));
           return yield* find(id);
         }),
@@ -511,6 +609,24 @@ const make = Effect.gen(function* () {
       return { type: "comment", ...entry, by, body } satisfies TaskEntry;
     },
   );
+
+  /** A dropped blocker will never finish, so each open task it held is told it no longer waits. */
+  const unblockDependents = Effect.fn("FactoryTasks.unblockDependents")(function* (
+    blocker: Task,
+    at: string,
+    by: Actor,
+  ) {
+    const dependents = yield* sql<{ readonly id: number }>`
+      SELECT t.id FROM factory_task_edges e JOIN factory_tasks t ON t.id = e.task_id
+      WHERE e.blocker_id = ${blocker.id} AND t.state IN ${sql.in(OPEN_STATES)}
+    `.pipe(failed("transition"));
+    const body = `${blocker.title} (${displayKey(blocker)}) was dropped, so it no longer blocks this task.`;
+    for (const dependent of dependents) {
+      const id = TaskId.make(dependent.id);
+      yield* append(id, at, by, "comment", { body }).pipe(failed("transition"));
+      yield* touch(id, at).pipe(failed("transition"));
+    }
+  });
 
   const transition: FactoryTasks["Service"]["transition"] = Effect.fn("FactoryTasks.transition")(
     function* (id, to, by, reason) {
@@ -536,6 +652,7 @@ const make = Effect.gen(function* () {
             failed("transition"),
           );
           yield* touch(id, at).pipe(failed("transition"));
+          if (to === "dropped" && isOpen(task.state)) yield* unblockDependents(task, at, by);
           return yield* find(id);
         }),
       );
@@ -555,6 +672,7 @@ const make = Effect.gen(function* () {
     byKey,
     timeline,
     list,
+    relations,
     update,
     comment,
     transition,

@@ -5700,5 +5700,16 @@
   "46d614fa7b4bf1e5": "ワークフローの実行",
   "f6cf1627f4acc5ef": "コメントの公開範囲",
   "eb1fd384ad5919dd": "内部メモ",
-  "b45f0b467e9406d0": "顧客に返信"
+  "b45f0b467e9406d0": "顧客に返信",
+  "dad96dac460b7e9c": "{status}のイシュー {key}、{title}",
+  "03652640b11a4dd8": "親",
+  "de30b8e7d1a2c787": "子",
+  "6dfb265c8713121b": "ブロック元",
+  "3650fae70ca9e049": "ブロック先",
+  "c99fc069b1469f38": "Issue を更新",
+  "5caa64a6e4af8bce": "{count, plural, other {{count} 件の Issue を更新しました}}",
+  "fd52d36f2d28072d": "{count, plural, other {{count} 件の Issue の更新を試みました}}",
+  "fdb6381df1e2ac2f": "T3 にフィードバックを送信",
+  "f6889f5ceab6fbdd": "{count, plural, other {フィードバックを {count} 回送信しました}}",
+  "f578484f8452eab8": "{count, plural, other {フィードバックの送信を {count} 回試みました}}"
 }

@@ -5723,5 +5723,16 @@
   "46d614fa7b4bf1e5": "Execuções de workflow",
   "f6cf1627f4acc5ef": "Visibilidade do comentário",
   "eb1fd384ad5919dd": "Nota interna",
-  "b45f0b467e9406d0": "Responder ao cliente"
+  "b45f0b467e9406d0": "Responder ao cliente",
+  "dad96dac460b7e9c": "Issue {status} {key}, {title}",
+  "03652640b11a4dd8": "Pai",
+  "de30b8e7d1a2c787": "Filhas",
+  "6dfb265c8713121b": "Bloqueada por",
+  "3650fae70ca9e049": "Bloqueando",
+  "c99fc069b1469f38": "Atualizar uma issue",
+  "5caa64a6e4af8bce": "{count, plural, one {{count} issue atualizada} other {{count} issues atualizadas}}",
+  "fd52d36f2d28072d": "{count, plural, one {Tentou atualizar {count} issue} other {Tentou atualizar {count} issues}}",
+  "fdb6381df1e2ac2f": "Enviar feedback ao T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Enviou feedback {count} vez} other {Enviou feedback {count} vezes}}",
+  "f578484f8452eab8": "{count, plural, one {Tentou enviar feedback {count} vez} other {Tentou enviar feedback {count} vezes}}"
 }

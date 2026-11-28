@@ -21,7 +21,11 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 
+import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
+import * as FactoryTasks from "../../../factory/FactoryTasks.ts";
+import * as TaskTracker from "../../../factory/TaskTracker.ts";
 import * as IssueService from "../../../issue/IssueService.ts";
+import * as SqlitePersistence from "../../../persistence/Sqlite.ts";
 import * as IssueTrackerRegistry from "../../../issue/IssueTrackerRegistry.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadIssueService from "../../../orchestration-v2/ThreadIssueService.ts";
@@ -343,6 +347,65 @@ describe("issue toolkit handlers", () => {
       expect(unbound.message).toContain("Use one of: ENG, OPS.");
       expect(yield* Ref.get(filedIn)).toEqual(["OPS", "ENG"]);
     }),
+  );
+
+  it.effect("an agent relates T3 tasks and finds the blocked ones by label", () =>
+    Effect.gen(function* () {
+      const api = yield* TaskTracker.make;
+      const issueLayer = IssueService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            projectLayer,
+            Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
+            Layer.mock(IssueTrackerBindings.IssueTrackerBindingsRepository)({
+              list: () =>
+                Effect.succeed(new Map([[PROJECT_ID, { tracker: api.kind, scope: PROJECT_ID }]])),
+            }),
+            Layer.succeed(
+              IssueTrackerRegistry.IssueTrackerRegistry,
+              IssueTrackerRegistry.fromTrackers([api]),
+            ),
+          ),
+        ),
+      );
+      const harness = yield* makeHarness([], issueLayer);
+      const blocked = Effect.map(harness.call("list_issues", { labels: ["blocked"] }), (result) =>
+        result.issues.map((issue) => issue.title),
+      );
+
+      yield* harness.call("create_issue", { title: "Store" });
+      yield* harness.call("create_issue", {
+        title: "Panel",
+        relations: { blockedBy: [{ key: "1" }] },
+      });
+      expect(yield* blocked).toEqual(["Panel"]);
+      expect((yield* harness.call("read_issue", { key: "1" })).relations?.blocking).toMatchObject([
+        { key: "2", title: "Panel" },
+      ]);
+
+      yield* harness.call("update_issue", {
+        key: "2",
+        relations: { parent: { key: "1" }, blockedBy: [] },
+      });
+      expect(yield* blocked).toEqual([]);
+      expect((yield* harness.call("read_issue", { key: "2" })).relations?.parent).toMatchObject({
+        key: "1",
+      });
+    }).pipe(
+      Effect.provide(
+        FactoryTasks.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              SqlitePersistence.layerMemory,
+              projectLayer,
+              Layer.mock(ServerEnvironment.ServerEnvironment)({
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-1")),
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 
   it.effect("refuses a credential without the issues capability", () =>

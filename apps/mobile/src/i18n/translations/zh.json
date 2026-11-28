@@ -5710,5 +5710,16 @@
   "46d614fa7b4bf1e5": "工作流运行",
   "f6cf1627f4acc5ef": "评论可见范围",
   "eb1fd384ad5919dd": "内部备注",
-  "b45f0b467e9406d0": "回复客户"
+  "b45f0b467e9406d0": "回复客户",
+  "dad96dac460b7e9c": "{status}议题 {key}，{title}",
+  "03652640b11a4dd8": "父项",
+  "de30b8e7d1a2c787": "子项",
+  "6dfb265c8713121b": "被阻止于",
+  "3650fae70ca9e049": "正在阻止",
+  "c99fc069b1469f38": "更新议题",
+  "5caa64a6e4af8bce": "{count, plural, other {已更新 {count} 个议题}}",
+  "fd52d36f2d28072d": "{count, plural, other {尝试更新 {count} 个议题}}",
+  "fdb6381df1e2ac2f": "向 T3 发送反馈",
+  "f6889f5ceab6fbdd": "{count, plural, other {已发送反馈 {count} 次}}",
+  "f578484f8452eab8": "{count, plural, other {尝试发送反馈 {count} 次}}"
 }

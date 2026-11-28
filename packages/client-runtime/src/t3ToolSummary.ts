@@ -742,6 +742,22 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "update-issue": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg("{count, plural, one {Updated {count} issue} other {Updated {count} issues}}", {
+              count,
+            }),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to update {count} issue} other {Tried to update {count} issues}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "comment-issue": {
       const count = selected.length;
       label = done
@@ -876,6 +892,23 @@ export function summarizeT3ToolCalls(
         : resolve(
             msg(
               "{count, plural, one {Tried to send {count} message} other {Tried to send {count} messages}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "send-feedback": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Sent feedback {count} time} other {Sent feedback {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to send feedback {count} time} other {Tried to send feedback {count} times}}",
               { count },
             ),
           );

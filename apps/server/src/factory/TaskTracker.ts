@@ -13,6 +13,9 @@ import {
   type IssueCapabilities,
   type IssueComment,
   type IssueEvent,
+  type IssueRelationRef,
+  type IssueRelationTarget,
+  type IssueRelationsInput,
   type StandaloneIssueTrackerDescriptor,
 } from "@t3tools/contracts";
 import {
@@ -29,6 +32,7 @@ import {
   TASK_TRACKER_HOST,
   TASK_TRACKER_KIND,
   TASK_URL_HOST,
+  displayKey,
   shownLabels,
   type Task,
   type TaskEntry,
@@ -57,6 +61,7 @@ const CAPABILITIES: IssueCapabilities = {
   linkedPullRequests: true,
   events: true,
   search: false,
+  relations: true,
 };
 
 /** Who writes through the tracker: a person in the panel, or an agent on their behalf. */
@@ -78,9 +83,18 @@ const toActor = (actor: Actor): IssueActor => {
   }
 };
 
+const toRelationTarget = (task: Task): IssueRelationTarget => ({
+  scope: task.scope,
+  key: String(task.number),
+  displayKey: displayKey(task),
+  title: task.title,
+  url: task.url,
+  state: TASK_STATES[task.state],
+});
+
 const toSummary = (task: Task): TrackerIssueSummary => ({
   key: String(task.number),
-  displayKey: `T3-${task.number}`,
+  displayKey: displayKey(task),
   title: task.title,
   url: task.url,
   author: toActor(task.author),
@@ -171,6 +185,35 @@ export const make = Effect.gen(function* () {
     return yield* tasks.byKey(input.scope, number).pipe(failed(operation));
   });
 
+  const resolveRef = (operation: string, scope: string, ref: IssueRelationRef) =>
+    requireTask(operation, {
+      cwd: "",
+      host: TASK_TRACKER_HOST,
+      scope: ref.scope ?? scope,
+      key: ref.key,
+    }).pipe(Effect.map((task) => task.id));
+
+  const resolveRelations = Effect.fn("TaskTracker.resolveRelations")(function* (
+    operation: string,
+    scope: string,
+    relations: IssueRelationsInput | undefined,
+  ) {
+    const parent = relations?.parent;
+    const blockedBy = relations?.blockedBy;
+    return {
+      parent:
+        parent === undefined
+          ? undefined
+          : parent === null
+            ? null
+            : yield* resolveRef(operation, scope, parent),
+      blockedBy:
+        blockedBy === undefined
+          ? undefined
+          : yield* Effect.forEach(blockedBy, (ref) => resolveRef(operation, scope, ref)),
+    };
+  });
+
   const api: StandaloneIssueTrackerApi = {
     kind: KIND,
     capabilities: CAPABILITIES,
@@ -237,6 +280,7 @@ export const make = Effect.gen(function* () {
     getIssue: Effect.fn("TaskTracker.getIssue")(function* (input) {
       const task = yield* requireTask("getIssue", input);
       const timeline = yield* tasks.timeline(task.id).pipe(failed("getIssue"));
+      const related = yield* tasks.relations(task.id).pipe(failed("getIssue"));
       return {
         ...toSummary(task),
         body: task.body,
@@ -253,6 +297,12 @@ export const make = Effect.gen(function* () {
         commentsCursor: timeline.next,
         events: timeline.entries.flatMap(toEvent),
         linkedPullRequests: [],
+        relations: {
+          parent: related.parent === null ? null : toRelationTarget(related.parent),
+          children: related.children.map(toRelationTarget),
+          blockedBy: related.blockedBy.map(toRelationTarget),
+          blocking: related.blocking.map(toRelationTarget),
+        },
       };
     }),
 
@@ -277,9 +327,17 @@ export const make = Effect.gen(function* () {
           detail: "There is no such project on this server.",
         });
       }
+      const { parent, blockedBy } = yield* resolveRelations("create", input.scope, input.relations);
       const task = yield* tasks
         .create(
-          { scope: input.scope, title: input.title, body: input.body, labels: input.labels },
+          {
+            scope: input.scope,
+            title: input.title,
+            body: input.body,
+            labels: input.labels,
+            parent: parent ?? undefined,
+            blockedBy,
+          },
           BY_VIEWER,
         )
         .pipe(failed("create"));
@@ -294,8 +352,13 @@ export const make = Effect.gen(function* () {
 
     update: Effect.fn("TaskTracker.update")(function* (input) {
       const task = yield* requireTask("update", input);
+      const relations = yield* resolveRelations("update", input.scope, input.relations);
       yield* tasks
-        .update(task.id, { title: input.title, body: input.body, labels: input.labels }, BY_VIEWER)
+        .update(
+          task.id,
+          { title: input.title, body: input.body, labels: input.labels, ...relations },
+          BY_VIEWER,
+        )
         .pipe(failed("update"));
     }),
 

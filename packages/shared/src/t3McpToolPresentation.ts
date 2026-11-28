@@ -70,6 +70,7 @@ export type T3McpToolSummaryAction =
   | "list-issues"
   | "read-issue"
   | "create-issue"
+  | "update-issue"
   | "comment-issue"
   | "set-issue-state"
   | "link-issue"
@@ -88,7 +89,8 @@ export type T3McpToolSummaryAction =
   | "device"
   | "html-preview"
   | "html-render"
-  | "send-to-user";
+  | "send-to-user"
+  | "send-feedback";
 
 export interface T3McpToolDefinition {
   readonly displayName: string;
@@ -164,6 +166,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   list_issues: tool(["List", "Listing", "Listed", "issues"], "list-issues"),
   read_issue: tool(["Read", "Reading", "Read", "an issue"], "read-issue"),
   create_issue: tool(["File", "Filing", "Filed", "an issue"], "create-issue"),
+  update_issue: tool(["Update", "Updating", "Updated", "an issue"], "update-issue"),
   comment_on_issue: tool(
     ["Comment on", "Commenting on", "Commented on", "an issue"],
     "comment-issue",
@@ -441,6 +444,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   html_preview: tool(["Preview", "Previewing", "Previewed", "an HTML page"], "html-preview"),
   html_render: tool(["Render", "Rendering", "Rendered", "an HTML page"], "html-render"),
   send_to_user: tool(["Send", "Sending", "Sent", "a message"], "send-to-user"),
+  t3_feedback: tool(["Send", "Sending", "Sent", "feedback to T3"], "send-feedback"),
 };
 
 export const T3_MCP_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(T3_MCP_TOOLS));

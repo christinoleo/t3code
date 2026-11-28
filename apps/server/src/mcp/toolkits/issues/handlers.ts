@@ -167,6 +167,7 @@ const make = Effect.gen(function* () {
           projectId,
           state: input.state ?? "open",
           ...(input.query === undefined ? {} : { query: input.query }),
+          ...(input.labels === undefined ? {} : { labels: input.labels }),
           ...(input.limit === undefined ? {} : { limit: input.limit }),
           ...(input.cursors === undefined ? {} : { cursors: input.cursors }),
         });
@@ -229,6 +230,7 @@ const make = Effect.gen(function* () {
             state: pullRequest.state,
             closesIssue: pullRequest.closesIssue,
           })),
+          ...(detail.relations === undefined ? {} : { relations: detail.relations }),
         };
       }),
     ),
@@ -241,6 +243,7 @@ const make = Effect.gen(function* () {
           body: input.body ?? "",
           labels: input.labels ?? [],
           assignees: input.assignees ?? [],
+          ...(input.relations === undefined ? {} : { relations: input.relations }),
         });
         return {
           ...scope,
@@ -248,6 +251,19 @@ const make = Effect.gen(function* () {
           url: created.url,
           displayKey: created.displayKey,
         };
+      }),
+    ),
+    update_issue: McpToolAccess.writesWithCapability((input) =>
+      Effect.gen(function* () {
+        const target = yield* resolveTarget(input);
+        yield* issues.update({
+          ...refOf(target),
+          title: input.title,
+          body: input.body,
+          labels: input.labels,
+          relations: input.relations,
+        });
+        return identityOf(target);
       }),
     ),
     comment_on_issue: McpToolAccess.writesWithCapability((input) =>

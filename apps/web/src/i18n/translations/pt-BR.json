@@ -13372,5 +13372,16 @@
   "6a78eb543f2cb337": "Exclusão desfeita em {count, plural, one {{count} pasta} other {{count} pastas}}",
   "fa31841f29a7cc70": "{count, plural, =1 {Pasta excluída,} other {{count} pastas excluídas,}}",
   "cfecdd8ffc11d832": "Pasta não aplicada",
-  "592b4c8f71f70441": "O nome da pasta {folder} não é válido, então a nova thread começa fora dela."
+  "592b4c8f71f70441": "O nome da pasta {folder} não é válido, então a nova thread começa fora dela.",
+  "03652640b11a4dd8": "Pai",
+  "de30b8e7d1a2c787": "Filhas",
+  "6dfb265c8713121b": "Bloqueada por",
+  "3650fae70ca9e049": "Bloqueando",
+  "a25e36f18edb091a": "Relações",
+  "c99fc069b1469f38": "Atualizar uma issue",
+  "5caa64a6e4af8bce": "{count, plural, one {{count} issue atualizada} other {{count} issues atualizadas}}",
+  "fd52d36f2d28072d": "{count, plural, one {Tentou atualizar {count} issue} other {Tentou atualizar {count} issues}}",
+  "fdb6381df1e2ac2f": "Enviar feedback ao T3",
+  "f6889f5ceab6fbdd": "{count, plural, one {Enviou feedback {count} vez} other {Enviou feedback {count} vezes}}",
+  "f578484f8452eab8": "{count, plural, one {Tentou enviar feedback {count} vez} other {Tentou enviar feedback {count} vezes}}"
 }
