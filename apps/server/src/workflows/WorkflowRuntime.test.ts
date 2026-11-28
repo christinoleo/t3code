@@ -572,7 +572,7 @@ it.effect(
 );
 
 it.effect(
-  "a built-in workflow runs with no file, a file that defines it again is held, and the built-in keeps running beside files that load",
+  "a built-in workflow runs with no file, a file that defines it again at any version is held, and the built-in keeps running beside files that load",
   () =>
     Effect.gen(function* () {
       const { fileSystem, at, made } = yield* setup();
@@ -591,10 +591,10 @@ it.effect(
 
         const again = yield* definitions.save(
           "again.ts",
-          'T3.workflow("built-in", { version: 1, payload: Schema.Struct({}) }, () => Effect.void);\n',
+          'T3.workflow("built-in", { version: 2, payload: Schema.Struct({}) }, () => Effect.void);\n',
         );
         assert.isFalse(again.changed);
-        assert.include(again.problems[0]?.message ?? "", "built-in@1 is defined twice");
+        assert.include(again.problems[0]?.message ?? "", "built-in is defined twice");
         assert.deepStrictEqual(yield* definitions.save("greet.ts", greet("hello")), {
           changed: true,
           problems: [],
@@ -611,4 +611,27 @@ it.effect(
         Effect.scoped,
       );
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
+
+it.effect("built-ins whose engine fails to start say so", () =>
+  Effect.gen(function* () {
+    const { fileSystem, at, made } = yield* setup(undefined, () =>
+      Layer.effect(Workflows.Workflows, Effect.die(new Error("no engine"))),
+    );
+    yield* fileSystem.remove(at("hold.ts"));
+    const builtIn = workflow(
+      "built-in",
+      { version: 1, payload: Schema.Struct({}) },
+      () => Effect.void,
+    );
+    yield* Effect.gen(function* () {
+      const read = yield* (yield* WorkflowRuntime.WorkflowDefinitions).read;
+      assert.include(read.problems[0]?.message ?? "", "did not start");
+    }).pipe(
+      Effect.provide(
+        Layer.effectContext(made.pipe(Effect.provideService(BuiltInWorkflows, [builtIn]))),
+      ),
+      Effect.scoped,
+    );
+  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );

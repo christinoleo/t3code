@@ -185,10 +185,10 @@ export const make = Effect.gen(function* () {
         return null;
       }
       const scope = url.searchParams.get("scope");
-      const key = url.searchParams.get("key");
+      const number = parseKey(url.searchParams.get("key") ?? "");
       const workspace = url.searchParams.get("selectedEnvironmentId");
-      if (!scope || !key || parseKey(key) === null || !workspace) return null;
-      return { host: TASK_TRACKER_HOST, scope, key, workspace };
+      if (!scope || number === null || !workspace) return null;
+      return { host: TASK_TRACKER_HOST, scope, key: String(number), workspace };
     },
 
     probeCredential: () =>

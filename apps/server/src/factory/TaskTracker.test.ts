@@ -78,12 +78,14 @@ describe("TaskTracker", () => {
       expect([first.key, first.displayKey, second.key, other.key]).toEqual(["1", "T3-1", "2", "1"]);
       expect(yield* Effect.flip(create("nowhere", "Lost"))).toMatchObject({ reason: "not-found" });
 
-      expect(api.parseIssueUrl(new URL(first.url))).toEqual({
-        host: "t3",
-        scope: "alpha",
-        key: "1",
-        workspace: ENVIRONMENT,
-      });
+      for (const url of [first.url, first.url.replace("key=1", "key=+1+")]) {
+        expect(api.parseIssueUrl(new URL(url))).toEqual({
+          host: "t3",
+          scope: "alpha",
+          key: "1",
+          workspace: ENVIRONMENT,
+        });
+      }
 
       const listed = yield* api.listIssues({
         cwd: "/work",
