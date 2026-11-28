@@ -185,6 +185,7 @@ export function SettingsIssueTrackerRouteScreen({
   const usable = tracker?.connected === true && tracker.account !== null;
   const canAddAccount =
     tracker !== undefined &&
+    !tracker.credentialFree &&
     route.params.accountId === undefined &&
     (tracker.connected ||
       (query.data?.accounts ?? []).some((account) => account.tracker === tracker.tracker)) &&
@@ -198,13 +199,15 @@ export function SettingsIssueTrackerRouteScreen({
           <Text selectable className="px-2 text-sm text-foreground-muted">
             {issueTrackerSummary(tracker, issueTrackerBindings(query.data), messages)}
           </Text>
-          <SettingsSection title={tracker.credential.label}>
-            <IssueTrackerCredentialForm
-              environmentId={environmentId}
-              tracker={tracker}
-              disabled={disabled}
-            />
-          </SettingsSection>
+          {tracker.credentialFree ? null : (
+            <SettingsSection title={tracker.credential.label}>
+              <IssueTrackerCredentialForm
+                environmentId={environmentId}
+                tracker={tracker}
+                disabled={disabled}
+              />
+            </SettingsSection>
+          )}
           {usable && hasIssueTrackerTeams(tracker, issueTrackerBindings(query.data)) ? (
             <SettingsSection
               title={gt("Projects")}

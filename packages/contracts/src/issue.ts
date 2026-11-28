@@ -631,6 +631,8 @@ export const StandaloneIssueTrackerDescriptor = Schema.Struct({
       ),
     ),
   }),
+  /** The tracker needs no credential: it is always connected, and a token is refused. */
+  credentialFree: Schema.optional(Schema.Boolean),
 });
 export type StandaloneIssueTrackerDescriptor = typeof StandaloneIssueTrackerDescriptor.Type;
 

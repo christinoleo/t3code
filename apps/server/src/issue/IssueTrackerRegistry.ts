@@ -10,6 +10,8 @@ import {
   type StandaloneIssueTrackerApi,
 } from "@t3tools/source-control-core/server/IssueTracker";
 
+import * as FactoryTasks from "../factory/FactoryTasks.ts";
+import * as TaskTracker from "../factory/TaskTracker.ts";
 import * as BuiltInDrivers from "../sourceControl/builtInDrivers.ts";
 import * as IssueTrackerHostLive from "./IssueTrackerHostLive.ts";
 
@@ -37,7 +39,7 @@ export function fromTrackers(
 }
 
 /** Trackers that are not a git host's own. Each signs requests with a credential from Settings. */
-const STANDALONE_TRACKERS = [LinearDriver.make, JiraDriver.make];
+const STANDALONE_TRACKERS = [LinearDriver.make, JiraDriver.make, TaskTracker.make];
 
 const make = Effect.gen(function* () {
   const drivers = yield* BuiltInDrivers.SourceControlDrivers;
@@ -46,5 +48,7 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(IssueTrackerRegistry, make).pipe(
-  Layer.provide(Layer.merge(BuiltInDrivers.layer, IssueTrackerHostLive.layer)),
+  Layer.provide(
+    Layer.mergeAll(BuiltInDrivers.layer, IssueTrackerHostLive.layer, FactoryTasks.layer),
+  ),
 );

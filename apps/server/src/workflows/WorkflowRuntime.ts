@@ -33,6 +33,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { engineTag, text, type WorkflowDefinition } from "./workflow.ts";
+import { BuiltInWorkflows } from "./builtIn.ts";
 import type * as WorkflowEngine from "./WorkflowEngine.ts";
 import * as WorkflowAgentThreads from "./WorkflowAgentThreads.ts";
 import * as WorkflowForge from "./WorkflowForge.ts";
@@ -316,6 +317,9 @@ export const make = Effect.fn("WorkflowRuntime.make")(function* <E, R>(
   const seen = new Map<string, string>();
   /** The last version of each file that loaded, which runs while a newer one does not. */
   const good = new Map<string, ReadonlyArray<WorkflowDefinition>>();
+  // Under a name no file can have, so it never changes and a file that clashes with it is held.
+  const builtIn = yield* BuiltInWorkflows;
+  if (builtIn.length > 0) good.set("(built-in)", builtIn);
   /** Files that loaded or went away since, kept apart until the change as a whole is taken. */
   const pending = new Map<string, ReadonlyArray<WorkflowDefinition> | null>();
   const broken = new Map<string, WorkflowDefinitionProblem>();
@@ -558,7 +562,7 @@ export const make = Effect.fn("WorkflowRuntime.make")(function* <E, R>(
 
   yield* lock.withPermits(1)(reload());
   // No file defines anything yet, though runs kept from before may still be read.
-  if (!(yield* Deferred.isDone(ready))) yield* boot([]);
+  if (!(yield* Deferred.isDone(ready))) yield* boot(builtIn);
 
   // The folder, not a file: an editor that saves by renaming replaces the file it was watching.
   yield* fileSystem.watch(directory).pipe(

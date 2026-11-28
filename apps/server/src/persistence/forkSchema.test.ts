@@ -109,9 +109,14 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("fork schema", (it) =
       const schema = () => sql`SELECT type, name, sql FROM sqlite_schema ORDER BY name`;
       yield* runMigrations();
       const before = yield* schema();
-      // A rebuild would drop this row, so its survival shows the second run wrote nothing.
+      // A rebuild would drop these rows, so their survival shows the second run wrote nothing.
       yield* sql`
         INSERT INTO orchestration_v2_projection_thread_tags (thread_id, tag) VALUES ('marker', 'x')
+      `;
+      yield* sql`
+        INSERT INTO factory_tasks (
+          scope, number, kind, state, title, body, author_json, created_at, updated_at
+        ) VALUES ('marker', 1, 'build', 'ready', 'x', '', '{}', '', '')
       `;
       assert.deepEqual(yield* runMigrations(), []);
       assert.deepEqual(yield* schema(), before);
@@ -119,6 +124,9 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("fork schema", (it) =
         yield* sql`SELECT tag FROM orchestration_v2_projection_thread_tags WHERE thread_id = 'marker'`,
         [{ tag: "x" }],
       );
+      assert.deepEqual(yield* sql`SELECT title FROM factory_tasks WHERE scope = 'marker'`, [
+        { title: "x" },
+      ]);
     }),
   );
 });

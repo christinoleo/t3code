@@ -1,0 +1,554 @@
+/**
+ * The factory's task store: the single writer of every task's state, on the server that owns
+ * the queue. A scope is the queue of one project here, named by the project's id, and numbers
+ * its tasks from 1 so their keys work wherever an issue number does.
+ */
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
+import {
+  TASK_LABEL,
+  TASK_STATES,
+  TaskKind,
+  TaskState,
+  Decision,
+  IssueRef,
+  type EnvironmentId,
+} from "@t3tools/contracts";
+import type { RunEnd } from "../workflows/workflow.ts";
+
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { Actor, isOpen, refusal, revives } from "./taskModel.ts";
+
+export { Actor } from "./taskModel.ts";
+
+export const TaskId = Schema.Int.pipe(Schema.brand("TaskId"));
+export type TaskId = typeof TaskId.Type;
+
+export const ExternalIssue = Schema.Struct({ ref: IssueRef, url: Schema.String });
+export type ExternalIssue = typeof ExternalIssue.Type;
+
+export interface Task {
+  readonly id: TaskId;
+  /** The queue: the id of the project here whose tasks these are. */
+  readonly scope: string;
+  /** Per-scope sequence, which is the tracker key. */
+  readonly number: number;
+  readonly kind: TaskKind;
+  readonly state: TaskState;
+  /** Bumps on revive or reopen; names the run that owns the task. */
+  readonly generation: number;
+  readonly title: string;
+  readonly body: string;
+  /** Free labels; the kind and `blocked` labels are added on read. */
+  readonly labels: ReadonlyArray<string>;
+  readonly parent: TaskId | null;
+  /** An open task blocks it, or an integration parent's children are still open. */
+  readonly blocked: boolean;
+  readonly external: ExternalIssue | null;
+  readonly author: Actor;
+  readonly commentCount: number;
+  readonly url: string;
+  /** Every write bumps it; the mirror pushes what is past its last mirrored revision. */
+  readonly revision: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly closedAt: string | null;
+}
+
+const entryFields = { id: Schema.String, at: Schema.String, by: Actor };
+/** What the task's timeline holds, append-only: comments, decisions, attempts and state changes. */
+export const TaskEntry = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("comment"), ...entryFields, body: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("decision"), ...entryFields, decision: Decision }),
+  Schema.Struct({
+    type: Schema.Literal("attempt"),
+    ...entryFields,
+    phase: Schema.Literals(["build", "fix", "review", "final-review", "research", "triage"]),
+    thread: Schema.NullOr(
+      Schema.Struct({ threadId: Schema.String, environmentId: Schema.NullOr(Schema.String) }),
+    ),
+    outcome: Schema.Literals(["succeeded", "failed", "needs-you"]),
+    failure: Schema.NullOr(Schema.Literals(["infra", "agent"])),
+    detail: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("state"),
+    ...entryFields,
+    from: TaskState,
+    to: TaskState,
+    reason: Schema.NullOr(Schema.String),
+  }),
+]);
+export type TaskEntry = typeof TaskEntry.Type;
+const decodeEntry = Schema.decodeUnknownSync(TaskEntry);
+
+export type Phase = Extract<TaskEntry, { type: "attempt" }>["phase"];
+export type AttemptRecord = Omit<Extract<TaskEntry, { type: "attempt" }>, "id" | "at">;
+export type DecisionRecord = Omit<Extract<TaskEntry, { type: "decision" }>, "id" | "at">;
+
+export interface TaskDraft {
+  readonly scope: string;
+  readonly kind?: TaskKind | undefined;
+  readonly title: string;
+  readonly body: string;
+  readonly labels?: ReadonlyArray<string> | undefined;
+  readonly parent?: TaskId | undefined;
+}
+
+/** Only the present fields are written; `labels` is the whole set, kind label included. */
+export interface TaskPatch {
+  readonly title?: string | undefined;
+  readonly body?: string | undefined;
+  readonly labels?: ReadonlyArray<string> | undefined;
+}
+
+export interface TaskQuery {
+  readonly scope: string;
+  readonly state: "open" | "closed" | "all";
+  /** Labels a task must carry, every one of them, the derived ones included. */
+  readonly labels?: ReadonlyArray<string> | undefined;
+  readonly sort?: "updated" | "created" | undefined;
+  readonly limit: number;
+  readonly cursor?: string | undefined;
+}
+
+export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
+  "TaskNotFoundError",
+  { task: Schema.String },
+) {
+  override get message(): string {
+    return `There is no task ${this.task}.`;
+  }
+}
+
+export class TaskTransitionError extends Schema.TaggedError<TaskTransitionError>()(
+  "TaskTransitionError",
+  { task: Schema.String, detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+/** A write the store refuses for what it asks, not for where the task is in its lifecycle. */
+export class TaskInvalidError extends Schema.TaggedError<TaskInvalidError>()("TaskInvalidError", {
+  detail: Schema.String,
+}) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+export class TaskStoreError extends Schema.TaggedError<TaskStoreError>()("TaskStoreError", {
+  operation: Schema.String,
+  cause: Schema.Defect(),
+}) {
+  override get message(): string {
+    return `The task store failed in ${this.operation}.`;
+  }
+}
+
+export type TaskError = TaskNotFoundError | TaskInvalidError | TaskStoreError;
+
+export class FactoryTasks extends Context.Service<
+  FactoryTasks,
+  {
+    readonly create: (draft: TaskDraft, by: Actor) => Effect.Effect<Task, TaskError>;
+    readonly get: (id: TaskId) => Effect.Effect<Task, TaskNotFoundError | TaskStoreError>;
+    readonly byKey: (
+      scope: string,
+      number: number,
+    ) => Effect.Effect<Task, TaskNotFoundError | TaskStoreError>;
+    /** Oldest first, in pages; `cursor` is where an earlier page stopped. */
+    readonly timeline: (
+      id: TaskId,
+      cursor?: string,
+    ) => Effect.Effect<
+      { readonly entries: ReadonlyArray<TaskEntry>; readonly next: string | null },
+      TaskNotFoundError | TaskStoreError
+    >;
+    readonly list: (
+      query: TaskQuery,
+    ) => Effect.Effect<
+      { readonly items: ReadonlyArray<Task>; readonly next: string | null },
+      TaskStoreError
+    >;
+    readonly update: (id: TaskId, patch: TaskPatch, by: Actor) => Effect.Effect<Task, TaskError>;
+    readonly comment: (id: TaskId, body: string, by: Actor) => Effect.Effect<TaskEntry, TaskError>;
+    /** The lifecycle's only gate: refuses a move the table forbids for this actor. */
+    readonly transition: (
+      id: TaskId,
+      to: TaskState,
+      by: Actor,
+      reason?: string,
+    ) => Effect.Effect<Task, TaskTransitionError | TaskNotFoundError | TaskStoreError>;
+    readonly record: (
+      id: TaskId,
+      entry: AttemptRecord | DecisionRecord,
+    ) => Effect.Effect<void, TaskNotFoundError | TaskStoreError>;
+    /** Ready, unblocked, auto-dispatched kinds in one scope, oldest first. */
+    readonly dispatchable: (scope: string) => Effect.Effect<ReadonlyArray<Task>, TaskStoreError>;
+    /** What a run that ended without a final state leaves the task as: cancelled→dropped, else ready. */
+    readonly runEnded: (id: TaskId, end: RunEnd) => Effect.Effect<void, string>;
+    readonly unmirrored: (
+      scope: string,
+    ) => Effect.Effect<
+      ReadonlyArray<Task & { readonly newEntries: ReadonlyArray<TaskEntry> }>,
+      TaskStoreError
+    >;
+    readonly markMirrored: (
+      id: TaskId,
+      revision: number,
+      entryId: string | null,
+    ) => Effect.Effect<void, TaskStoreError>;
+  }
+>()("t3/factory/FactoryTasks") {}
+
+const TIMELINE_PAGE = 100;
+
+const Json = <S extends Schema.Top>(schema: S) => Schema.fromJsonString(schema);
+const ActorJson = Json(Actor);
+
+const TaskRow = Schema.Struct({
+  id: TaskId,
+  scope: Schema.String,
+  number: Schema.Int,
+  kind: TaskKind,
+  state: TaskState,
+  generation: Schema.Int,
+  title: Schema.String,
+  body: Schema.String,
+  labels_json: Json(Schema.Array(Schema.String)),
+  parent_id: Schema.NullOr(TaskId),
+  external_json: Schema.NullOr(Json(ExternalIssue)),
+  author_json: ActorJson,
+  revision: Schema.Int,
+  created_at: Schema.String,
+  updated_at: Schema.String,
+  closed_at: Schema.NullOr(Schema.String),
+  blocked: Schema.Int,
+  comment_count: Schema.Int,
+});
+const decodeTaskRow = Schema.decodeUnknownSync(TaskRow);
+
+const EntryRow = Schema.Struct({
+  id: Schema.Int,
+  at: Schema.String,
+  actor_json: ActorJson,
+  type: Schema.String,
+  payload_json: Json(Schema.Record(Schema.String, Schema.Unknown)),
+});
+const decodeEntryRow = Schema.decodeUnknownSync(EntryRow);
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+const KIND_PREFIX = TASK_LABEL.kind("build").slice(0, -"build".length);
+const isKindLabel = (label: string) => label.startsWith(KIND_PREFIX);
+
+const isTaskKind = Schema.is(TaskKind);
+
+export const TASK_TRACKER_KIND = "t3";
+export const TASK_TRACKER_HOST = "t3";
+
+const taskUrl = (environmentId: EnvironmentId, scope: string, number: number) => {
+  const url = new URL("https://app.t3.codes/issues");
+  url.searchParams.set("selectedEnvironmentId", environmentId);
+  url.searchParams.set("selectedProjectId", scope);
+  url.searchParams.set("selectedHost", TASK_TRACKER_HOST);
+  url.searchParams.set("tracker", TASK_TRACKER_KIND);
+  url.searchParams.set("scope", scope);
+  url.searchParams.set("key", String(number));
+  return url.href;
+};
+
+/** Every label a task shows: its kind, whether it is blocked, and its free labels. */
+export const shownLabels = (task: Task) => [
+  TASK_LABEL.kind(task.kind),
+  ...(task.blocked ? [TASK_LABEL.blocked] : []),
+  ...task.labels,
+];
+
+const notImplemented = (operation: string) =>
+  Effect.fn(`FactoryTasks.${operation}`)(function* (..._: ReadonlyArray<unknown>) {
+    return yield* Effect.die(new Error(`FactoryTasks.${operation} is not implemented yet.`));
+  });
+
+const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
+  const now = Effect.map(DateTime.now, DateTime.formatIso);
+  const failed =
+    (operation: string) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.mapError(effect, (cause) => new TaskStoreError({ operation, cause }));
+
+  const toTask = (row: unknown): Task => {
+    const decoded = decodeTaskRow(row);
+    return {
+      id: decoded.id,
+      scope: decoded.scope,
+      number: decoded.number,
+      kind: decoded.kind,
+      state: decoded.state,
+      generation: decoded.generation,
+      title: decoded.title,
+      body: decoded.body,
+      labels: decoded.labels_json,
+      parent: decoded.parent_id,
+      blocked: decoded.blocked !== 0,
+      external: decoded.external_json,
+      author: decoded.author_json,
+      commentCount: decoded.comment_count,
+      url: taskUrl(environmentId, decoded.scope, decoded.number),
+      revision: decoded.revision,
+      createdAt: decoded.created_at,
+      updatedAt: decoded.updated_at,
+      closedAt: decoded.closed_at,
+    };
+  };
+
+  const toEntry = (row: unknown): TaskEntry => {
+    const decoded = decodeEntryRow(row);
+    return decodeEntry({
+      ...decoded.payload_json,
+      type: decoded.type,
+      id: String(decoded.id),
+      at: decoded.at,
+      by: decoded.actor_json,
+    });
+  };
+
+  const OPEN_STATES = Object.entries(TASK_STATES)
+    .filter(([, state]) => state.category === "open")
+    .map(([name]) => name);
+  const selectTasks = sql`
+    SELECT t.*, EXISTS (
+      SELECT 1 FROM factory_task_edges e JOIN factory_tasks b ON b.id = e.blocker_id
+      WHERE e.task_id = t.id AND b.state IN ${sql.in(OPEN_STATES)}
+    ) AS blocked, (
+      SELECT COUNT(*) FROM factory_task_entries c
+      WHERE c.task_id = t.id AND c.type IN ('comment', 'decision')
+    ) AS comment_count
+    FROM factory_tasks t
+  `;
+
+  const find = (id: TaskId) =>
+    sql`${selectTasks} WHERE t.id = ${id}`.pipe(
+      failed("get"),
+      Effect.flatMap((rows) =>
+        rows[0] === undefined
+          ? Effect.fail(new TaskNotFoundError({ task: String(id) }))
+          : Effect.succeed(toTask(rows[0])),
+      ),
+    );
+
+  const append = (id: TaskId, at: string, by: Actor, type: TaskEntry["type"], payload: object) =>
+    sql<{ readonly id: number }>`
+      INSERT INTO factory_task_entries (task_id, at, actor_json, type, payload_json)
+      VALUES (${id}, ${at}, ${encodeJson(by)}, ${type}, ${encodeJson(payload)})
+      RETURNING id
+    `.pipe(Effect.map((rows) => rows[0]!.id));
+
+  const touch = (id: TaskId, at: string) =>
+    sql`UPDATE factory_tasks SET revision = revision + 1, updated_at = ${at} WHERE id = ${id}`;
+
+  /** The kind a label set names, or the refusal: one kind at most, and `blocked` is derived. */
+  const splitLabels = Effect.fn("FactoryTasks.splitLabels")(function* (
+    labels: ReadonlyArray<string>,
+  ) {
+    if (labels.includes(TASK_LABEL.blocked)) {
+      return yield* new TaskInvalidError({
+        detail: "`blocked` follows the task's blockers; set those instead.",
+      });
+    }
+    const kinds = labels.filter(isKindLabel).map((label) => label.slice(KIND_PREFIX.length));
+    if (kinds.length > 1) {
+      return yield* new TaskInvalidError({ detail: "A task has one kind." });
+    }
+    const free = [...new Set(labels.filter((label) => !isKindLabel(label)))];
+    const kind = kinds[0];
+    if (kind === undefined) return { kind: undefined, free };
+    if (!isTaskKind(kind)) {
+      return yield* new TaskInvalidError({
+        detail: `There is no task kind ${kind}. Use one of ${TaskKind.literals.join(", ")}.`,
+      });
+    }
+    return { kind, free };
+  });
+
+  const create: FactoryTasks["Service"]["create"] = Effect.fn("FactoryTasks.create")(
+    function* (draft, by) {
+      const labels = yield* splitLabels(draft.labels ?? []);
+      const kind = draft.kind ?? labels.kind ?? "build";
+      const at = yield* now;
+      const id = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const [next] = yield* sql<{ readonly number: number }>`
+              SELECT COALESCE(MAX(number), 0) + 1 AS number FROM factory_tasks
+              WHERE scope = ${draft.scope}
+            `;
+            const [row] = yield* sql<{ readonly id: number }>`
+              INSERT INTO factory_tasks (
+                scope, number, kind, state, title, body, labels_json, parent_id,
+                author_json, created_at, updated_at
+              ) VALUES (
+                ${draft.scope}, ${next!.number}, ${kind}, 'ready', ${draft.title}, ${draft.body},
+                ${encodeJson(labels.free)}, ${draft.parent ?? null}, ${encodeJson(by)},
+                ${at}, ${at}
+              )
+              RETURNING id
+            `;
+            return TaskId.make(row!.id);
+          }),
+        )
+        .pipe(failed("create"));
+      return yield* find(id);
+    },
+  );
+
+  const byKey: FactoryTasks["Service"]["byKey"] = (scope, number) =>
+    sql`${selectTasks} WHERE t.scope = ${scope} AND t.number = ${number}`.pipe(
+      failed("byKey"),
+      Effect.flatMap((rows) =>
+        rows[0] === undefined
+          ? Effect.fail(new TaskNotFoundError({ task: `${scope}#${number}` }))
+          : Effect.succeed(toTask(rows[0])),
+      ),
+    );
+
+  const timeline: FactoryTasks["Service"]["timeline"] = Effect.fn("FactoryTasks.timeline")(
+    function* (id, cursor) {
+      yield* find(id);
+      const after = cursor === undefined ? 0 : Number(cursor);
+      const rows = yield* sql`
+        SELECT id, at, actor_json, type, payload_json FROM factory_task_entries
+        WHERE task_id = ${id} AND id > ${after} ORDER BY id LIMIT ${TIMELINE_PAGE + 1}
+      `.pipe(failed("timeline"));
+      const entries = rows.slice(0, TIMELINE_PAGE).map(toEntry);
+      return {
+        entries,
+        next: rows.length > TIMELINE_PAGE ? (entries.at(-1)?.id ?? null) : null,
+      };
+    },
+  );
+
+  const list: FactoryTasks["Service"]["list"] = Effect.fn("FactoryTasks.list")(function* (query) {
+    const order = query.sort === "created" ? sql`t.created_at DESC` : sql`t.updated_at DESC`;
+    const rows =
+      yield* sql`${selectTasks} WHERE t.scope = ${query.scope} ORDER BY ${order}, t.id DESC`.pipe(
+        failed("list"),
+      );
+    const wanted = query.labels ?? [];
+    const matching = rows
+      .map(toTask)
+      .filter((task) => query.state === "all" || (query.state === "open") === isOpen(task.state))
+      .filter((task) => {
+        const shown = shownLabels(task);
+        return wanted.every((label) => shown.includes(label));
+      });
+    // A queue holds tens or hundreds of tasks, so a page is a slice of the whole listing.
+    const start = query.cursor === undefined ? 0 : Number(query.cursor);
+    const end = start + query.limit;
+    return {
+      items: matching.slice(start, end),
+      next: end < matching.length ? String(end) : null,
+    };
+  });
+
+  const update: FactoryTasks["Service"]["update"] = Effect.fn("FactoryTasks.update")(
+    function* (id, patch, _by) {
+      const task = yield* find(id);
+      const labels = patch.labels === undefined ? undefined : yield* splitLabels(patch.labels);
+      const at = yield* now;
+      yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
+              UPDATE factory_tasks SET
+                title = ${patch.title ?? task.title},
+                body = ${patch.body ?? task.body},
+                kind = ${labels?.kind ?? task.kind},
+                labels_json = ${encodeJson(labels?.free ?? task.labels)}
+              WHERE id = ${id}
+            `;
+            yield* touch(id, at);
+          }),
+        )
+        .pipe(failed("update"));
+      return yield* find(id);
+    },
+  );
+
+  const comment: FactoryTasks["Service"]["comment"] = Effect.fn("FactoryTasks.comment")(
+    function* (id, body, by) {
+      yield* find(id);
+      const at = yield* now;
+      const entryId = yield* sql
+        .withTransaction(Effect.tap(append(id, at, by, "comment", { body }), () => touch(id, at)))
+        .pipe(failed("comment"));
+      return { type: "comment", id: String(entryId), at, by, body } satisfies TaskEntry;
+    },
+  );
+
+  const transition: FactoryTasks["Service"]["transition"] = Effect.fn("FactoryTasks.transition")(
+    function* (id, to, by, reason) {
+      const task = yield* find(id);
+      // Asked again for where it already is, the move is done: a retried step changes nothing.
+      if (task.state === to) return task;
+      const refused = refusal(task.state, to, by);
+      if (refused !== null) {
+        return yield* new TaskTransitionError({ task: String(id), detail: refused });
+      }
+      const at = yield* now;
+      yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
+              UPDATE factory_tasks SET
+                state = ${to},
+                generation = generation + ${revives(task.state, to) ? 1 : 0},
+                closed_at = ${isOpen(to) ? null : at}
+              WHERE id = ${id}
+            `;
+            yield* append(id, at, by, "state", { from: task.state, to, reason: reason ?? null });
+            yield* touch(id, at);
+          }),
+        )
+        .pipe(failed("transition"));
+      return yield* find(id);
+    },
+  );
+
+  const record: FactoryTasks["Service"]["record"] = Effect.fn("FactoryTasks.record")(
+    function* (id, entry) {
+      yield* find(id);
+      const at = yield* now;
+      const { type, by, ...payload } = entry;
+      yield* sql
+        .withTransaction(Effect.tap(append(id, at, by, type, payload), () => touch(id, at)))
+        .pipe(failed("record"));
+    },
+  );
+
+  return FactoryTasks.of({
+    create,
+    get: find,
+    byKey,
+    timeline,
+    list,
+    update,
+    comment,
+    transition,
+    record,
+    dispatchable: notImplemented("dispatchable"),
+    runEnded: notImplemented("runEnded"),
+    unmirrored: notImplemented("unmirrored"),
+    markMirrored: notImplemented("markMirrored"),
+  });
+});
+
+export const layer = Layer.effect(FactoryTasks, make);

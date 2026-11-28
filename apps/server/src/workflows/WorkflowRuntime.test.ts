@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
@@ -26,7 +27,8 @@ import WorkflowRunSubjectMigration from "../persistence/Migrations/119_WorkflowR
 import { type AgentResult, WorkflowAgents } from "./WorkflowAgents.ts";
 import * as WorkflowEngine from "./WorkflowEngine.ts";
 import * as WorkflowRuntime from "./WorkflowRuntime.ts";
-import { engineTag, type WorkflowDefinition } from "./workflow.ts";
+import { BuiltInWorkflows } from "./builtIn.ts";
+import { engineTag, workflow, type WorkflowDefinition } from "./workflow.ts";
 import * as Workflows from "./Workflows.ts";
 
 /** Waits to be let go. */
@@ -567,4 +569,45 @@ it.effect(
         assert.equal(freed.result, "go on");
       }).pipe(Effect.scoped, Effect.raceFirst(Effect.forever(TestClock.adjust("1 second"))));
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
+
+it.effect("a built-in workflow runs with no file, and a file cannot define it again", () =>
+  Effect.gen(function* () {
+    const { fileSystem, at, made } = yield* setup();
+    yield* fileSystem.remove(at("hold.ts"));
+    const builtIn = workflow(
+      "built-in",
+      { version: 1, payload: Schema.Struct({}), returns: Schema.String },
+      () => Effect.succeed("shipped"),
+    );
+    yield* Effect.gen(function* () {
+      const workflows = yield* Workflows.Workflows;
+      const definitions = yield* WorkflowRuntime.WorkflowDefinitions;
+      const started = yield* workflows.start("built-in", {}, { idempotencyKey: "b" });
+      const done = yield* workflows.waitFor(started.runId, (run) => run.status === "completed");
+      assert.equal(done.result, "shipped");
+
+      const again = yield* definitions.save(
+        "again.ts",
+        'T3.workflow("built-in", { version: 1, payload: Schema.Struct({}) }, () => Effect.void);\n',
+      );
+      assert.isFalse(again.changed);
+      assert.include(again.problems[0]?.message ?? "", "built-in@1 is defined twice");
+      // The built-in still runs beside a file that loads.
+      assert.deepStrictEqual(yield* definitions.save("greet.ts", greet("hello")), {
+        changed: true,
+        problems: [],
+      });
+      const rerun = yield* workflows.start("built-in", {}, { idempotencyKey: "b2" });
+      assert.equal(
+        (yield* workflows.waitFor(rerun.runId, (run) => run.status === "completed")).result,
+        "shipped",
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.effectContext(made.pipe(Effect.provideService(BuiltInWorkflows, [builtIn]))),
+      ),
+      Effect.scoped,
+    );
+  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );
