@@ -4081,11 +4081,20 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       };
       assert.deepEqual(yield* tagsOf(), renamed);
 
-      // A retried rename finds nothing left to move.
-      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), {
-        threadCount: 0,
-        threadIds: [],
-      });
+      // A retry reports the original rename, even once the folder holds other threads.
+      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), renameResult);
+      const tagUntagged = (tagged: boolean) =>
+        orchestrator.dispatch({
+          type: "thread.tag.set",
+          commandId: CommandId.make(`runtime-layer-tag-rename-retry-${tagged}`),
+          threadId: threadId("untagged"),
+          tag: "folder",
+          tagged,
+        });
+      yield* tagUntagged(true);
+      assert.deepEqual(yield* threadManagement.renameThreadTag(rename), renameResult);
+      assert.deepEqual(yield* tagsOf(), { ...renamed, untagged: ["folder"] });
+      yield* tagUntagged(false);
       const stale = yield* orchestrator.dispatch({
         type: "thread.tag.rename",
         commandId: CommandId.make("runtime-layer-tag-rename-stale"),

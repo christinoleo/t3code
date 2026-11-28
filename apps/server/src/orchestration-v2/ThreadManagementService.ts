@@ -1633,7 +1633,12 @@ const make = Effect.gen(function* () {
     "ThreadManagementService.renameThreadTag",
   )(
     function* ({ commandId, from, to }) {
-      const threadIds = yield* orchestrator.listThreadIdsWithTag(from);
+      // The folder's threads change after a rename, so a retry replays against the receipt's thread.
+      const receipt = yield* receipts.getByCommandId(commandId);
+      const threadIds =
+        Option.isSome(receipt) && receipt.value.commandType === "thread.tag.rename"
+          ? [receipt.value.threadId]
+          : yield* orchestrator.listThreadIdsWithTag(from);
       if (to === from || !Arr.isReadonlyArrayNonEmpty(threadIds)) {
         return { threadCount: 0, threadIds: [] };
       }
