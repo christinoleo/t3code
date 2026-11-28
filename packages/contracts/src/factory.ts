@@ -16,7 +16,7 @@ export const TaskState = Schema.Literals([
 ]);
 export type TaskState = typeof TaskState.Type;
 
-/** The one list of states, in workflow order. The tracker driver, the mirror and the panel derive from it. */
+/** The one list of states, in workflow order. */
 export const TASK_STATES = {
   ready: { category: "open", name: "Ready" },
   building: { category: "open", name: "Building" },

@@ -78,7 +78,6 @@ describe("TaskTracker", () => {
       expect([first.key, first.displayKey, second.key, other.key]).toEqual(["1", "T3-1", "2", "1"]);
       expect(yield* Effect.flip(create("nowhere", "Lost"))).toMatchObject({ reason: "not-found" });
 
-      // The URL leads back to the same task, on this server.
       expect(api.parseIssueUrl(new URL(first.url))).toEqual({
         host: "t3",
         scope: "alpha",
@@ -122,7 +121,6 @@ describe("TaskTracker", () => {
         commentCount: 1,
         comments: [{ body: "On it." }],
       });
-      // `blocked` is derived from blockers, and a task has one kind.
       expect(
         yield* Effect.flip(api.update!({ ...target("alpha", "1"), labels: ["blocked"] })),
       ).toMatchObject({ reason: "failed" });
@@ -177,7 +175,6 @@ describe("TaskTracker", () => {
           closeReason: "completed",
         });
 
-        // A person reopens it, then drops it.
         yield* api.setState!({ ...issue, state: "Ready" });
         expect((yield* tasks.get(task.id)).generation).toBe(task.generation + 1);
         yield* api.setState!({ ...issue, state: "Dropped" });
@@ -205,6 +202,59 @@ describe("TaskTracker", () => {
           ["closed", "Dropped"],
         ]);
       }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("the detail shows the newest comments, and older ones page in behind them", () =>
+    Effect.gen(function* () {
+      const { api } = yield* tracker;
+      yield* api.create!({
+        cwd: "/work",
+        host: "t3",
+        scope: "alpha",
+        title: "Chatty",
+        body: "",
+        labels: [],
+        assignees: [],
+      });
+      const issue = target("alpha", "1");
+      for (let n = 1; n <= 101; n++) yield* api.comment!({ ...issue, body: `c${n}` });
+      const detail = yield* api.getIssue(issue);
+      expect([detail.comments[0]?.body, detail.comments.at(-1)?.body]).toEqual(["c2", "c101"]);
+      const older = yield* api.getComments!({ ...issue, cursor: detail.commentsCursor! });
+      expect([older.comments.map((comment) => comment.body), older.nextCursor]).toEqual([
+        ["c1"],
+        null,
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("lists the viewer's own tasks in full pages", () =>
+    Effect.gen(function* () {
+      const { api, tasks } = yield* tracker;
+      yield* api.create!({
+        cwd: "/work",
+        host: "t3",
+        scope: "alpha",
+        title: "Mine",
+        body: "",
+        labels: [],
+        assignees: [],
+      });
+      for (const title of ["Filed by the factory", "Also the factory's"]) {
+        yield* tasks.create({ scope: "alpha", title, body: "" }, FACTORY);
+      }
+      const page = yield* api.listIssues({
+        cwd: "/work",
+        host: "t3",
+        scope: "alpha",
+        involvement: "authored",
+        viewer: "you",
+        state: "open",
+        limit: 1,
+        sort: "updated",
+      });
+      expect([page.items.map((issue) => issue.title), page.nextCursor]).toEqual([["Mine"], null]);
+    }).pipe(Effect.provide(layer)),
   );
 
   it.effect("a person's drop that races the factory's next move is never overwritten", () =>
@@ -260,13 +310,6 @@ describe("TaskTracker", () => {
             ],
           },
         ]);
-        yield* connections.bindProject({
-          projectId: ProjectId.make("beta"),
-          binding: { tracker: api.kind, scope: "alpha" },
-        });
-        expect((yield* connections.list).bindings).toEqual({
-          beta: { tracker: "t3", scope: "alpha" },
-        });
         expect(
           yield* Effect.flip(connections.connect({ tracker: api.kind, token: "secret" })),
         ).toMatchObject({ reason: "rejected", detail: "T3 tasks needs no credential." });

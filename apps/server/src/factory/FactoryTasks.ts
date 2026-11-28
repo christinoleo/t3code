@@ -1,7 +1,6 @@
 /**
- * The factory's task store: the single writer of every task's state, on the server that owns
- * the queue. A scope is the queue of one project here, named by the project's id, and numbers
- * its tasks from 1 so their keys work wherever an issue number does.
+ * The single writer of every task's state. A scope is one project's id; numbers start at 1 so
+ * keys work wherever an issue number does.
  */
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -9,9 +8,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlError from "effect/sql/SqlError";
 import {
   TASK_LABEL,
-  TASK_STATES,
   TaskKind,
   TaskState,
   Decision,
@@ -21,9 +20,7 @@ import {
 import type { RunEnd } from "../workflows/workflow.ts";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { Actor, isOpen, refusal, revives } from "./taskModel.ts";
-
-export { Actor } from "./taskModel.ts";
+import { Actor, isOpen, OPEN_STATES, refusal, revives } from "./taskModel.ts";
 
 export const TaskId = Schema.Int.pipe(Schema.brand("TaskId"));
 export type TaskId = typeof TaskId.Type;
@@ -60,7 +57,7 @@ export interface Task {
 }
 
 const entryFields = { id: Schema.String, at: Schema.String, by: Actor };
-/** What the task's timeline holds, append-only: comments, decisions, attempts and state changes. */
+/** Append-only. */
 export const TaskEntry = Schema.Union([
   Schema.Struct({ type: Schema.Literal("comment"), ...entryFields, body: Schema.String }),
   Schema.Struct({ type: Schema.Literal("decision"), ...entryFields, decision: Decision }),
@@ -111,6 +108,8 @@ export interface TaskQuery {
   readonly state: "open" | "closed" | "all";
   /** Labels a task must carry, every one of them, the derived ones included. */
   readonly labels?: ReadonlyArray<string> | undefined;
+  /** Only tasks this person filed. */
+  readonly createdBy?: string | undefined;
   readonly sort?: "updated" | "created" | undefined;
   readonly limit: number;
   readonly cursor?: string | undefined;
@@ -163,7 +162,7 @@ export class FactoryTasks extends Context.Service<
       scope: string,
       number: number,
     ) => Effect.Effect<Task, TaskNotFoundError | TaskStoreError>;
-    /** Oldest first, in pages; `cursor` is where an earlier page stopped. */
+    /** The newest page, oldest first within it; `next` leads to the page before it. */
     readonly timeline: (
       id: TaskId,
       cursor?: string,
@@ -210,8 +209,7 @@ export class FactoryTasks extends Context.Service<
 
 const TIMELINE_PAGE = 100;
 
-const Json = <S extends Schema.Top>(schema: S) => Schema.fromJsonString(schema);
-const ActorJson = Json(Actor);
+const ActorJson = Schema.fromJsonString(Actor);
 
 const TaskRow = Schema.Struct({
   id: TaskId,
@@ -222,9 +220,9 @@ const TaskRow = Schema.Struct({
   generation: Schema.Int,
   title: Schema.String,
   body: Schema.String,
-  labels_json: Json(Schema.Array(Schema.String)),
+  labels_json: Schema.fromJsonString(Schema.Array(Schema.String)),
   parent_id: Schema.NullOr(TaskId),
-  external_json: Schema.NullOr(Json(ExternalIssue)),
+  external_json: Schema.NullOr(Schema.fromJsonString(ExternalIssue)),
   author_json: ActorJson,
   revision: Schema.Int,
   created_at: Schema.String,
@@ -240,7 +238,7 @@ const EntryRow = Schema.Struct({
   at: Schema.String,
   actor_json: ActorJson,
   type: Schema.String,
-  payload_json: Json(Schema.Record(Schema.String, Schema.Unknown)),
+  payload_json: Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
 });
 const decodeEntryRow = Schema.decodeUnknownSync(EntryRow);
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -252,9 +250,10 @@ const isTaskKind = Schema.is(TaskKind);
 
 export const TASK_TRACKER_KIND = "t3";
 export const TASK_TRACKER_HOST = "t3";
+export const TASK_URL_HOST = "app.t3.codes";
 
 const taskUrl = (environmentId: EnvironmentId, scope: string, number: number) => {
-  const url = new URL("https://app.t3.codes/issues");
+  const url = new URL(`https://${TASK_URL_HOST}/issues`);
   url.searchParams.set("selectedEnvironmentId", environmentId);
   url.searchParams.set("selectedProjectId", scope);
   url.searchParams.set("selectedHost", TASK_TRACKER_HOST);
@@ -264,7 +263,6 @@ const taskUrl = (environmentId: EnvironmentId, scope: string, number: number) =>
   return url.href;
 };
 
-/** Every label a task shows: its kind, whether it is blocked, and its free labels. */
 export const shownLabels = (task: Task) => [
   TASK_LABEL.kind(task.kind),
   ...(task.blocked ? [TASK_LABEL.blocked] : []),
@@ -321,9 +319,6 @@ const make = Effect.gen(function* () {
     });
   };
 
-  const OPEN_STATES = Object.entries(TASK_STATES)
-    .filter(([, state]) => state.category === "open")
-    .map(([name]) => name);
   const selectTasks = sql`
     SELECT t.*, EXISTS (
       SELECT 1 FROM factory_task_edges e JOIN factory_tasks b ON b.id = e.blocker_id
@@ -335,26 +330,26 @@ const make = Effect.gen(function* () {
     FROM factory_tasks t
   `;
 
+  const only = (task: string) => (rows: ReadonlyArray<unknown>) =>
+    rows[0] === undefined
+      ? Effect.fail(new TaskNotFoundError({ task }))
+      : Effect.succeed(toTask(rows[0]));
+
   const find = (id: TaskId) =>
-    sql`${selectTasks} WHERE t.id = ${id}`.pipe(
-      failed("get"),
-      Effect.flatMap((rows) =>
-        rows[0] === undefined
-          ? Effect.fail(new TaskNotFoundError({ task: String(id) }))
-          : Effect.succeed(toTask(rows[0])),
-      ),
-    );
+    sql`${selectTasks} WHERE t.id = ${id}`.pipe(failed("get"), Effect.flatMap(only(String(id))));
 
   /**
    * Reads and writes under the writer's lock, so a write that raced this one is checked against
    * the row it left, not overwritten from a stale read.
    */
   const locked = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
-    sql.withTransaction(effect).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(new TaskStoreError({ operation, cause })),
-      ),
-    );
+    sql
+      .withTransaction(effect)
+      .pipe(
+        Effect.mapError((error) =>
+          SqlError.isSqlError(error) ? new TaskStoreError({ operation, cause: error }) : error,
+        ),
+      );
 
   const append = (id: TaskId, at: string, by: Actor, type: TaskEntry["type"], payload: object) =>
     sql<{ readonly id: number }>`
@@ -366,7 +361,25 @@ const make = Effect.gen(function* () {
   const touch = (id: TaskId, at: string) =>
     sql`UPDATE factory_tasks SET revision = revision + 1, updated_at = ${at} WHERE id = ${id}`;
 
-  /** The kind a label set names, or the refusal: one kind at most, and `blocked` is derived. */
+  const appendEntry = (
+    operation: string,
+    id: TaskId,
+    by: Actor,
+    type: TaskEntry["type"],
+    payload: object,
+  ) =>
+    Effect.flatMap(now, (at) =>
+      locked(
+        operation,
+        Effect.gen(function* () {
+          yield* find(id);
+          const entryId = yield* append(id, at, by, type, payload).pipe(failed(operation));
+          yield* touch(id, at).pipe(failed(operation));
+          return { id: String(entryId), at };
+        }),
+      ),
+    );
+
   const splitLabels = Effect.fn("FactoryTasks.splitLabels")(function* (
     labels: ReadonlyArray<string>,
   ) {
@@ -395,54 +408,48 @@ const make = Effect.gen(function* () {
       const labels = yield* splitLabels(draft.labels ?? []);
       const kind = draft.kind ?? labels.kind ?? "build";
       const at = yield* now;
-      const id = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const [next] = yield* sql<{ readonly number: number }>`
-              SELECT COALESCE(MAX(number), 0) + 1 AS number FROM factory_tasks
-              WHERE scope = ${draft.scope}
-            `;
-            const [row] = yield* sql<{ readonly id: number }>`
-              INSERT INTO factory_tasks (
-                scope, number, kind, state, title, body, labels_json, parent_id,
-                author_json, created_at, updated_at
-              ) VALUES (
-                ${draft.scope}, ${next!.number}, ${kind}, 'ready', ${draft.title}, ${draft.body},
-                ${encodeJson(labels.free)}, ${draft.parent ?? null}, ${encodeJson(by)},
-                ${at}, ${at}
-              )
-              RETURNING id
-            `;
-            return TaskId.make(row!.id);
-          }),
-        )
-        .pipe(failed("create"));
-      return yield* find(id);
+      return yield* locked(
+        "create",
+        Effect.gen(function* () {
+          const [next] = yield* sql<{ readonly number: number }>`
+            SELECT COALESCE(MAX(number), 0) + 1 AS number FROM factory_tasks
+            WHERE scope = ${draft.scope}
+          `.pipe(failed("create"));
+          const [row] = yield* sql<{ readonly id: number }>`
+            INSERT INTO factory_tasks (
+              scope, number, kind, state, title, body, labels_json, parent_id,
+              author_json, created_at, updated_at
+            ) VALUES (
+              ${draft.scope}, ${next!.number}, ${kind}, 'ready', ${draft.title}, ${draft.body},
+              ${encodeJson(labels.free)}, ${draft.parent ?? null}, ${encodeJson(by)},
+              ${at}, ${at}
+            )
+            RETURNING id
+          `.pipe(failed("create"));
+          return yield* find(TaskId.make(row!.id));
+        }),
+      );
     },
   );
 
   const byKey: FactoryTasks["Service"]["byKey"] = (scope, number) =>
     sql`${selectTasks} WHERE t.scope = ${scope} AND t.number = ${number}`.pipe(
       failed("byKey"),
-      Effect.flatMap((rows) =>
-        rows[0] === undefined
-          ? Effect.fail(new TaskNotFoundError({ task: `${scope}#${number}` }))
-          : Effect.succeed(toTask(rows[0])),
-      ),
+      Effect.flatMap(only(`${scope}#${number}`)),
     );
 
   const timeline: FactoryTasks["Service"]["timeline"] = Effect.fn("FactoryTasks.timeline")(
     function* (id, cursor) {
       yield* find(id);
-      const after = cursor === undefined ? 0 : Number(cursor);
+      const before = cursor === undefined ? Number.MAX_SAFE_INTEGER : Number(cursor);
       const rows = yield* sql`
         SELECT id, at, actor_json, type, payload_json FROM factory_task_entries
-        WHERE task_id = ${id} AND id > ${after} ORDER BY id LIMIT ${TIMELINE_PAGE + 1}
+        WHERE task_id = ${id} AND id < ${before} ORDER BY id DESC LIMIT ${TIMELINE_PAGE + 1}
       `.pipe(failed("timeline"));
-      const entries = rows.slice(0, TIMELINE_PAGE).map(toEntry);
+      const entries = rows.slice(0, TIMELINE_PAGE).map(toEntry).reverse();
       return {
         entries,
-        next: rows.length > TIMELINE_PAGE ? (entries.at(-1)?.id ?? null) : null,
+        next: rows.length > TIMELINE_PAGE ? (entries[0]?.id ?? null) : null,
       };
     },
   );
@@ -457,6 +464,11 @@ const make = Effect.gen(function* () {
     const matching = rows
       .map(toTask)
       .filter((task) => query.state === "all" || (query.state === "open") === isOpen(task.state))
+      .filter(
+        (task) =>
+          query.createdBy === undefined ||
+          (task.author.kind === "person" && task.author.name === query.createdBy),
+      )
       .filter((task) => {
         const shown = shownLabels(task);
         return wanted.every((label) => shown.includes(label));
@@ -495,12 +507,8 @@ const make = Effect.gen(function* () {
 
   const comment: FactoryTasks["Service"]["comment"] = Effect.fn("FactoryTasks.comment")(
     function* (id, body, by) {
-      yield* find(id);
-      const at = yield* now;
-      const entryId = yield* sql
-        .withTransaction(Effect.tap(append(id, at, by, "comment", { body }), () => touch(id, at)))
-        .pipe(failed("comment"));
-      return { type: "comment", id: String(entryId), at, by, body } satisfies TaskEntry;
+      const entry = yield* appendEntry("comment", id, by, "comment", { body });
+      return { type: "comment", ...entry, by, body } satisfies TaskEntry;
     },
   );
 
@@ -536,12 +544,8 @@ const make = Effect.gen(function* () {
 
   const record: FactoryTasks["Service"]["record"] = Effect.fn("FactoryTasks.record")(
     function* (id, entry) {
-      yield* find(id);
-      const at = yield* now;
       const { type, by, ...payload } = entry;
-      yield* sql
-        .withTransaction(Effect.tap(append(id, at, by, type, payload), () => touch(id, at)))
-        .pipe(failed("record"));
+      yield* appendEntry("record", id, by, type, payload);
     },
   );
 

@@ -7,10 +7,7 @@ export interface FactoryDeps {
   readonly tasks: FactoryTasks["Service"];
 }
 
-/**
- * The factory: one short run a minute that takes in work, mirrors it and dispatches it, then
- * skips so it is pruned. Nothing is dispatched yet.
- */
+/** Skips each tick so its runs are pruned. */
 export const makeFactoryWorkflow = (_deps: FactoryDeps) =>
   workflow("factory", { version: 1, payload: Tick, triggers: [every("1 minute")] }, () =>
     skip("tick"),

@@ -571,43 +571,44 @@ it.effect(
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );
 
-it.effect("a built-in workflow runs with no file, and a file cannot define it again", () =>
-  Effect.gen(function* () {
-    const { fileSystem, at, made } = yield* setup();
-    yield* fileSystem.remove(at("hold.ts"));
-    const builtIn = workflow(
-      "built-in",
-      { version: 1, payload: Schema.Struct({}), returns: Schema.String },
-      () => Effect.succeed("shipped"),
-    );
-    yield* Effect.gen(function* () {
-      const workflows = yield* Workflows.Workflows;
-      const definitions = yield* WorkflowRuntime.WorkflowDefinitions;
-      const started = yield* workflows.start("built-in", {}, { idempotencyKey: "b" });
-      const done = yield* workflows.waitFor(started.runId, (run) => run.status === "completed");
-      assert.equal(done.result, "shipped");
+it.effect(
+  "a built-in workflow runs with no file, a file that defines it again is held, and the built-in keeps running beside files that load",
+  () =>
+    Effect.gen(function* () {
+      const { fileSystem, at, made } = yield* setup();
+      yield* fileSystem.remove(at("hold.ts"));
+      const builtIn = workflow(
+        "built-in",
+        { version: 1, payload: Schema.Struct({}), returns: Schema.String },
+        () => Effect.succeed("shipped"),
+      );
+      yield* Effect.gen(function* () {
+        const workflows = yield* Workflows.Workflows;
+        const definitions = yield* WorkflowRuntime.WorkflowDefinitions;
+        const started = yield* workflows.start("built-in", {}, { idempotencyKey: "b" });
+        const done = yield* workflows.waitFor(started.runId, (run) => run.status === "completed");
+        assert.equal(done.result, "shipped");
 
-      const again = yield* definitions.save(
-        "again.ts",
-        'T3.workflow("built-in", { version: 1, payload: Schema.Struct({}) }, () => Effect.void);\n',
+        const again = yield* definitions.save(
+          "again.ts",
+          'T3.workflow("built-in", { version: 1, payload: Schema.Struct({}) }, () => Effect.void);\n',
+        );
+        assert.isFalse(again.changed);
+        assert.include(again.problems[0]?.message ?? "", "built-in@1 is defined twice");
+        assert.deepStrictEqual(yield* definitions.save("greet.ts", greet("hello")), {
+          changed: true,
+          problems: [],
+        });
+        const rerun = yield* workflows.start("built-in", {}, { idempotencyKey: "b2" });
+        assert.equal(
+          (yield* workflows.waitFor(rerun.runId, (run) => run.status === "completed")).result,
+          "shipped",
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.effectContext(made.pipe(Effect.provideService(BuiltInWorkflows, [builtIn]))),
+        ),
+        Effect.scoped,
       );
-      assert.isFalse(again.changed);
-      assert.include(again.problems[0]?.message ?? "", "built-in@1 is defined twice");
-      // The built-in still runs beside a file that loads.
-      assert.deepStrictEqual(yield* definitions.save("greet.ts", greet("hello")), {
-        changed: true,
-        problems: [],
-      });
-      const rerun = yield* workflows.start("built-in", {}, { idempotencyKey: "b2" });
-      assert.equal(
-        (yield* workflows.waitFor(rerun.runId, (run) => run.status === "completed")).result,
-        "shipped",
-      );
-    }).pipe(
-      Effect.provide(
-        Layer.effectContext(made.pipe(Effect.provideService(BuiltInWorkflows, [builtIn]))),
-      ),
-      Effect.scoped,
-    );
-  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );

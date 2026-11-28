@@ -1,7 +1,6 @@
 import * as Schema from "effect/Schema";
-import { TASK_STATES, type TaskState } from "@t3tools/contracts";
+import { TASK_STATES, TaskState } from "@t3tools/contracts";
 
-/** Who wrote to a task. Only the factory moves a task through its working states. */
 export const Actor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("factory"), runId: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("person"), name: Schema.String }),
@@ -10,36 +9,33 @@ export const Actor = Schema.Union([
 ]);
 export type Actor = typeof Actor.Type;
 
-const OPEN: ReadonlyArray<TaskState> = ["ready", "building", "reviewing", "needs-you"];
-
 export const isOpen = (state: TaskState) => TASK_STATES[state].category === "open";
 
-/** Which states each actor may move a task to from each state. Anything else is refused. */
-const MOVES: Record<Actor["kind"], Partial<Record<TaskState, ReadonlyArray<TaskState>>>> = {
+export const OPEN_STATES = TaskState.literals.filter(isOpen);
+
+type Moves = Partial<Record<TaskState, ReadonlyArray<TaskState>>>;
+
+const outside: Moves = {
+  ...Object.fromEntries(OPEN_STATES.map((state) => [state, ["dropped"]])),
+  dropped: ["ready"],
+};
+const byHand: Moves = { ...outside, done: ["ready"] };
+
+const MOVES: Record<Actor["kind"], Moves> = {
   factory: {
     ready: ["building", "needs-you", "dropped"],
     // Research and triage finish without a review.
     building: ["reviewing", "done", "needs-you", "dropped"],
     reviewing: ["building", "done", "needs-you", "dropped"],
     "needs-you": ["building", "reviewing", "ready", "dropped"],
+    // A cancelled run drops its task wherever it stands.
+    done: ["dropped"],
   },
-  person: {
-    ...Object.fromEntries(OPEN.map((state) => [state, ["dropped"]])),
-    dropped: ["ready"],
-    done: ["ready"],
-  },
-  agent: {
-    ...Object.fromEntries(OPEN.map((state) => [state, ["dropped"]])),
-    dropped: ["ready"],
-    done: ["ready"],
-  },
-  tracker: {
-    ...Object.fromEntries(OPEN.map((state) => [state, ["dropped"]])),
-    dropped: ["ready"],
-  },
+  person: byHand,
+  agent: byHand,
+  tracker: outside,
 };
 
-/** Why `actor` may not move a task from `from` to `to`, or null when it may. */
 export const refusal = (from: TaskState, to: TaskState, actor: Actor): string | null => {
   if (MOVES[actor.kind][from]?.includes(to)) return null;
   if (actor.kind !== "factory" && isOpen(to) && to !== "ready") {

@@ -22,7 +22,7 @@ const allPresent = Effect.fn("forkSchema.allPresent")(function* (objects: Readon
 });
 
 export const hasForkSchema = Effect.fn("forkSchema.hasForkSchema")(function* () {
-  return (yield* allPresent(THREAD_TAG_OBJECTS)) && (yield* allPresent(FACTORY_SCHEMA_OBJECTS));
+  return yield* allPresent([...THREAD_TAG_OBJECTS, ...FACTORY_SCHEMA_OBJECTS]);
 });
 
 /**
@@ -90,7 +90,6 @@ const ensureThreadTags = Effect.fn("forkSchema.ensureThreadTags")(function* () {
 export const ensureForkSchema = Effect.fn("forkSchema.ensureForkSchema")(function* () {
   if (!(yield* allPresent(THREAD_TAG_OBJECTS))) yield* ensureThreadTags();
   if (!(yield* allPresent(FACTORY_SCHEMA_OBJECTS))) {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.withTransaction(createFactorySchema());
+    yield* (yield* SqlClient.SqlClient).withTransaction(createFactorySchema());
   }
 });

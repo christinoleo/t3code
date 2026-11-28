@@ -13,7 +13,7 @@ export const FACTORY_SCHEMA_OBJECTS = [
   "factory_task_entries_task_idx",
 ];
 
-/** The task store's tables. Rows change in place; only the timeline in `entries` keeps history. */
+/** Rows change in place; only `factory_task_entries` keeps history. */
 export const createFactorySchema = Effect.fn("factorySchema.create")(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

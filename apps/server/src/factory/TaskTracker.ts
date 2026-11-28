@@ -28,11 +28,12 @@ import {
   FactoryTasks,
   TASK_TRACKER_HOST,
   TASK_TRACKER_KIND,
+  TASK_URL_HOST,
   shownLabels,
-  type Actor,
   type Task,
   type TaskEntry,
 } from "./FactoryTasks.ts";
+import type { Actor } from "./taskModel.ts";
 
 const KIND = IssueTrackerKind.make(TASK_TRACKER_KIND);
 
@@ -176,7 +177,11 @@ export const make = Effect.gen(function* () {
     standalone: DESCRIPTOR,
 
     parseIssueUrl: (url) => {
-      if (url.pathname !== "/issues" || url.searchParams.get("tracker") !== TASK_TRACKER_KIND) {
+      if (
+        url.host !== TASK_URL_HOST ||
+        url.pathname !== "/issues" ||
+        url.searchParams.get("tracker") !== TASK_TRACKER_KIND
+      ) {
         return null;
       }
       const scope = url.searchParams.get("scope");
@@ -211,7 +216,7 @@ export const make = Effect.gen(function* () {
     getViewer: () => Effect.succeed(VIEWER),
 
     listIssues: Effect.fn("TaskTracker.listIssues")(function* (input) {
-      // Tasks have no assignees or mentions; every write through here is the viewer's.
+      // Tasks have no assignees or mentions.
       if (input.involvement === "assigned" || input.involvement === "mentioned") {
         return { items: [], nextCursor: null };
       }
@@ -220,19 +225,13 @@ export const make = Effect.gen(function* () {
           scope: input.scope,
           state: input.state,
           labels: input.labels,
+          createdBy: input.involvement === "all" ? undefined : input.viewer,
           sort: input.sort,
           limit: input.limit,
           cursor: input.cursor,
         })
         .pipe(failed("listIssues"));
-      const items = page.items
-        .filter(
-          (task) =>
-            input.involvement === "all" ||
-            (task.author.kind === "person" && task.author.name === input.viewer),
-        )
-        .map(toSummary);
-      return { items, nextCursor: page.next };
+      return { items: page.items.map(toSummary), nextCursor: page.next };
     }),
 
     getIssue: Effect.fn("TaskTracker.getIssue")(function* (input) {
